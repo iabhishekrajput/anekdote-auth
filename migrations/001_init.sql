@@ -1,0 +1,30 @@
+-- migrations/001_init.sql
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- USERS TABLE
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+-- OAUTH2 CLIENTS TABLE
+CREATE TABLE IF NOT EXISTS oauth2_clients (
+    id VARCHAR(255) PRIMARY KEY,
+    secret VARCHAR(255) NOT NULL,
+    domain VARCHAR(255) NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE
+    SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+-- INDEXES
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_clients_domain ON oauth2_clients(domain);
+-- TRIGGER FOR UPDATED_AT
+CREATE OR REPLACE FUNCTION trigger_set_timestamp() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = NOW();
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER set_timestamp_users BEFORE
+UPDATE ON users FOR EACH ROW EXECUTE FUNCTION trigger_set_timestamp();
