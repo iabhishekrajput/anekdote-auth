@@ -43,6 +43,9 @@ func NewRouter(
 	router.GET("/login", secureUnauth(identH.LoginFunc))
 	router.POST("/login", secureUnauth(identH.LoginFunc))
 
+	router.GET("/verify-email", secureUnauth(identH.VerifyEmailFunc))
+	router.POST("/verify-email", secureUnauth(identH.VerifyEmailFunc))
+
 	router.GET("/forgot-password", secureUnauth(identH.ForgotPasswordFunc))
 	router.POST("/forgot-password", secureUnauth(identH.ForgotPasswordFunc))
 

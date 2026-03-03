@@ -3,6 +3,7 @@ package handlers
 import (
 	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -17,7 +18,7 @@ type AccountHandler struct {
 }
 
 func NewAccountHandler(uStore *postgres.UserStore) *AccountHandler {
-	tmpl := template.Must(template.ParseGlob("web/templates/*.html"))
+	tmpl := template.Must(template.ParseGlob("web/templates/web/*.tmpl"))
 	return &AccountHandler{
 		userStore: uStore,
 		templates: tmpl,
@@ -33,9 +34,14 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 		return
 	}
 
+	errMsg := r.URL.Query().Get("error")
+	successMsg := r.URL.Query().Get("message")
+
 	w.Header().Set("Content-Type", "text/html")
-	h.templates.ExecuteTemplate(w, "account.html", map[string]interface{}{
-		"User": user,
+	h.templates.ExecuteTemplate(w, "account.tmpl", map[string]interface{}{
+		"User":    user,
+		"Error":   errMsg,
+		"Success": successMsg,
 	})
 }
 
@@ -44,17 +50,17 @@ func (h *AccountHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, _
 	newName := r.FormValue("name")
 
 	if newName == "" {
-		http.Error(w, "Name cannot be empty", http.StatusBadRequest)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Name cannot be empty"), http.StatusFound)
 		return
 	}
 
 	err := h.userStore.UpdateName(userID, newName)
 	if err != nil {
-		http.Error(w, "Failed to update profile", http.StatusInternalServerError)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to update profile"), http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, "/account?message=Profile+updated", http.StatusFound)
+	http.Redirect(w, r, "/account?message="+url.QueryEscape("Profile updated"), http.StatusFound)
 }
 
 func (h *AccountHandler) UpdatePassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -64,35 +70,35 @@ func (h *AccountHandler) UpdatePassword(w http.ResponseWriter, r *http.Request, 
 	newPassword := r.FormValue("new_password")
 
 	if oldPassword == "" || newPassword == "" {
-		http.Error(w, "Missing passwords", http.StatusBadRequest)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Missing passwords"), http.StatusFound)
 		return
 	}
 
 	user, err := h.userStore.GetByID(userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("User not found"), http.StatusFound)
 		return
 	}
 
 	// Verify old password
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword))
 	if err != nil {
-		http.Error(w, "Incorrect old password", http.StatusUnauthorized)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Incorrect old password"), http.StatusFound)
 		return
 	}
 
 	// Hash new password
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, "Server Error", http.StatusInternalServerError)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Server Error"), http.StatusFound)
 		return
 	}
 
 	err = h.userStore.UpdatePassword(userID, string(hash))
 	if err != nil {
-		http.Error(w, "Failed to update password", http.StatusInternalServerError)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to update password"), http.StatusFound)
 		return
 	}
 
-	http.Redirect(w, r, "/account?message=Password+updated", http.StatusFound)
+	http.Redirect(w, r, "/account?message="+url.QueryEscape("Password updated"), http.StatusFound)
 }

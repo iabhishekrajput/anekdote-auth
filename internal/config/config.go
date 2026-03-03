@@ -6,17 +6,18 @@ import (
 )
 
 type Config struct {
-	Port          string
-	DBDsn         string
-	RedisDSN      string
-	RSAPrivateKey string
-	RSAPublicKey  string
-	SessionSecret string
-	SMTPHost      string
-	SMTPPort      string
-	SMTPUsername  string
-	SMTPPassword  string
-	SMTPFrom      string
+	Port                   string
+	DBDsn                  string
+	RedisDSN               string
+	RSAPrivateKey          string
+	RSAPublicKey           string
+	SessionSecret          string
+	SMTPHost               string
+	SMTPPort               string
+	SMTPUsername           string
+	SMTPPassword           string
+	SMTPFrom               string
+	SMTPInsecureSkipVerify bool
 }
 
 func Load() *Config {
@@ -32,21 +33,23 @@ func Load() *Config {
 	smtpUser := getEnvOrDefault("SMTP_USERNAME", "")
 	smtpPass := getEnvOrDefault("SMTP_PASSWORD", "")
 	smtpFrom := getEnvOrDefault("SMTP_FROM", "noreply@anekdoteauth.local")
+	smtpInsecureSkipVerify := getEnvOrDefault("SMTP_INSECURE_SKIP_VERIFY", "false") == "true"
 
 	slog.Info("Configuration loaded", "port", port)
 
 	return &Config{
-		Port:          port,
-		DBDsn:         dbDsn,
-		RedisDSN:      redisDsn,
-		RSAPrivateKey: rsaPrivate,
-		RSAPublicKey:  rsaPublic,
-		SessionSecret: sessionSecret,
-		SMTPHost:      smtpHost,
-		SMTPPort:      smtpPort,
-		SMTPUsername:  smtpUser,
-		SMTPPassword:  smtpPass,
-		SMTPFrom:      smtpFrom,
+		Port:                   port,
+		DBDsn:                  dbDsn,
+		RedisDSN:               redisDsn,
+		RSAPrivateKey:          rsaPrivate,
+		RSAPublicKey:           rsaPublic,
+		SessionSecret:          sessionSecret,
+		SMTPHost:               smtpHost,
+		SMTPPort:               smtpPort,
+		SMTPUsername:           smtpUser,
+		SMTPPassword:           smtpPass,
+		SMTPFrom:               smtpFrom,
+		SMTPInsecureSkipVerify: smtpInsecureSkipVerify,
 	}
 }
 

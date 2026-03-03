@@ -10,7 +10,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const sessionTTL = 24 * time.Hour
+const (
+	sessionTTL = 24 * time.Hour
+	otpTTL     = 15 * time.Minute
+)
 
 var ErrSessionNotFound = errors.New("session not found")
 
@@ -62,4 +65,31 @@ func (s *Store) GetUserFromSession(r *http.Request) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 	return s.Get(context.Background(), cookie.Value)
+}
+
+// CreateOTP generates and stores a 6-digit OTP for the specified userID in Redis
+func (s *Store) CreateOTP(ctx context.Context, userID uuid.UUID, otp string) error {
+	key := "otp:" + userID.String()
+	return s.client.Set(ctx, key, otp, otpTTL).Err()
+}
+
+// VerifyOTP checks if the provided OTP matches what is stored in Redis
+// Returns a bool indicating success.
+func (s *Store) VerifyOTP(ctx context.Context, userID uuid.UUID, submittedOTP string) (bool, error) {
+	key := "otp:" + userID.String()
+	val, err := s.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return false, nil // Code doesn't exist or expired
+		}
+		return false, err // Redis connection error
+	}
+
+	if val == submittedOTP {
+		// Valid OTP, immediately consume it to prevent reuse
+		s.client.Del(ctx, key)
+		return true, nil
+	}
+
+	return false, nil
 }
