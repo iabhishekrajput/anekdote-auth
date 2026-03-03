@@ -4,17 +4,16 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
-	"html/template"
 	"strconv"
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
+	uiemail "github.com/iabhishekrajput/anekdote-auth/web/ui/email"
 	"github.com/wneessen/go-mail"
 )
 
 type Mailer struct {
 	config *config.Config
 	client *mail.Client
-	tmpl   *template.Template
 }
 
 func NewMailer(cfg *config.Config) (*Mailer, error) {
@@ -40,18 +39,9 @@ func NewMailer(cfg *config.Config) (*Mailer, error) {
 		return nil, err
 	}
 
-	tmpl, err := template.ParseFiles(
-		"web/templates/email/reset_password.tmpl",
-		"web/templates/email/verify_email.tmpl",
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Mailer{
 		config: cfg,
 		client: client,
-		tmpl:   tmpl,
 	}, nil
 }
 
@@ -67,10 +57,7 @@ func (m *Mailer) SendPasswordReset(ctx context.Context, toEmail, resetLink strin
 	msg.Subject("Password Reset - anekdote")
 
 	var body bytes.Buffer
-	err := m.tmpl.ExecuteTemplate(&body, "reset_password.tmpl", map[string]string{
-		"ResetLink": resetLink,
-	})
-	if err != nil {
+	if err := uiemail.PasswordResetEmail(resetLink).Render(ctx, &body); err != nil {
 		return err
 	}
 
@@ -91,10 +78,7 @@ func (m *Mailer) SendOTP(ctx context.Context, toEmail, otp string) error {
 	msg.Subject("Verify Your Email - anekdote")
 
 	var body bytes.Buffer
-	err := m.tmpl.ExecuteTemplate(&body, "verify_email.tmpl", map[string]string{
-		"OTP": otp,
-	})
-	if err != nil {
+	if err := uiemail.VerifyEmailOTPEmail(otp).Render(ctx, &body); err != nil {
 		return err
 	}
 

@@ -1,0 +1,94 @@
+package ui
+
+import "github.com/iabhishekrajput/anekdote-auth/internal/models"
+
+templ AccountPage(csrfToken string, user *models.User, errorMsg string, successMsg string) {
+	@BaseLayout("Account Center - anekdote", AccountPageBody(csrfToken, user, errorMsg, successMsg))
+}
+
+templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, successMsg string) {
+	<div class="w-full max-w-2xl space-y-6 rounded-lg border border-zinc-800 bg-zinc-950/80 p-8 shadow">
+		<div class="flex flex-col items-center gap-1 text-center">
+			<h2 class="text-xl font-semibold tracking-tight">Account Center</h2>
+			<p class="text-sm text-zinc-400">Welcome back, { user.Name }</p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<div class="space-y-6">
+			<section class="space-y-4 rounded-md border border-zinc-800 bg-transparent p-6">
+				<div class="space-y-1">
+					<h3 class="text-base font-semibold">Profile Details</h3>
+					<p class="text-sm text-zinc-400">Update your account information</p>
+				</div>
+
+				<form method="POST" action="/account/profile" class="space-y-3">
+					<input type="hidden" name="csrf_token" value={ csrfToken } />
+					<div class="flex flex-col gap-1.5">
+						<label for="name" class="text-sm font-medium text-zinc-50">Full Name</label>
+						<input
+							type="text"
+							id="name"
+							name="name"
+							value={ user.Name }
+							required
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
+						/>
+					</div>
+					<div>
+						@OutlineButton("Update Profile")
+					</div>
+				</form>
+			</section>
+
+			<section class="space-y-4 rounded-md border border-zinc-800 bg-transparent p-6">
+				<div class="space-y-1">
+					<h3 class="text-base font-semibold">Change Password</h3>
+					<p class="text-sm text-zinc-400">Update your security credentials</p>
+				</div>
+
+				<form method="POST" action="/account/password" class="space-y-3">
+					<input type="hidden" name="csrf_token" value={ csrfToken } />
+					<div class="flex flex-col gap-1.5">
+						<label for="old_password" class="text-sm font-medium text-zinc-50">Current Password</label>
+						<input
+							type="password"
+							id="old_password"
+							name="old_password"
+							placeholder="********"
+							required
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
+						/>
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label for="new_password" class="text-sm font-medium text-zinc-50">New Password</label>
+						<input
+							type="password"
+							id="new_password"
+							name="new_password"
+							placeholder="********"
+							required
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
+						/>
+					</div>
+					<div>
+						@OutlineButton("Change Password")
+					</div>
+				</form>
+			</section>
+
+			<div class="pt-2">
+				<form method="POST" action="/logout" class="w-full">
+					<input type="hidden" name="csrf_token" value={ csrfToken } />
+					<button
+						type="submit"
+						class="inline-flex h-9 w-full items-center justify-center rounded-md bg-red-500 px-3 text-sm font-medium text-zinc-50 transition hover:bg-red-600 active:scale-[0.98]"
+					>
+						Logout
+					</button>
+				</form>
+			</div>
+		</div>
+	</div>
+}
+

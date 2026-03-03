@@ -1,14 +1,14 @@
 package handlers
 
 import (
-	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 
 	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
+	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
 	"github.com/justinas/nosurf"
 	"golang.org/x/crypto/bcrypt"
@@ -16,14 +16,11 @@ import (
 
 type AccountHandler struct {
 	userStore *postgres.UserStore
-	templates *template.Template
 }
 
 func NewAccountHandler(uStore *postgres.UserStore) *AccountHandler {
-	tmpl := template.Must(template.ParseGlob("web/templates/web/*.tmpl"))
 	return &AccountHandler{
 		userStore: uStore,
-		templates: tmpl,
 	}
 }
 
@@ -43,8 +40,26 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 		}
 	}
 
-	data["CSRFField"] = template.HTML(fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">`, nosurf.Token(r)))
-	h.templates.ExecuteTemplate(w, name, data)
+	var errorMsg, successMsg string
+	if v, ok := data["Error"].(string); ok {
+		errorMsg = v
+	}
+	if v, ok := data["Success"].(string); ok {
+		successMsg = v
+	}
+
+	csrfToken := nosurf.Token(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	switch name {
+	case "account.tmpl":
+		user, _ := data["User"].(*models.User)
+		component := ui.AccountPage(csrfToken, user, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	default:
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("template not found"))
+	}
 }
 
 func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -59,7 +74,6 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 	errMsg := r.URL.Query().Get("error")
 	successMsg := r.URL.Query().Get("message")
 
-	w.Header().Set("Content-Type", "text/html")
 	h.render(w, r, "account.tmpl", map[string]interface{}{
 		"User":    user,
 		"Error":   errMsg,

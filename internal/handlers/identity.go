@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"html/template"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -15,6 +14,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
 	"github.com/justinas/nosurf"
 	"golang.org/x/crypto/bcrypt"
@@ -25,19 +25,14 @@ type IdentityHandler struct {
 	userStore    *postgres.UserStore
 	sessionStore *session.Store
 	mailer       *mailer.Mailer
-	templates    *template.Template
 }
 
 func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *session.Store, mailSvc *mailer.Mailer) *IdentityHandler {
-	// Pre-parse templates for performance
-	tmpl := template.Must(template.ParseGlob("web/templates/web/*.tmpl"))
-
 	return &IdentityHandler{
 		config:       cfg,
 		userStore:    uStore,
 		sessionStore: sStore,
 		mailer:       mailSvc,
-		templates:    tmpl,
 	}
 }
 
@@ -57,13 +52,44 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 		}
 	}
 
-	data["CSRFField"] = template.HTML(fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">`, nosurf.Token(r)))
-	h.templates.ExecuteTemplate(w, name, data)
+	var errorMsg, successMsg string
+	if v, ok := data["Error"].(string); ok {
+		errorMsg = v
+	}
+	if v, ok := data["Success"].(string); ok {
+		successMsg = v
+	}
+
+	csrfToken := nosurf.Token(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	switch name {
+	case "register.tmpl":
+		component := ui.RegisterPage(csrfToken, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	case "login.tmpl":
+		req, _ := data["Req"].(string)
+		component := ui.LoginPage(csrfToken, req, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	case "forgot_password.tmpl":
+		component := ui.ForgotPasswordPage(csrfToken, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	case "reset_password.tmpl":
+		token, _ := data["Token"].(string)
+		component := ui.ResetPasswordPage(csrfToken, token, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	case "verify_email.tmpl":
+		userID, _ := data["UserID"].(string)
+		component := ui.VerifyEmailPage(csrfToken, userID, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
+	default:
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("template not found"))
+	}
 }
 
 func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "text/html")
 		h.render(w, r, "register.tmpl", nil)
 		return
 	}
@@ -146,7 +172,6 @@ func validatePassword(password string) error {
 func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
 		userID := r.URL.Query().Get("user_id")
-		w.Header().Set("Content-Type", "text/html")
 		h.render(w, r, "verify_email.tmpl", map[string]interface{}{
 			"UserID": userID,
 		})
@@ -208,7 +233,6 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
 		reqURI := r.URL.Query().Get("req")
-		w.Header().Set("Content-Type", "text/html")
 		h.render(w, r, "login.tmpl", map[string]interface{}{
 			"Req": reqURI,
 		})
@@ -247,7 +271,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	if !user.IsVerified {
 		w.WriteHeader(http.StatusForbidden)
 		h.render(w, r, "login.tmpl", map[string]interface{}{
-			"Error": template.HTML(fmt.Sprintf(`Please check your email and verify your account first. <a href="/verify-email?user_id=%s" style="color:#58a6ff; text-decoration:underline;">Enter Code</a>`, user.ID.String())),
+			"Error": fmt.Sprintf("Please check your email and verify your account first, then enter the verification code for your account."),
 			"Req":   oauthReq,
 		})
 		return
@@ -302,7 +326,6 @@ func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ h
 
 func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "text/html")
 		h.render(w, r, "forgot_password.tmpl", nil)
 		return
 	}
@@ -335,7 +358,7 @@ func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Requ
 	} else {
 		// Fallback logging for local testing if SMTP config is missing
 		h.render(w, r, "forgot_password.tmpl", map[string]interface{}{
-			"Success": template.HTML(`Reset link generated (check logs/console). <br><a href="` + resetLink + `">Click here to test the reset flow</a>`),
+			"Success": "Reset link generated (check logs/console).",
 		})
 		return
 	}
@@ -350,7 +373,6 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 	}
 
 	if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "text/html")
 		h.render(w, r, "reset_password.tmpl", map[string]interface{}{
 			"Token": token,
 		})

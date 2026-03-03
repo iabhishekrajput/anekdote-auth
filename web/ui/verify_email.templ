@@ -1,0 +1,42 @@
+package ui
+
+templ VerifyEmailPage(csrfToken string, userID string, errorMsg string, successMsg string) {
+	@BaseLayout("Verify Email - anekdote", VerifyEmailPageBody(csrfToken, userID, errorMsg, successMsg))
+}
+
+templ VerifyEmailPageBody(csrfToken string, userID string, errorMsg string, successMsg string) {
+	<div class="w-full max-w-sm mx-auto space-y-6 rounded-lg border border-zinc-800 bg-zinc-950/80 p-6 text-center shadow">
+		<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-zinc-50">
+			<span class="text-xl">✉️</span>
+		</div>
+		<div class="space-y-1">
+			<h2 class="text-xl font-semibold tracking-tight">Verify Email</h2>
+			<p class="text-sm text-zinc-400">Enter the 6-digit code sent to your inbox.</p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<form method="POST" action="/verify-email" class="space-y-4">
+			<input type="hidden" name="csrf_token" value={ csrfToken } />
+			<input type="hidden" name="user_id" value={ userID } />
+
+			<div class="flex flex-col gap-2">
+				<div class="relative flex items-center">
+					<input
+						type="text"
+						id="otp"
+						name="otp"
+						placeholder="6-digit OTP code"
+						required
+						maxlength="6"
+						pattern="\\d{6}"
+						class="h-11 w-full rounded-md border border-zinc-800 bg-transparent px-3 pr-10 text-center text-lg tracking-[0.35em] text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
+					/>
+				</div>
+			</div>
+
+			@PrimaryButton("Verify & Login")
+		</form>
+	</div>
+}
+

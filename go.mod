@@ -3,6 +3,7 @@ module github.com/iabhishekrajput/anekdote-auth
 go 1.25.5
 
 require (
+	github.com/a-h/templ v0.3.1001
 	github.com/go-oauth2/oauth2/v4 v4.5.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0

@@ -1,0 +1,14 @@
+{
+  "name": "anekdote-auth-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify",
+    "dev:css": "tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --watch"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.0"
+  }
+}
+

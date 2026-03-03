@@ -1,7 +1,13 @@
-.PHONY: run db-up db-down test-flow migrate-up
+.PHONY: run db-up db-down test-flow migrate-up generate css-build
 
 run:
 	go run cmd/auth-server/main.go
+
+generate:
+	templ generate ./...
+
+css-build:
+	npx tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
 
 db-up:
 	docker-compose up -d

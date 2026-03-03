@@ -1,0 +1,44 @@
+package ui
+
+templ Alert(kind string, message string) {
+	if message != "" {
+		<div class="flex w-full items-center justify-between rounded-md border border-zinc-800 px-3 py-2 text-sm font-medium">
+			<div class="flex-1">
+				{ message }
+			</div>
+			<button
+				type="button"
+				class="ml-3 text-lg leading-none opacity-70 hover:opacity-100"
+				onclick="this.parentElement.remove()"
+			>
+				&times;
+			</button>
+		</div>
+	}
+}
+
+templ AlertContainer(errMsg string, success string) {
+	if errMsg != "" || success != "" {
+		<div class="mb-3 flex flex-col gap-2">
+			@Alert("error", errMsg)
+			@Alert("success", success)
+		</div>
+	}
+}
+
+templ PrimaryButton(text string) {
+	<button
+		class="inline-flex h-9 w-full items-center justify-center rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 active:scale-[0.98]"
+	>
+		{ text }
+	</button>
+}
+
+templ OutlineButton(text string) {
+	<button
+		class="inline-flex h-9 w-full items-center justify-center rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-medium text-zinc-50 transition hover:bg-zinc-900 active:scale-[0.98]"
+	>
+		{ text }
+	</button>
+}
+
