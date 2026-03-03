@@ -18,6 +18,9 @@ type Config struct {
 	SMTPPassword           string
 	SMTPFrom               string
 	SMTPInsecureSkipVerify bool
+
+	AppEnv             string
+	CORSAllowedOrigins string
 }
 
 func Load() *Config {
@@ -35,7 +38,10 @@ func Load() *Config {
 	smtpFrom := getEnvOrDefault("SMTP_FROM", "noreply@anekdoteauth.local")
 	smtpInsecureSkipVerify := getEnvOrDefault("SMTP_INSECURE_SKIP_VERIFY", "false") == "true"
 
-	slog.Info("Configuration loaded", "port", port)
+	appEnv := getEnvOrDefault("APP_ENV", "development")
+	corsAllowed := getEnvOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:8080")
+
+	slog.Info("Configuration loaded", "port", port, "env", appEnv)
 
 	return &Config{
 		Port:                   port,
@@ -50,6 +56,8 @@ func Load() *Config {
 		SMTPPassword:           smtpPass,
 		SMTPFrom:               smtpFrom,
 		SMTPInsecureSkipVerify: smtpInsecureSkipVerify,
+		AppEnv:                 appEnv,
+		CORSAllowedOrigins:     corsAllowed,
 	}
 }
 

@@ -10,33 +10,42 @@ import (
 )
 
 // SecurityHeadersMiddleware adds standard web security headers to responses
-func SecurityHeadersMiddleware(next httprouter.Handle) httprouter.Handle {
-	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+func SecurityHeadersMiddleware(corsAllowed string) func(httprouter.Handle) httprouter.Handle {
+	return func(next httprouter.Handle) httprouter.Handle {
+		return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'")
 
-		// Optional CORS headers for a public OIDC/OAuth2 API
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization")
+			// Configured CORS headers for OIDC/OAuth2 APIs
+			w.Header().Set("Access-Control-Allow-Origin", corsAllowed)
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization")
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next(w, r, ps)
 		}
-
-		next(w, r, ps)
 	}
 }
 
-// RateLimitMiddleware provides a basic Redis-backed fixed-window rate limiter (e.g., 100 requests / minute)
-func RateLimitMiddleware(client *redis.Client, limit int, window time.Duration, next httprouter.Handle) httprouter.Handle {
+// RateLimitMiddleware provides a basic Redis-backed fixed-window rate limiter
+func RateLimitMiddleware(client *redis.Client, prefix string, limit int, window time.Duration, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		clientIP := r.RemoteAddr // In production, parse X-Forwarded-For if behind a proxy
-		key := "rate_limit:" + clientIP
+		clientIP := r.Header.Get("X-Forwarded-For")
+		if clientIP == "" {
+			clientIP = r.Header.Get("X-Real-IP")
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+
+		key := "rate_limit:" + prefix + ":" + clientIP
 
 		ctx := context.Background()
 

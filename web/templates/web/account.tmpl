@@ -37,6 +37,7 @@
             <div class="profile-section">
                 <h3>Profile Details</h3>
                 <form method="POST" action="/account/profile">
+                {{ .CSRFField }}
                     <div class="form-group">
                         <label for="name">Full Name</label>
                         <input type="text" id="name" name="name" value="{{ .User.Name }}" required>
@@ -48,6 +49,7 @@
             <div class="profile-section">
                 <h3>Change Password</h3>
                 <form method="POST" action="/account/password">
+                {{ .CSRFField }}
                     <div class="form-group">
                         <label for="old_password">Current Password</label>
                         <input type="password" id="old_password" name="old_password" placeholder="••••••••" required>
@@ -65,6 +67,7 @@
 
             <div class="text-center" style="margin-top: 2rem;">
                 <form method="POST" action="/logout">
+                {{ .CSRFField }}
                     <button type="submit" class="btn-danger">Logout</button>
                 </form>
             </div>

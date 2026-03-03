@@ -31,6 +31,7 @@
         </div>
 
         <form method="POST" action="/verify-email">
+                {{ .CSRFField }}
             <input type="hidden" name="user_id" value="{{ .UserID }}">
             <div class="form-group">
                 <div class="input-icon">

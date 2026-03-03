@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gorilla/csrf"
 	"github.com/iabhishekrajput/anekdote-auth/internal/auth"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
@@ -67,17 +68,23 @@ func main() {
 	}
 
 	// 6. Initialize Handlers
-	identH := handlers.NewIdentityHandler(userStore, sessionStore, mailSvc)
+	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc)
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore)
 	discH := handlers.NewDiscoveryHandler(keys)
 	accountH := handlers.NewAccountHandler(userStore)
 
 	// 7. Init Router
-	router := server.NewRouter(identH, oauthH, discH, accountH, sessionStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, sessionStore, rdb)
+
+	csrfMiddleware := csrf.Protect(
+		[]byte("32-byte-long-auth-key-change-me"), // In production this would be loaded from env/config
+		csrf.Secure(cfg.AppEnv == "production"),
+		csrf.Path("/"),
+	)
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: router,
+		Handler: csrfMiddleware(router),
 	}
 
 	// 8. Start Server with Graceful Shutdown

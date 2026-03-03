@@ -34,6 +34,7 @@
             </div>
             {{ end }}
             <form method="POST" action="/register">
+                {{ .CSRFField }}
                 <div class="form-group">
                     <label for="name">Full Name</label>
                     <input type="text" id="name" name="name" placeholder="John Doe" required>

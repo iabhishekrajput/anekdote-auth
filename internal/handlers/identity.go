@@ -7,9 +7,12 @@ import (
 	"html/template"
 	"math/big"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/csrf"
+	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -18,17 +21,19 @@ import (
 )
 
 type IdentityHandler struct {
+	config       *config.Config
 	userStore    *postgres.UserStore
 	sessionStore *session.Store
 	mailer       *mailer.Mailer
 	templates    *template.Template
 }
 
-func NewIdentityHandler(uStore *postgres.UserStore, sStore *session.Store, mailSvc *mailer.Mailer) *IdentityHandler {
+func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *session.Store, mailSvc *mailer.Mailer) *IdentityHandler {
 	// Pre-parse templates for performance
 	tmpl := template.Must(template.ParseGlob("web/templates/web/*.tmpl"))
 
 	return &IdentityHandler{
+		config:       cfg,
 		userStore:    uStore,
 		sessionStore: sStore,
 		mailer:       mailSvc,
@@ -36,10 +41,18 @@ func NewIdentityHandler(uStore *postgres.UserStore, sStore *session.Store, mailS
 	}
 }
 
+func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	data["CSRFField"] = csrf.TemplateField(r)
+	h.templates.ExecuteTemplate(w, name, data)
+}
+
 func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html")
-		h.templates.ExecuteTemplate(w, "register.tmpl", nil)
+		h.render(w, r, "register.tmpl", nil)
 		return
 	}
 
@@ -49,21 +62,27 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 
 	if email == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		h.templates.ExecuteTemplate(w, "register.tmpl", map[string]string{"Error": "Email and password required"})
+		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Email and password required"})
+		return
+	}
+
+	if err := validatePassword(password); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": err.Error()})
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "register.tmpl", map[string]string{"Error": "Server Error"})
+		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Server Error"})
 		return
 	}
 
 	user, err := h.userStore.Create(email, name, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
-		h.templates.ExecuteTemplate(w, "register.tmpl", map[string]string{"Error": "Error creating user (maybe email exists)"})
+		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Error creating user (maybe email exists)"})
 		return
 	}
 
@@ -92,11 +111,31 @@ func generateOTP() (string, error) {
 	return fmt.Sprintf("%06d", n.Int64()), nil
 }
 
+// validatePassword checks if a password meets complexity requirements
+func validatePassword(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters long")
+	}
+	if !regexp.MustCompile(`[a-z]`).MatchString(password) {
+		return fmt.Errorf("password must contain at least one lowercase letter")
+	}
+	if !regexp.MustCompile(`[A-Z]`).MatchString(password) {
+		return fmt.Errorf("password must contain at least one uppercase letter")
+	}
+	if !regexp.MustCompile(`[0-9]`).MatchString(password) {
+		return fmt.Errorf("password must contain at least one number")
+	}
+	if !regexp.MustCompile(`[!@#~$%^&*(),.?":{}|<>]`).MatchString(password) {
+		return fmt.Errorf("password must contain at least one special character")
+	}
+	return nil
+}
+
 func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
 		userID := r.URL.Query().Get("user_id")
 		w.Header().Set("Content-Type", "text/html")
-		h.templates.ExecuteTemplate(w, "verify_email.tmpl", map[string]string{
+		h.render(w, r, "verify_email.tmpl", map[string]interface{}{
 			"UserID": userID,
 		})
 		return
@@ -107,21 +146,21 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 
 	if userIDStr == "" || otp == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		h.templates.ExecuteTemplate(w, "verify_email.tmpl", map[string]string{"Error": "User ID and OTP required", "UserID": userIDStr})
+		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "User ID and OTP required", "UserID": userIDStr})
 		return
 	}
 
 	userID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		h.templates.ExecuteTemplate(w, "verify_email.tmpl", map[string]string{"Error": "Invalid User ID format", "UserID": userIDStr})
+		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Invalid User ID format", "UserID": userIDStr})
 		return
 	}
 
 	valid, err := h.sessionStore.VerifyOTP(context.Background(), userID, otp)
 	if err != nil || !valid {
 		w.WriteHeader(http.StatusUnauthorized)
-		h.templates.ExecuteTemplate(w, "verify_email.tmpl", map[string]string{"Error": "Invalid or expired OTP", "UserID": userIDStr})
+		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Invalid or expired OTP", "UserID": userIDStr})
 		return
 	}
 
@@ -129,7 +168,7 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 	err = h.userStore.UpdateVerified(userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "verify_email.tmpl", map[string]string{"Error": "Failed to update user status", "UserID": userIDStr})
+		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Failed to update user status", "UserID": userIDStr})
 		return
 	}
 
@@ -137,7 +176,7 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 	sessionID, err := h.sessionStore.Create(context.Background(), userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{"Error": "Verified but failed to create session. Please login."})
+		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Verified but failed to create session. Please login."})
 		return
 	}
 
@@ -147,7 +186,7 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 		Path:     "/",
 		Expires:  time.Now().Add(24 * time.Hour),
 		HttpOnly: true,
-		Secure:   false, // Set to true in prod
+		Secure:   h.config.AppEnv == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -158,7 +197,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	if r.Method == http.MethodGet {
 		reqURI := r.URL.Query().Get("req")
 		w.Header().Set("Content-Type", "text/html")
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{
+		h.render(w, r, "login.tmpl", map[string]interface{}{
 			"Req": reqURI,
 		})
 		return
@@ -168,23 +207,34 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	password := r.FormValue("password")
 	oauthReq := r.FormValue("req") // Originating OAuth request URL
 
+	fails, _ := h.sessionStore.GetFailedLogin(context.Background(), email)
+	if fails >= 5 {
+		w.WriteHeader(http.StatusTooManyRequests)
+		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Account locked due to too many failed attempts. Try again in 15 minutes.", "Req": oauthReq})
+		return
+	}
+
 	user, err := h.userStore.GetByEmail(email)
 	if err != nil {
+		h.sessionStore.IncrementFailedLogin(context.Background(), email)
 		w.WriteHeader(http.StatusUnauthorized)
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{"Error": "Invalid credentials", "Req": oauthReq})
+		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Invalid credentials", "Req": oauthReq})
 		return
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
+		h.sessionStore.IncrementFailedLogin(context.Background(), email)
 		w.WriteHeader(http.StatusUnauthorized)
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{"Error": "Invalid credentials", "Req": oauthReq})
+		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Invalid credentials", "Req": oauthReq})
 		return
 	}
 
+	h.sessionStore.ResetFailedLogin(context.Background(), email)
+
 	if !user.IsVerified {
 		w.WriteHeader(http.StatusForbidden)
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]interface{}{
+		h.render(w, r, "login.tmpl", map[string]interface{}{
 			"Error": template.HTML(fmt.Sprintf(`Please check your email and verify your account first. <a href="/verify-email?user_id=%s" style="color:#58a6ff; text-decoration:underline;">Enter Code</a>`, user.ID.String())),
 			"Req":   oauthReq,
 		})
@@ -195,7 +245,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	sessionID, err := h.sessionStore.Create(context.Background(), user.ID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{"Error": "Server Error", "Req": oauthReq})
+		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Server Error", "Req": oauthReq})
 		return
 	}
 
@@ -206,7 +256,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 		Path:     "/",
 		Expires:  time.Now().Add(24 * time.Hour),
 		HttpOnly: true,
-		Secure:   false, // Set to true in prod with HTTPS
+		Secure:   h.config.AppEnv == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -241,7 +291,7 @@ func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ h
 func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html")
-		h.templates.ExecuteTemplate(w, "forgot_password.tmpl", nil)
+		h.render(w, r, "forgot_password.tmpl", nil)
 		return
 	}
 
@@ -249,14 +299,14 @@ func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Requ
 	user, err := h.userStore.GetByEmail(email)
 	if err != nil {
 		// Do not reveal if email exists or not to prevent enumeration
-		h.templates.ExecuteTemplate(w, "forgot_password.tmpl", map[string]string{"Success": "If your email is registered, you will receive a reset link shortly."})
+		h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Success": "If your email is registered, you will receive a reset link shortly."})
 		return
 	}
 
 	resetToken, err := h.sessionStore.CreateResetToken(context.Background(), user.ID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "forgot_password.tmpl", map[string]string{"Error": "Error generating token"})
+		h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Error": "Error generating token"})
 		return
 	}
 
@@ -267,18 +317,18 @@ func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Requ
 		if err != nil {
 			// Do not log the specific email out to the client
 			w.WriteHeader(http.StatusInternalServerError)
-			h.templates.ExecuteTemplate(w, "forgot_password.tmpl", map[string]string{"Error": "Failed to dispatch email"})
+			h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Error": "Failed to dispatch email"})
 			return
 		}
 	} else {
 		// Fallback logging for local testing if SMTP config is missing
-		h.templates.ExecuteTemplate(w, "forgot_password.tmpl", map[string]interface{}{
+		h.render(w, r, "forgot_password.tmpl", map[string]interface{}{
 			"Success": template.HTML(`Reset link generated (check logs/console). <br><a href="` + resetLink + `">Click here to test the reset flow</a>`),
 		})
 		return
 	}
 
-	h.templates.ExecuteTemplate(w, "forgot_password.tmpl", map[string]string{"Success": "Reset link dispatched! Please check your email inbox."})
+	h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Success": "Reset link dispatched! Please check your email inbox."})
 }
 
 func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -289,7 +339,7 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html")
-		h.templates.ExecuteTemplate(w, "reset_password.tmpl", map[string]string{
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{
 			"Token": token,
 		})
 		return
@@ -298,33 +348,39 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 	password := r.FormValue("password")
 	if token == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		h.templates.ExecuteTemplate(w, "reset_password.tmpl", map[string]string{"Error": "Missing inputs", "Token": token})
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{"Error": "Missing inputs", "Token": token})
+		return
+	}
+
+	if err := validatePassword(password); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{"Error": err.Error(), "Token": token})
 		return
 	}
 
 	userID, err := h.sessionStore.GetUserByResetToken(context.Background(), token)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		h.templates.ExecuteTemplate(w, "reset_password.tmpl", map[string]string{"Error": "Invalid or expired token", "Token": token})
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{"Error": "Invalid or expired token", "Token": token})
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "reset_password.tmpl", map[string]string{"Error": "Server Error", "Token": token})
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{"Error": "Server Error", "Token": token})
 		return
 	}
 
 	err = h.userStore.UpdatePassword(userID, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.templates.ExecuteTemplate(w, "reset_password.tmpl", map[string]string{"Error": "Failed to update password", "Token": token})
+		h.render(w, r, "reset_password.tmpl", map[string]interface{}{"Error": "Failed to update password", "Token": token})
 		return
 	}
 
 	// Invalidate the token so it can't be reused
 	h.sessionStore.DeleteResetToken(context.Background(), token)
 
-	h.templates.ExecuteTemplate(w, "login.tmpl", map[string]string{"Success": "Password updated successfully! Please login."})
+	h.render(w, r, "login.tmpl", map[string]interface{}{"Success": "Password updated successfully! Please login."})
 }

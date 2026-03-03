@@ -93,3 +93,35 @@ func (s *Store) VerifyOTP(ctx context.Context, userID uuid.UUID, submittedOTP st
 
 	return false, nil
 }
+
+// IncrementFailedLogin tracks failed login attempts for an email and returns the new count
+func (s *Store) IncrementFailedLogin(ctx context.Context, email string) (int, error) {
+	key := "failed_login:" + email
+	count, err := s.client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	if count == 1 {
+		s.client.Expire(ctx, key, 15*time.Minute)
+	}
+	return int(count), nil
+}
+
+// ResetFailedLogin clears the failed login attempts
+func (s *Store) ResetFailedLogin(ctx context.Context, email string) error {
+	key := "failed_login:" + email
+	return s.client.Del(ctx, key).Err()
+}
+
+// GetFailedLogin returns the current failed login count
+func (s *Store) GetFailedLogin(ctx context.Context, email string) (int, error) {
+	key := "failed_login:" + email
+	val, err := s.client.Get(ctx, key).Int()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return val, nil
+}

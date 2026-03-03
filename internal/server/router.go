@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/middleware"
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
@@ -13,6 +14,7 @@ import (
 )
 
 func NewRouter(
+	cfg *config.Config,
 	identH *handlers.IdentityHandler,
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
@@ -25,15 +27,21 @@ func NewRouter(
 	// Apply Middlewares
 	secure := func(h httprouter.Handle) httprouter.Handle {
 		return middleware.Chain(h,
-			middleware.SecurityHeadersMiddleware,
+			middleware.SecurityHeadersMiddleware(cfg.CORSAllowedOrigins),
 			func(next httprouter.Handle) httprouter.Handle {
-				return middleware.RateLimitMiddleware(redisClient, 100, time.Minute, next)
+				return middleware.RateLimitMiddleware(redisClient, "global", 100, time.Minute, next)
 			},
 		)
 	}
 
+	authRateLimit := func(h httprouter.Handle) httprouter.Handle {
+		return middleware.Chain(h, func(next httprouter.Handle) httprouter.Handle {
+			return middleware.RateLimitMiddleware(redisClient, "auth", 10, time.Minute, next)
+		})
+	}
+
 	secureUnauth := func(h httprouter.Handle) httprouter.Handle {
-		return secure(middleware.RedirectIfAuthenticated(sessionStore, h))
+		return secure(authRateLimit(middleware.RedirectIfAuthenticated(sessionStore, h)))
 	}
 
 	// 1. Identity Endpoints (UI / Form Submissions)

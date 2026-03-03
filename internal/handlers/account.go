@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/csrf"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
 	"github.com/julienschmidt/httprouter"
@@ -25,6 +26,14 @@ func NewAccountHandler(uStore *postgres.UserStore) *AccountHandler {
 	}
 }
 
+func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	data["CSRFField"] = csrf.TemplateField(r)
+	h.templates.ExecuteTemplate(w, name, data)
+}
+
 func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
 
@@ -38,7 +47,7 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 	successMsg := r.URL.Query().Get("message")
 
 	w.Header().Set("Content-Type", "text/html")
-	h.templates.ExecuteTemplate(w, "account.tmpl", map[string]interface{}{
+	h.render(w, r, "account.tmpl", map[string]interface{}{
 		"User":    user,
 		"Error":   errMsg,
 		"Success": successMsg,
@@ -71,6 +80,11 @@ func (h *AccountHandler) UpdatePassword(w http.ResponseWriter, r *http.Request, 
 
 	if oldPassword == "" || newPassword == "" {
 		http.Redirect(w, r, "/account?error="+url.QueryEscape("Missing passwords"), http.StatusFound)
+		return
+	}
+
+	if err := validatePassword(newPassword); err != nil {
+		http.Redirect(w, r, "/account?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
 

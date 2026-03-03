@@ -34,6 +34,7 @@
             </div>
             {{ end }}
             <form method="POST" action="/login">
+                {{ .CSRFField }}
                 {{ if .Req }}
                 <input type="hidden" name="req" value="{{ .Req }}">
                 {{ end }}
