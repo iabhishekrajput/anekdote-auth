@@ -188,3 +188,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Ignore templ generated Go files
+*_templ.go
