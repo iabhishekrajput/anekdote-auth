@@ -18,7 +18,7 @@ func SecurityHeadersMiddleware(corsAllowed string) func(httprouter.Handle) httpr
 			w.Header().Set("X-Frame-Options", "DENY")
 			w.Header().Set("X-XSS-Protection", "1; mode=block")
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-			w.Header().Set("Content-Security-Policy", "default-src 'self'")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com")
 
 			// Configured CORS headers for OIDC/OAuth2 APIs
 			w.Header().Set("Access-Control-Allow-Origin", corsAllowed)

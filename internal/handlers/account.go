@@ -1,15 +1,16 @@
 package handlers
 
 import (
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/csrf"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
 	"github.com/julienschmidt/httprouter"
+	"github.com/justinas/nosurf"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -42,7 +43,7 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 		}
 	}
 
-	data["CSRFField"] = csrf.TemplateField(r)
+	data["CSRFField"] = template.HTML(fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">`, nosurf.Token(r)))
 	h.templates.ExecuteTemplate(w, name, data)
 }
 

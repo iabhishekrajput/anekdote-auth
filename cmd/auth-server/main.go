@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/csrf"
 	"github.com/iabhishekrajput/anekdote-auth/internal/auth"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
@@ -20,6 +19,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/justinas/nosurf"
 )
 
 func main() {
@@ -77,30 +77,33 @@ func main() {
 	// 7. Init Router
 	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, sessionStore, rdb)
 
-	csrfMiddleware := csrf.Protect(
-		[]byte("32-byte-long-auth-key-change-me"), // In production this would be loaded from env/config
-		csrf.Secure(cfg.AppEnv == "production"),
-		csrf.Path("/"),
-		csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			errStr := csrf.FailureReason(r).Error()
-			ref := r.Referer()
-			if ref == "" {
-				ref = r.URL.Path
-			}
-			u, err := url.Parse(ref)
-			if err != nil {
-				u = &url.URL{Path: "/"}
-			}
-			q := u.Query()
-			q.Set("error", "Security Error: "+errStr)
-			u.RawQuery = q.Encode()
-			http.Redirect(w, r, u.String(), http.StatusFound)
-		})),
-	)
+	csrfHandler := nosurf.New(router)
+	csrfHandler.SetBaseCookie(http.Cookie{
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   cfg.AppEnv == "production",
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		errStr := nosurf.Reason(r).Error()
+		ref := r.Referer()
+		if ref == "" {
+			ref = r.URL.Path
+		}
+		u, err := url.Parse(ref)
+		if err != nil {
+			u = &url.URL{Path: "/"}
+		}
+		q := u.Query()
+		q.Set("error", "Security Error: "+errStr)
+		u.RawQuery = q.Encode()
+		http.Redirect(w, r, u.String(), http.StatusFound)
+	}))
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: csrfMiddleware(router),
+		Handler: csrfHandler,
 	}
 
 	// 8. Start Server with Graceful Shutdown

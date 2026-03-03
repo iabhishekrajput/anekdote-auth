@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/csrf"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/julienschmidt/httprouter"
+	"github.com/justinas/nosurf"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -57,7 +57,7 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 		}
 	}
 
-	data["CSRFField"] = csrf.TemplateField(r)
+	data["CSRFField"] = template.HTML(fmt.Sprintf(`<input type="hidden" name="csrf_token" value="%s">`, nosurf.Token(r)))
 	h.templates.ExecuteTemplate(w, name, data)
 }
 
