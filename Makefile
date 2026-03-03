@@ -19,3 +19,4 @@ migrate-up:
 	@echo "Sleeping to wait for postgres to be ready..." && sleep 3
 	docker exec -i auth_postgres psql -U authuser -d authdb < migrations/001_init.sql
 	docker exec -i auth_postgres psql -U authuser -d authdb -c "INSERT INTO oauth2_clients (id, secret, domain) VALUES ('demo-client', 'demo-secret', 'http://localhost:8080/callback') ON CONFLICT DO NOTHING;"
+	docker exec -i auth_postgres psql -U authuser -d authdb -c "INSERT INTO oauth2_clients (id, secret, domain) VALUES ('demo-public-client', '', 'http://localhost:8080/callback') ON CONFLICT DO NOTHING;"

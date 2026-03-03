@@ -1,0 +1,61 @@
+package ui
+
+templ ConsentPage(clientName string, scopes []string, csrfToken string, req string, errorMsg string, successMsg string) {
+	@BaseLayout("Authorize application - anekdote", ConsentPageBody(clientName, scopes, csrfToken, req, errorMsg, successMsg))
+}
+
+templ ConsentPageBody(clientName string, scopes []string, csrfToken string, req string, errorMsg string, successMsg string) {
+	<div class="card w-full space-y-6 rounded-lg border border-zinc-800 bg-zinc-950/80 p-6 shadow">
+		<div class="flex flex-col items-center gap-2 text-center">
+			<div class="flex h-12 w-12 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900/50 mb-2">
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"></path></svg>
+			</div>
+			<h2 class="text-xl font-semibold tracking-tight">Authorize Access</h2>
+			<p class="text-sm text-zinc-400">
+				<span class="font-medium text-zinc-100">{ clientName }</span> is requesting access to your account.
+			</p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		if len(scopes) > 0 {
+			<div class="space-y-4 rounded-md border border-zinc-800/50 bg-zinc-900/30 p-4">
+				<p class="text-sm font-medium text-zinc-200">This application will be able to:</p>
+				<ul class="space-y-2.5 text-sm text-zinc-400">
+					for _, scope := range scopes {
+						<li class="flex items-start gap-2.5">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 text-zinc-400 shrink-0"><path d="M20 6 9 17l-5-5"></path></svg>
+							<span class="leading-relaxed">{ scope }</span>
+						</li>
+					}
+				</ul>
+			</div>
+		}
+
+		<form method="POST" action="" class="flex flex-col gap-3 pt-2">
+			<input type="hidden" name="csrf_token" value={ csrfToken } />
+			if req != "" {
+				<input type="hidden" name="consent_challenge" value={ req } />
+			}
+			
+			<div class="flex flex-col gap-3">
+				<button
+					type="submit"
+					name="accept"
+					value="true"
+					class="inline-flex h-9 w-full items-center justify-center rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 active:scale-[0.98]"
+				>
+					Authorize
+				</button>
+				<button
+					type="submit"
+					name="reject"
+					value="true"
+					class="inline-flex h-9 w-full items-center justify-center rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-medium text-zinc-50 transition hover:bg-zinc-900 active:scale-[0.98]"
+				>
+					Cancel
+				</button>
+			</div>
+		</form>
+	</div>
+}

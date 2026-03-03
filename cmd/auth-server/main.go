@@ -70,7 +70,7 @@ func main() {
 
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc)
-	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore)
+	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys)
 	discH := handlers.NewDiscoveryHandler(keys)
 	accountH := handlers.NewAccountHandler(userStore)
 
@@ -84,6 +84,10 @@ func main() {
 		Secure:   cfg.AppEnv == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// API endpoints for OAuth2 that don't use forms should be exempt from CSRF
+	csrfHandler.ExemptPath("/token")
+	csrfHandler.ExemptPath("/revoke")
 
 	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		errStr := nosurf.Reason(r).Error()
