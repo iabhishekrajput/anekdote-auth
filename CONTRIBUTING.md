@@ -9,7 +9,7 @@ First off, thank you for considering contributing to Anekdote Auth! It's people 
 3. **Environment Setup**: Ensure you have Go 1.22+, Docker, and Redis installed. Start the background datastores via `docker-compose up -d`.
 4. **Create a Branch**: Create a feature branch (`git checkout -b feature/your-feature-name`).
 5. **Commit Changes**: Make your changes. Please use clear, descriptive commit messages.
-6. **Testing**: Run the local test suite if applicable, or manually verify using `make run`. Remember to run `make fmt` and `make lint` before pushing.
+6. **Testing**: Run the local test suite if applicable, or manually verify using `make run`. Remember to run `make generate`, `make css-build`, `make fmt`, and `make lint` before pushing.
 7. **Submit a Pull Request**: Push your branch to your fork and submit a PR to the `main` branch of this repository.
 
 ## Adding Features

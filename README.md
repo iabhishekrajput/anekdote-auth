@@ -2,7 +2,7 @@
 
 Anekdote Auth is a robust, enterprise-grade **OAuth2** and **OpenID Connect (OIDC)** Authorization Server built entirely in Go.
 
-It serves as a fully featured Identity Provider (IdP) equipped with a native Pico.css User Interface, comprehensive Session Management, and secure password-backed authentication flows.
+It serves as a fully featured Identity Provider (IdP) equipped with a modern User Interface built with Tailwind CSS and Templ, comprehensive Session Management, and secure password-backed authentication flows.
 
 ## Features
 
@@ -21,7 +21,7 @@ It serves as a fully featured Identity Provider (IdP) equipped with a native Pic
 - **Go 1.22+**: Core server logic.
 - **PostgreSQL**: Master persistent storage mechanism for Users and OAuth2 mapping schemas.
 - **Redis**: High-speed, ephemeral memory cache leveraged for active HTTP Session Tracking, JWT Blocklisting, and Rate Limit throttling.
-- **Pico.css**: Minimalist CSS framework driving the natively served Identity Web Templates.
+- **Tailwind CSS & Templ**: Utility-first CSS framework and type-safe HTML templating engine driving the identity web templates.
 
 ---
 
@@ -30,11 +30,13 @@ It serves as a fully featured Identity Provider (IdP) equipped with a native Pic
 ### 1. Requirements
 Ensure you have the following installed to run the backend natively:
 - Go 1.22+
+- Node.js & npm (for Tailwind CSS)
+- [templ CLI](https://templ.guide)
 - Docker and Docker Compose (to spawn backend datastores)
 - `make`
 
 ### 2. Infrastructure Setup
-Start up local PostgreSQL and Redis servers via Docker using the bundled `docker-compose.yml`:
+Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers via Docker using the bundled `docker-compose.yml`:
 
 ```bash
 docker-compose up -d
@@ -53,6 +55,8 @@ openssl rsa -pubout -in certs/private.pem -out certs/public.pem
 ### 4. Configuration (Environment Variables)
 Global variables can be provided natively or securely through a local `.env`. See the variables available natively mapped:
 - `PORT` (default: `8080`)
+- `APP_ENV` (default: `development`)
+- `CORS_ALLOWED_ORIGINS` (default: `http://localhost:8080`)
 - `DB_DSN` (default `postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable`)
 - `REDIS_URL` (default `redis://localhost:6379/0`)
 - `RSA_PRIVATE_KEY_PATH` (default `certs/private.pem`)
@@ -65,11 +69,17 @@ Global variables can be provided natively or securely through a local `.env`. Se
 - `SMTP_USERNAME`
 - `SMTP_PASSWORD`
 - `SMTP_FROM`
+- `SMTP_INSECURE_SKIP_VERIFY` (default: `false`)
+
+*Note: For local development, Mailpit is available via the `docker-compose.yml` file. You can set `SMTP_HOST=localhost`, `SMTP_PORT=1025`, and access the web UI at `http://localhost:8025`.*
 
 ### 5. Running the Application
-A built-in `Makefile` provides macro hooks. To start the application with optimal logging:
+A built-in `Makefile` provides macro hooks. To install dependencies, generate templates, build CSS, and start the application:
 
 ```bash
+npm install
+make generate
+make css-build
 make run
 ```
 _The server will connect to Postgres to auto-migrate schemas, poll Redis, parse all HTML templates, load standard cryptographic certs, and bind onto port `8080`._
