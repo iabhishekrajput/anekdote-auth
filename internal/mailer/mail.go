@@ -64,7 +64,7 @@ func (m *Mailer) SendPasswordReset(ctx context.Context, toEmail, resetLink strin
 		return err
 	}
 
-	msg.Subject("Password Reset - Anekdote Auth")
+	msg.Subject("Password Reset - anekdote")
 
 	var body bytes.Buffer
 	err := m.tmpl.ExecuteTemplate(&body, "reset_password.tmpl", map[string]string{
@@ -88,7 +88,7 @@ func (m *Mailer) SendOTP(ctx context.Context, toEmail, otp string) error {
 		return err
 	}
 
-	msg.Subject("Verify Your Email - Anekdote Auth")
+	msg.Subject("Verify Your Email - anekdote")
 
 	var body bytes.Buffer
 	err := m.tmpl.ExecuteTemplate(&body, "verify_email.tmpl", map[string]string{

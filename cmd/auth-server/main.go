@@ -26,7 +26,7 @@ func main() {
 	// Initialize structured logger
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
-	slog.Info("Starting Anekdote Auth Server...")
+	slog.Info("Starting anekdote auth server...")
 
 	cfg := config.Load()
 
