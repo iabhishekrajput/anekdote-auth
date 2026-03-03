@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4/manage"
-	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
@@ -48,13 +47,4 @@ func BuildServer(
 	slog.Info("OAuth2 Server Manager Initialized", "issuer", issuer)
 
 	return srv
-}
-
-func GetDummyClient() *models.Client {
-	// Helper to seed a dummy client into the DB natively via the app for ease of testing
-	return &models.Client{
-		ID:     "demo-client",
-		Secret: "demo-secret",
-		Domain: "http://localhost:8080/callback",
-	}
 }
