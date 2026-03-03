@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -80,6 +81,21 @@ func main() {
 		[]byte("32-byte-long-auth-key-change-me"), // In production this would be loaded from env/config
 		csrf.Secure(cfg.AppEnv == "production"),
 		csrf.Path("/"),
+		csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			errStr := csrf.FailureReason(r).Error()
+			ref := r.Referer()
+			if ref == "" {
+				ref = r.URL.Path
+			}
+			u, err := url.Parse(ref)
+			if err != nil {
+				u = &url.URL{Path: "/"}
+			}
+			q := u.Query()
+			q.Set("error", "Security Error: "+errStr)
+			u.RawQuery = q.Encode()
+			http.Redirect(w, r, u.String(), http.StatusFound)
+		})),
 	)
 
 	srv := &http.Server{

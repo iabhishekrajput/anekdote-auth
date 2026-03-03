@@ -30,6 +30,18 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 	if data == nil {
 		data = make(map[string]interface{})
 	}
+
+	if errStr := r.URL.Query().Get("error"); errStr != "" {
+		if _, exists := data["Error"]; !exists {
+			data["Error"] = errStr
+		}
+	}
+	if msgStr := r.URL.Query().Get("message"); msgStr != "" {
+		if _, exists := data["Success"]; !exists {
+			data["Success"] = msgStr
+		}
+	}
+
 	data["CSRFField"] = csrf.TemplateField(r)
 	h.templates.ExecuteTemplate(w, name, data)
 }
@@ -39,7 +51,7 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 
 	user, err := h.userStore.GetByID(userID)
 	if err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+		http.Redirect(w, r, "/login?error="+url.QueryEscape("Session user not found"), http.StatusFound)
 		return
 	}
 

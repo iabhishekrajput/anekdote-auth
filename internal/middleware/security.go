@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -52,7 +53,7 @@ func RateLimitMiddleware(client *redis.Client, prefix string, limit int, window 
 		// Increment request count
 		count, err := client.Incr(ctx, key).Result()
 		if err != nil {
-			http.Error(w, "internal router error", http.StatusInternalServerError)
+			redirectErr(w, r, "Internal router error")
 			return
 		}
 
@@ -62,12 +63,27 @@ func RateLimitMiddleware(client *redis.Client, prefix string, limit int, window 
 		}
 
 		if count > int64(limit) {
-			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			redirectErr(w, r, "Rate limit exceeded. Please try again later.")
 			return
 		}
 
 		next(w, r, ps)
 	}
+}
+
+func redirectErr(w http.ResponseWriter, r *http.Request, errMsg string) {
+	ref := r.Referer()
+	if ref == "" {
+		ref = r.URL.Path
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		u = &url.URL{Path: "/"}
+	}
+	q := u.Query()
+	q.Set("error", errMsg)
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
 // Chain allows wrapping a handler in multiple middlewares easily

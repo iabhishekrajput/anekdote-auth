@@ -45,6 +45,18 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 	if data == nil {
 		data = make(map[string]interface{})
 	}
+
+	if errStr := r.URL.Query().Get("error"); errStr != "" {
+		if _, exists := data["Error"]; !exists {
+			data["Error"] = errStr
+		}
+	}
+	if msgStr := r.URL.Query().Get("message"); msgStr != "" {
+		if _, exists := data["Success"]; !exists {
+			data["Success"] = msgStr
+		}
+	}
+
 	data["CSRFField"] = csrf.TemplateField(r)
 	h.templates.ExecuteTemplate(w, name, data)
 }
