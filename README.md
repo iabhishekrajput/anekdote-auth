@@ -56,6 +56,7 @@ openssl rsa -pubout -in certs/private.pem -out certs/public.pem
 Global variables can be provided natively or securely through a local `.env`. See the variables available natively mapped:
 - `PORT` (default: `8080`)
 - `APP_ENV` (default: `development`)
+- `APP_URL` (default: `http://localhost:8080` - dynamic based on port)
 - `CORS_ALLOWED_ORIGINS` (default: `http://localhost:8080`)
 - `DB_DSN` (default `postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable`)
 - `REDIS_URL` (default `redis://localhost:6379/0`)

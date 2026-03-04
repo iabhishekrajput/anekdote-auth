@@ -45,6 +45,9 @@ func NewRouter(
 	}
 
 	// 1. Identity Endpoints (UI / Form Submissions)
+	router.GET("/", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+		http.Redirect(w, r, "/login", http.StatusFound)
+	})
 	router.GET("/register", secureUnauth(identH.RegisterFunc))
 	router.POST("/register", secureUnauth(identH.RegisterFunc))
 

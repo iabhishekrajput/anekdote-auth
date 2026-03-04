@@ -7,6 +7,7 @@ import (
 
 type Config struct {
 	Port                   string
+	AppURL                 string
 	DBDsn                  string
 	RedisDSN               string
 	RSAPrivateKey          string
@@ -39,12 +40,14 @@ func Load() *Config {
 	smtpInsecureSkipVerify := getEnvOrDefault("SMTP_INSECURE_SKIP_VERIFY", "false") == "true"
 
 	appEnv := getEnvOrDefault("APP_ENV", "development")
+	appURL := getEnvOrDefault("APP_URL", "http://localhost:"+port)
 	corsAllowed := getEnvOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:8080")
 
 	slog.Info("Configuration loaded", "port", port, "env", appEnv)
 
 	return &Config{
 		Port:                   port,
+		AppURL:                 appURL,
 		DBDsn:                  dbDsn,
 		RedisDSN:               redisDsn,
 		RSAPrivateKey:          rsaPrivate,
