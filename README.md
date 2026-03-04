@@ -1,5 +1,4 @@
-[![Build](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml)
-
+[![Build](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml) [![CodeQL](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/github-code-scanning/codeql) [![Dependabot Updates](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/dependabot-updates/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/dependabot-updates) [![Dependency Graph](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/update-graph/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/update-graph)
 
 # Anekdote Auth
 
