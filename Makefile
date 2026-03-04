@@ -7,7 +7,7 @@ generate:
 	templ generate ./...
 
 css-build:
-	npx tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
+	npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
 
 db-up:
 	docker-compose up -d

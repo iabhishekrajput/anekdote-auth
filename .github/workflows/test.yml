@@ -1,7 +1,7 @@
 # This workflow will build a golang project
 # For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
 
-name: Build
+name: Test
 
 on:
   push:
@@ -42,9 +42,6 @@ jobs:
     - name: CSS Generate
       shell: bash
       run: npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
-
-    - name: Build
-      run: GOOS=linux GOARCH=amd64 go build -v ./...
 
     - name: Test
       run: go test -v ./...
