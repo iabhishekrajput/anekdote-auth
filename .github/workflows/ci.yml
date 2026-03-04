@@ -1,37 +1,44 @@
-name: Coverage
+name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  coverage:
+  build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-            node-version: '24.x'
+          node-version: '24.x'
+          cache: 'npm'
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      
+          cache: true
+
       - name: Install Node Dependencies
-        run: npm install
-      
+        run: npm ci
+
       - name: Install templ
         shell: bash
         run: go install github.com/a-h/templ/cmd/templ@latest
@@ -45,6 +52,9 @@ jobs:
       - name: CSS Generate
         shell: bash
         run: npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
+
+      - name: Build
+        run: GOOS=linux GOARCH=amd64 go build -v ./...
 
       - name: Test
         run: go test -v ./...

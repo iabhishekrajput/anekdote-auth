@@ -68,11 +68,13 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '24.x'
+        cache: 'npm'
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version-file: go.mod
+        cache: true
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -97,7 +99,7 @@ jobs:
       if: matrix.build-mode == 'manual'
       shell: bash
       run: |
-        npm install
+        npm ci
         go install github.com/a-h/templ/cmd/templ@latest
         templ generate ./...
         go mod tidy && go mod vendor
