@@ -9,7 +9,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/middleware"
-	"github.com/iabhishekrajput/anekdote-auth/internal/session"
+	redisstore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -19,7 +19,7 @@ func NewRouter(
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
 	accountH *handlers.AccountHandler,
-	sessionStore *session.Store,
+	sessionStore *redisstore.SessionStore,
 	redisClient *redis.Client,
 ) *httprouter.Router {
 	router := httprouter.New()

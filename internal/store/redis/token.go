@@ -6,5 +6,5 @@ import (
 )
 
 func NewTokenStore(client *redis.Client) *oredis.TokenStore {
-	return oredis.NewRedisStore(client.Options(), "token")
+	return oredis.NewRedisStore(client.Options(), "token:")
 }

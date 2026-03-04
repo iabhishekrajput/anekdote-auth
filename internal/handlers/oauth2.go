@@ -11,7 +11,6 @@ import (
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
-	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
@@ -20,12 +19,12 @@ import (
 
 type OAuth2Handler struct {
 	server       *server.Server
-	sessionStore *session.Store
+	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *session.Store, rev *redis.RevocationStore, keys *crypto.KeyStore) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,

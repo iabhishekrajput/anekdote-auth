@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
-	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
 	"github.com/justinas/nosurf"
@@ -23,11 +23,11 @@ import (
 type IdentityHandler struct {
 	config       *config.Config
 	userStore    *postgres.UserStore
-	sessionStore *session.Store
+	sessionStore *redis.SessionStore
 	mailer       *mailer.Mailer
 }
 
-func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *session.Store, mailSvc *mailer.Mailer) *IdentityHandler {
+func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *redis.SessionStore, mailSvc *mailer.Mailer) *IdentityHandler {
 	return &IdentityHandler{
 		config:       cfg,
 		userStore:    uStore,
@@ -271,7 +271,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	if !user.IsVerified {
 		w.WriteHeader(http.StatusForbidden)
 		h.render(w, r, "login.tmpl", map[string]interface{}{
-			"Error": fmt.Sprintf("Please check your email and verify your account first, then enter the verification code for your account."),
+			"Error": "Please check your email and verify your account first, then enter the verification code for your account.",
 			"Req":   oauthReq,
 		})
 		return

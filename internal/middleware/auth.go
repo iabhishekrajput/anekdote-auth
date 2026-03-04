@@ -4,13 +4,13 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/iabhishekrajput/anekdote-auth/internal/session"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
 	"github.com/julienschmidt/httprouter"
 )
 
 // RequireAuth is a middleware that enforces an active user session.
-func RequireAuth(sessionStore *session.Store, next httprouter.Handle) httprouter.Handle {
+func RequireAuth(sessionStore *redis.SessionStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		userID, err := sessionStore.GetUserFromSession(r)
 		if err != nil {
@@ -28,7 +28,7 @@ func RequireAuth(sessionStore *session.Store, next httprouter.Handle) httprouter
 }
 
 // RedirectIfAuthenticated is a middleware that redirects already logged-in users away from auth pages.
-func RedirectIfAuthenticated(sessionStore *session.Store, next httprouter.Handle) httprouter.Handle {
+func RedirectIfAuthenticated(sessionStore *redis.SessionStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		_, err := sessionStore.GetUserFromSession(r)
 		if err == nil {

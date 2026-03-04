@@ -16,7 +16,6 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/server"
-	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/justinas/nosurf"
@@ -55,7 +54,7 @@ func main() {
 	userStore := postgres.NewUserStore(db)
 	clientStore := postgres.NewClientStore(db)
 
-	sessionStore := session.NewStore(rdb)
+	sessionStore := redis.NewSessionStore(rdb)
 	revocStore := redis.NewRevocationStore(rdb)
 	tokenStore := redis.NewTokenStore(rdb)
 
