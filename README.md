@@ -41,7 +41,7 @@ Ensure you have the following installed to run the backend natively:
 Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers via Docker using the bundled `docker-compose.yml`:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 3. Cryptography Setup
