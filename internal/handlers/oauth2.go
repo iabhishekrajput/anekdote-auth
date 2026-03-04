@@ -124,8 +124,10 @@ func (h *OAuth2Handler) Revoke(w http.ResponseWriter, r *http.Request, _ httprou
 	// was valid/found or not, to prevent leaking information. Only 500s or 400s on bad requests.
 
 	// Try JWT parsing first (Access Tokens) unless explicitly hinted heavily otherwise
-	token, _, err := jwt.NewParser().ParseUnverified(tokenStr, jwt.MapClaims{})
-	if err == nil {
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (any, error) {
+		return h.keyStore.PublicKey, nil
+	}, jwt.WithoutClaimsValidation(), jwt.WithValidMethods([]string{"RS256"}))
+	if err == nil && token.Valid {
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			if jti, ok := claims["jti"].(string); ok && jti != "" {
 				// Blocklist the JTI in Redis
