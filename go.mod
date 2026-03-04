@@ -3,7 +3,9 @@ module github.com/iabhishekrajput/anekdote-auth
 go 1.25.5
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/a-h/templ v0.3.1001
+	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/go-oauth2/oauth2/v4 v4.5.4
 	github.com/go-oauth2/redis/v4 v4.1.1
 	github.com/go-redis/redis/v8 v8.11.5
@@ -22,5 +24,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	golang.org/x/text v0.34.0 // indirect
 )
