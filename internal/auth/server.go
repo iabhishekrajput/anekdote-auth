@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/server"
-	"github.com/go-oauth2/oauth2/v4/store"
+	oredis "github.com/go-oauth2/redis/v4"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -14,8 +14,9 @@ import (
 
 func BuildServer(
 	clientStore *postgres.ClientStore,
-	keyStore *crypto.KeyStore,
+	tokenStore *oredis.TokenStore,
 	revStore *redis.RevocationStore,
+	keyStore *crypto.KeyStore,
 	issuer string,
 ) *server.Server {
 	manager := manage.NewDefaultManager()
@@ -26,10 +27,8 @@ func BuildServer(
 	// 2. Map the Postgres Client Store
 	manager.MapClientStorage(clientStore)
 
-	// 3. For Tokens, we use the incredibly fast in-memory store provided by the lib,
-	// BUT we overlay Revocation using Redis via a custom API endpoint later.
-	// (Note: Moving full token logic to Redis is doable but complex; memory is fine for auth layer scaling).
-	manager.MustTokenStorage(store.NewMemoryTokenStore())
+	// 3. For Tokens, use the Redis store
+	manager.MapTokenStorage(tokenStore)
 
 	// 4. Custom JWT Generation
 	jwtGen := NewJWTGenerator(keyStore, issuer)

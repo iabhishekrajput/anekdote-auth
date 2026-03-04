@@ -6,8 +6,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/julienschmidt/httprouter"
-	"github.com/redis/go-redis/v9"
 )
 
 // SecurityHeadersMiddleware adds standard web security headers to responses

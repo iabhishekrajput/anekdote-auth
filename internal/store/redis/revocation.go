@@ -4,14 +4,14 @@ import (
 	"context"
 	"time"
 
-	v9 "github.com/redis/go-redis/v9"
+	"github.com/go-redis/redis/v8"
 )
 
 type RevocationStore struct {
-	client *v9.Client
+	client *redis.Client
 }
 
-func NewRevocationStore(client *v9.Client) *RevocationStore {
+func NewRevocationStore(client *redis.Client) *RevocationStore {
 	return &RevocationStore{client: client}
 }
 
@@ -25,7 +25,7 @@ func (s *RevocationStore) RevokeJTI(ctx context.Context, jti string, duration ti
 func (s *RevocationStore) IsRevoked(ctx context.Context, jti string) (bool, error) {
 	key := "revoked_jti:" + jti
 	val, err := s.client.Get(ctx, key).Result()
-	if err == v9.Nil {
+	if err == redis.Nil {
 		return false, nil // Not revoked
 	} else if err != nil {
 		return false, err // Redis error

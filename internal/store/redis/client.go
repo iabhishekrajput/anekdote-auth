@@ -4,17 +4,17 @@ import (
 	"context"
 	"log/slog"
 
-	v9 "github.com/redis/go-redis/v9"
+	"github.com/go-redis/redis/v8"
 )
 
 // InitRedis initializes the go-redis client
-func InitRedis(dsn string) (*v9.Client, error) {
-	opt, err := v9.ParseURL(dsn)
+func InitRedis(dsn string) (*redis.Client, error) {
+	opt, err := redis.ParseURL(dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	client := v9.NewClient(opt)
+	client := redis.NewClient(opt)
 
 	// Ping to verify connection
 	ctx := context.Background()

@@ -57,10 +57,11 @@ func main() {
 
 	sessionStore := session.NewStore(rdb)
 	revocStore := redis.NewRevocationStore(rdb)
+	tokenStore := redis.NewTokenStore(rdb)
 
 	// 4. Initialize Core Server
 	issuer := "http://localhost:" + cfg.Port
-	oauth2Srv := auth.BuildServer(clientStore, keys, revocStore, issuer)
+	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, issuer)
 
 	// 5. Initialize Mailer
 	mailSvc, err := mailer.NewMailer(cfg)

@@ -130,7 +130,7 @@ func (h *OAuth2Handler) Revoke(w http.ResponseWriter, r *http.Request, _ httprou
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			if jti, ok := claims["jti"].(string); ok && jti != "" {
 				// Blocklist the JTI in Redis
-				_ = h.revocStore.RevokeJTI(r.Context(), jti, 10 * time.Hour)
+				_ = h.revocStore.RevokeJTI(r.Context(), jti, 10*time.Hour)
 				w.WriteHeader(http.StatusOK)
 				return
 			}

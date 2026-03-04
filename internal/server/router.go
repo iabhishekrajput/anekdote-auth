@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/middleware"
 	"github.com/iabhishekrajput/anekdote-auth/internal/session"
 	"github.com/julienschmidt/httprouter"
-	"github.com/redis/go-redis/v9"
 )
 
 func NewRouter(
