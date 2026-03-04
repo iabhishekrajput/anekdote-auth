@@ -1,5 +1,6 @@
-[![Build](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/go.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/go.yml)
----
+[![Build](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml)
+
+
 # Anekdote Auth
 
 Anekdote Auth is a robust, enterprise-grade **OAuth2** and **OpenID Connect (OIDC)** Authorization Server built entirely in Go.
