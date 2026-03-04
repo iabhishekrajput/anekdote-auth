@@ -46,15 +46,12 @@ jobs:
         shell: bash
         run: npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
 
-      - name: Generate test coverage
-        run: |
-          go test -v ./... -covermode=count -coverprofile=coverage.out
-          go tool cover -func=coverage.out -o=coverage.out
-      
+      - name: Test
+        run: go test -v ./...
+
       - name: Update coverage report
         uses: ncruces/go-coverage-report@v0
         with:
-          coverage-file: coverage.out
           report: true
           chart: true
           amend: true
