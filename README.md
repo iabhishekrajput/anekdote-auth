@@ -65,11 +65,11 @@ Global variables can be provided natively or securely through a local `.env`. Se
 - `SESSION_SECRET`
 
 **SMTP Configurations** (to activate functional Forgot Password emails):
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USERNAME`
-- `SMTP_PASSWORD`
-- `SMTP_FROM`
+- `SMTP_HOST` (default `localhost`)
+- `SMTP_PORT` (default `1025`)
+- `SMTP_USERNAME` (default `test`)
+- `SMTP_PASSWORD` (default `test`)
+- `SMTP_FROM` (default `noreply@anekdoteauth.local`)
 - `SMTP_INSECURE_SKIP_VERIFY` (default: `false`)
 
 *Note: For local development, Mailpit is available via the `docker-compose.yml` file. You can set `SMTP_HOST=localhost`, `SMTP_PORT=1025`, and access the web UI at `http://localhost:8025`.*

@@ -1,7 +1,7 @@
 .PHONY: run db-up db-down test-flow migrate-up generate css-build
 
 run:
-	go run cmd/auth-server/main.go
+	SMTP_INSECURE_SKIP_VERIFY=true go run cmd/auth-server/main.go
 
 generate:
 	templ generate ./...

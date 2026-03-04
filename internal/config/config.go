@@ -32,10 +32,10 @@ func Load() *Config {
 	rsaPublic := getEnvOrDefault("RSA_PUBLIC_KEY_PATH", "certs/public.pem")
 	sessionSecret := getEnvOrDefault("SESSION_SECRET", "super-secret-session-key-change-in-prod")
 
-	smtpHost := getEnvOrDefault("SMTP_HOST", "smtp.example.com")
-	smtpPort := getEnvOrDefault("SMTP_PORT", "587")
-	smtpUser := getEnvOrDefault("SMTP_USERNAME", "")
-	smtpPass := getEnvOrDefault("SMTP_PASSWORD", "")
+	smtpHost := getEnvOrDefault("SMTP_HOST", "localhost")
+	smtpPort := getEnvOrDefault("SMTP_PORT", "1025")
+	smtpUser := getEnvOrDefault("SMTP_USERNAME", "test")
+	smtpPass := getEnvOrDefault("SMTP_PASSWORD", "test")
 	smtpFrom := getEnvOrDefault("SMTP_FROM", "noreply@anekdoteauth.local")
 	smtpInsecureSkipVerify := getEnvOrDefault("SMTP_INSECURE_SKIP_VERIFY", "false") == "true"
 
