@@ -1,5 +1,7 @@
 [![Build](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/build.yml) [![Test](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/test.yml) [![CodeQL Advanced](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml) [![Dependabot Updates](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/dependabot-updates/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/dependabot-updates) [![Dependency Graph](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/update-graph/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/dependabot/update-graph)
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/iabhishekrajput/anekdote-auth)](https://goreportcard.com/report/github.com/iabhishekrajput/anekdote-auth) 
+
 # Anekdote Auth
 
 Anekdote Auth is a robust, enterprise-grade **OAuth2** and **OpenID Connect (OIDC)** Authorization Server built entirely in Go.
