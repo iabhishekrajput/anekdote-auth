@@ -9,7 +9,7 @@ on:
       - main
 
 jobs:
-  test:
+  coverage:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -50,8 +50,15 @@ jobs:
         run: |
           go test -v ./... -covermode=count -coverprofile=coverage.out
           go tool cover -func=coverage.out -o=coverage.out
-
-      - name: Post coverage report
-        uses: fgrosse/go-coverage-report@v1
+      
+      - name: Update coverage report
+        uses: ncruces/go-coverage-report@v0
         with:
-          coverage-file-name: coverage.out
+          coverage-file: coverage.out
+          report: true
+          chart: true
+          amend: true
+        if: |
+          matrix.os == 'ubuntu-latest' &&
+          github.event_name == 'push'  
+        continue-on-error: true
