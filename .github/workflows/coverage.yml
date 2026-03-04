@@ -52,6 +52,6 @@ jobs:
           go tool cover -func=coverage.out -o=coverage.out
 
       - name: Post coverage report
-        uses: fgrosse/go-coverage-report@v2
+        uses: fgrosse/go-coverage-report@v1
         with:
           coverage-file-name: coverage.out
