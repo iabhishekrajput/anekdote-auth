@@ -1,0 +1,50 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: anekdote-auth-build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.25.5'
+
+    - name: Install Node Dependencies
+      run: npm install
+
+    - name: Install Go Dependencies
+      run: go mod tidy
+
+    - name: Install templ
+      shell: bash
+      run: go install github.com/a-h/templ/cmd/templ@$latest
+
+    - name: Template Generate
+      run: templ generate ./...
+
+    - name: CSS Generate
+      shell: bash
+      run: npx tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Test
+      run: go test -v ./...
