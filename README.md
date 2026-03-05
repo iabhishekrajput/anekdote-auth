@@ -40,20 +40,20 @@ Ensure you have the following installed to run the backend natively:
 - `make`
 
 ### 2. Infrastructure Setup
-Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers via Docker using the bundled `docker-compose.yml`:
+Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers. A built-in `Makefile` provides individual commands to manage these containers via Docker Compose:
 
 ```bash
-docker compose up -d
+make postgres-up
+make redis-up
+make mailpit-up
 ```
 
 ### 3. Cryptography Setup
 OAuth2 JWT signing and validation workflows mandate standard RSA public and private key chains.
-Create a local `./certs` folder and execute the following `openssl` commands to produce them:
+Execute the following `make` command to automatically generate them safely in a local `./certs` folder:
 
 ```bash
-mkdir certs
-openssl genpkey -algorithm RSA -out certs/private.pem -pkeyopt rsa_keygen_bits:2048
-openssl rsa -pubout -in certs/private.pem -out certs/public.pem
+make generate-certs
 ```
 
 ### 4. Configuration (Environment Variables)
@@ -85,9 +85,19 @@ A built-in `Makefile` provides macro hooks. To install dependencies, generate te
 npm install
 make generate
 make css-build
+make migrate-up
 make run
 ```
-_The server will connect to Postgres to auto-migrate schemas, poll Redis, parse all HTML templates, load standard cryptographic certs, and bind onto port `8080`._
+_The server will connect to Postgres (schema mapped via Goose migrations), poll Redis, parse all HTML templates, load standard cryptographic certs, and bind onto port `8080`._
+
+### 6. Quality Control & Building
+Before submitting code, ensure the modules are cleanly formatted, vendored, and vetted via static analysis. Use the build command to generate a cross-compiled binary injected with a clean git tag release `VERSION`.
+
+```bash
+make tidy
+make audit
+make build
+```
 
 ---
 
