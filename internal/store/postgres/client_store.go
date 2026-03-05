@@ -21,8 +21,12 @@ func NewClientStore(db *sql.DB) *ClientStore {
 
 // GetByID retrieves a client by its ID
 func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo, error) {
-	var secret, domain string
-	err := s.db.QueryRowContext(ctx, "SELECT secret, domain FROM oauth2_clients WHERE id = $1", id).Scan(&secret, &domain)
+	var (
+		secret string
+		domain string
+		public bool
+	)
+	err := s.db.QueryRowContext(ctx, "SELECT secret, domain, public FROM oauth2_clients WHERE id = $1", id).Scan(&secret, &domain, &public)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil // oauth2 framework expects nil, nil when client is not found
@@ -34,5 +38,6 @@ func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo
 		ID:     id,
 		Secret: secret,
 		Domain: domain,
+		Public: public,
 	}, nil
 }
