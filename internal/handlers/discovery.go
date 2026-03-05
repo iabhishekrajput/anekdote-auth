@@ -48,7 +48,7 @@ func (h *DiscoveryHandler) WellKnownJWKS(w http.ResponseWriter, r *http.Request,
 		Keys: []JWK{
 			{
 				Kty: "RSA",
-				Kid: "anekdote-key-1",
+				Kid: h.keyStore.KeyID,
 				Use: "sig",
 				N:   nStr,
 				E:   eStr,

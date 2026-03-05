@@ -40,7 +40,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token.Header["kid"] = "anekdote-key-1" // Standard for JWKS mapping
+	token.Header["kid"] = g.keyStore.KeyID // Standard for JWKS mapping
 
 	access, err = token.SignedString(g.keyStore.PrivateKey)
 	if err != nil {

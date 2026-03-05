@@ -2,6 +2,9 @@ package crypto
 
 import (
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"os"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -10,6 +13,7 @@ import (
 type KeyStore struct {
 	PrivateKey *rsa.PrivateKey
 	PublicKey  *rsa.PublicKey
+	KeyID      string
 }
 
 func LoadKeys(privPath, pubPath string) (*KeyStore, error) {
@@ -31,8 +35,13 @@ func LoadKeys(privPath, pubPath string) (*KeyStore, error) {
 		return nil, err
 	}
 
+	derBytes := x509.MarshalPKCS1PublicKey(pubKey)
+	hash := sha256.Sum256(derBytes)
+	keyID := base64.RawURLEncoding.EncodeToString(hash[:])
+
 	return &KeyStore{
 		PrivateKey: privKey,
 		PublicKey:  pubKey,
+		KeyID:      keyID,
 	}, nil
 }

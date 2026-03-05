@@ -51,8 +51,8 @@ func TestLoadKeys_Success(t *testing.T) {
 		t.Fatalf("LoadKeys failed: %v", err)
 	}
 
-	if ks.PrivateKey == nil || ks.PublicKey == nil {
-		t.Errorf("expected KeyStore to be populated, got nil fields")
+	if ks.PrivateKey == nil || ks.PublicKey == nil || ks.KeyID == "" {
+		t.Errorf("expected KeyStore to be populated, got missing fields")
 	}
 
 	// Verify the loaded key matches
