@@ -167,10 +167,40 @@ image-push: ## Build and push multi-arch runtime+migrate images (set IMAGE_REPO)
 zot-login: ## Login to Zot registry (set ZOT_REGISTRY if needed)
 	docker login $(ZOT_REGISTRY)
 
+# SIGN_MODE selects the cosign signing flow used by image-push-zot:
+#   key      — sign with a local keypair (requires COSIGN_KEY + COSIGN_PASSWORD).
+#   keyless  — sign via OIDC against Sigstore Fulcio (requires a reachable OIDC issuer).
+SIGN_MODE     ?= key
+COSIGN_KEY    ?= cosign.key
+
+.PHONY: install-cosign
+install-cosign: ## Install cosign CLI if missing
+	@if ! command -v cosign > /dev/null; then \
+		echo "cosign not found. Installing github.com/sigstore/cosign/v2/cmd/cosign@latest..."; \
+		go install github.com/sigstore/cosign/v2/cmd/cosign@latest; \
+	fi
+
+.PHONY: cosign-sign
+cosign-sign: install-cosign ## Sign $(IMAGE) with cosign (set IMAGE=<repo>:<tag>, SIGN_MODE=key|keyless)
+	@if [ -z "$(IMAGE)" ]; then echo "IMAGE is required (e.g. IMAGE=$(ZOT_IMAGE_REPO):$(IMAGE_TAG))"; exit 1; fi
+	@case "$(SIGN_MODE)" in \
+		key) \
+			if [ ! -f "$(COSIGN_KEY)" ]; then echo "COSIGN_KEY $(COSIGN_KEY) not found"; exit 1; fi; \
+			if [ -z "$$COSIGN_PASSWORD" ]; then echo "COSIGN_PASSWORD must be set for SIGN_MODE=key"; exit 1; fi; \
+			echo "Signing $(IMAGE) with key $(COSIGN_KEY)..."; \
+			cosign sign --yes --key $(COSIGN_KEY) $(IMAGE) ;; \
+		keyless) \
+			echo "Signing $(IMAGE) keyless via OIDC..."; \
+			cosign sign --yes $(IMAGE) ;; \
+		*) echo "Unknown SIGN_MODE=$(SIGN_MODE) (expected: key|keyless)"; exit 1 ;; \
+	esac
+
 .PHONY: image-push-zot
-image-push-zot: ## Build and push multi-arch runtime+migrate images to Zot
+image-push-zot: install-cosign ## Build, push, and cosign-sign multi-arch runtime+migrate images to Zot
 	docker buildx build --target runtime --push --platform $(PLATFORMS) \
 		--build-arg VERSION=$(VERSION) \
 		-t $(ZOT_IMAGE_REPO):$(IMAGE_TAG) .
+	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO):$(IMAGE_TAG)
 	docker buildx build --target migrate --push --platform $(PLATFORMS) \
 		-t $(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG) .
+	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG)
