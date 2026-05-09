@@ -132,3 +132,45 @@ build: ## Build the cmd/auth-server application binaries
 	@echo 'Building cmd/auth-server...'
 	go build -ldflags='-s -X main.version=${VERSION}' -o=./bin/auth-server ./cmd/auth-server
 	GOOS=linux GOARCH=amd64 go build -ldflags='-s -X main.version=${VERSION}' -o=./bin/linux_amd64/auth-server ./cmd/auth-server
+
+# ==============================================================================
+# Container Images
+
+IMAGE_NAME ?= anekdote-auth
+IMAGE_REPO ?= $(IMAGE_NAME)
+IMAGE_TAG  ?= $(VERSION)
+PLATFORMS  ?= linux/amd64,linux/arm64
+ZOT_REGISTRY ?= zot.localtest.me:8080
+ZOT_NAMESPACE ?= anekdote
+ZOT_IMAGE_REPO ?= $(ZOT_REGISTRY)/$(ZOT_NAMESPACE)/$(IMAGE_NAME)
+
+.PHONY: image
+image: ## Build runtime image for host arch and load into local docker
+	docker buildx build --target runtime --load \
+		--build-arg VERSION=$(VERSION) \
+		-t $(IMAGE_REPO):$(IMAGE_TAG) .
+
+.PHONY: image-migrate
+image-migrate: ## Build migrate image for host arch and load into local docker
+	docker buildx build --target migrate --load \
+		-t $(IMAGE_REPO)-migrate:$(IMAGE_TAG) .
+
+.PHONY: image-push
+image-push: ## Build and push multi-arch runtime+migrate images (set IMAGE_REPO)
+	docker buildx build --target runtime --push --platform $(PLATFORMS) \
+		--build-arg VERSION=$(VERSION) \
+		-t $(IMAGE_REPO):$(IMAGE_TAG) .
+	docker buildx build --target migrate --push --platform $(PLATFORMS) \
+		-t $(IMAGE_REPO)-migrate:$(IMAGE_TAG) .
+
+.PHONY: zot-login
+zot-login: ## Login to Zot registry (set ZOT_REGISTRY if needed)
+	docker login $(ZOT_REGISTRY)
+
+.PHONY: image-push-zot
+image-push-zot: ## Build and push multi-arch runtime+migrate images to Zot
+	docker buildx build --target runtime --push --platform $(PLATFORMS) \
+		--build-arg VERSION=$(VERSION) \
+		-t $(ZOT_IMAGE_REPO):$(IMAGE_TAG) .
+	docker buildx build --target migrate --push --platform $(PLATFORMS) \
+		-t $(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG) .
