@@ -170,8 +170,11 @@ zot-login: ## Login to Zot registry (set ZOT_REGISTRY if needed)
 # SIGN_MODE selects the cosign signing flow used by image-push-zot:
 #   key      — sign with a local keypair (requires COSIGN_KEY + COSIGN_PASSWORD).
 #   keyless  — sign via OIDC against Sigstore Fulcio (requires a reachable OIDC issuer).
-SIGN_MODE     ?= key
-COSIGN_KEY    ?= cosign.key
+# COSIGN_ALLOW_HTTP=true is needed for the default local zot (plain HTTP); set
+# COSIGN_ALLOW_HTTP=false when pushing to a TLS registry.
+SIGN_MODE          ?= key
+COSIGN_KEY         ?= cosign.key
+COSIGN_ALLOW_HTTP  ?= true
 
 .PHONY: install-cosign
 install-cosign: ## Install cosign CLI if missing
@@ -180,27 +183,36 @@ install-cosign: ## Install cosign CLI if missing
 		go install github.com/sigstore/cosign/v2/cmd/cosign@latest; \
 	fi
 
+# Cosign v3 defaults to the new sigstore bundle format (TUF signing config +
+# OCI 1.1 referrer). Zot's UI signature badge currently keys off the legacy
+# `sha256-<digest>.sig` tag, so disable the signing-config path and the new
+# bundle format to fall back to the legacy tag-based signature.
+COSIGN_SIGN_FLAGS := --yes --allow-http-registry=$(COSIGN_ALLOW_HTTP) --use-signing-config=false --new-bundle-format=false
+
 .PHONY: cosign-sign
-cosign-sign: install-cosign ## Sign $(IMAGE) with cosign (set IMAGE=<repo>:<tag>, SIGN_MODE=key|keyless)
-	@if [ -z "$(IMAGE)" ]; then echo "IMAGE is required (e.g. IMAGE=$(ZOT_IMAGE_REPO):$(IMAGE_TAG))"; exit 1; fi
+cosign-sign: install-cosign ## Sign $(IMAGE) with cosign (set IMAGE=<repo>@<digest>, SIGN_MODE=key|keyless)
+	@if [ -z "$(IMAGE)" ]; then echo "IMAGE is required (e.g. IMAGE=$(ZOT_IMAGE_REPO)@sha256:...)"; exit 1; fi
 	@case "$(SIGN_MODE)" in \
 		key) \
 			if [ ! -f "$(COSIGN_KEY)" ]; then echo "COSIGN_KEY $(COSIGN_KEY) not found"; exit 1; fi; \
 			if [ -z "$$COSIGN_PASSWORD" ]; then echo "COSIGN_PASSWORD must be set for SIGN_MODE=key"; exit 1; fi; \
 			echo "Signing $(IMAGE) with key $(COSIGN_KEY)..."; \
-			cosign sign --yes --key $(COSIGN_KEY) $(IMAGE) ;; \
+			cosign sign $(COSIGN_SIGN_FLAGS) -a owner=anekdote -a team=platform --key $(COSIGN_KEY) $(IMAGE) ;; \
 		keyless) \
 			echo "Signing $(IMAGE) keyless via OIDC..."; \
-			cosign sign --yes $(IMAGE) ;; \
+			cosign sign $(COSIGN_SIGN_FLAGS) $(IMAGE) ;; \
 		*) echo "Unknown SIGN_MODE=$(SIGN_MODE) (expected: key|keyless)"; exit 1 ;; \
 	esac
 
 .PHONY: image-push-zot
 image-push-zot: install-cosign ## Build, push, and cosign-sign multi-arch runtime+migrate images to Zot
 	docker buildx build --target runtime --push --platform $(PLATFORMS) \
+		--metadata-file .buildx-runtime-meta.json \
 		--build-arg VERSION=$(VERSION) \
 		-t $(ZOT_IMAGE_REPO):$(IMAGE_TAG) .
-	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO):$(IMAGE_TAG)
+	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)@$$(awk -F'"' '/"containerimage\.digest"/{print $$4}' .buildx-runtime-meta.json)
 	docker buildx build --target migrate --push --platform $(PLATFORMS) \
+		--metadata-file .buildx-migrate-meta.json \
 		-t $(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG) .
-	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG)
+	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)-migrate@$$(awk -F'"' '/"containerimage\.digest"/{print $$4}' .buildx-migrate-meta.json)
+	@rm -f .buildx-runtime-meta.json .buildx-migrate-meta.json

@@ -41,6 +41,8 @@ go.work.sum
 # Certs and sensitive data
 /certs/*.pem
 !/certs/.gitkeep
+cosign.key
+.buildx-*-meta.json
 
 # Temporary Test Files
 cookies.txt
