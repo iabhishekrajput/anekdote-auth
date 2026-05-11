@@ -100,8 +100,7 @@ jobs:
       shell: bash
       run: |
         npm ci
-        go install github.com/a-h/templ/cmd/templ@latest
-        templ generate ./...
+        go tool templ generate ./...
         go mod tidy && go mod vendor
         npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
         GOOS=linux GOARCH=amd64 go build -v ./...
