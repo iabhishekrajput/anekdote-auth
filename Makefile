@@ -27,7 +27,7 @@ run: ## Run the application locally
 
 .PHONY: generate
 generate: ## Run templ generation
-	templ generate ./...
+	go tool templ generate ./...
 
 .PHONY: css-build
 css-build: ## Build Tailwind CSS definitions
