@@ -40,6 +40,15 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
 
+      - name: Extract runtime image metadata
+        id: meta-runtime
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_RUNTIME }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest
+
       - name: Build & push runtime image
         id: build-runtime
         uses: docker/build-push-action@v6
@@ -50,17 +59,27 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ github.ref_name }}
-          tags: |
-            ${{ env.IMAGE_RUNTIME }}:${{ github.ref_name }}
-            ${{ env.IMAGE_RUNTIME }}:latest
+          tags: ${{ steps.meta-runtime.outputs.tags }}
+          labels: ${{ steps.meta-runtime.outputs.labels }}
+          annotations: ${{ steps.meta-runtime.outputs.annotations }}
 
       - name: Sign runtime image (keyless)
         run: |
           cosign sign --yes \
+            --registry-referrers-mode=oci-1-1 \
             -a owner=anekdote -a team=platform \
             -a repo=${{ github.repository }} \
             -a ref=${{ github.ref_name }} \
             ${{ env.IMAGE_RUNTIME }}@${{ steps.build-runtime.outputs.digest }}
+
+      - name: Extract migrate image metadata
+        id: meta-migrate
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_MIGRATE }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}
+            type=raw,value=latest
 
       - name: Build & push migrate image
         id: build-migrate
@@ -70,13 +89,14 @@ jobs:
           target: migrate
           platforms: ${{ env.PLATFORMS }}
           push: true
-          tags: |
-            ${{ env.IMAGE_MIGRATE }}:${{ github.ref_name }}
-            ${{ env.IMAGE_MIGRATE }}:latest
+          tags: ${{ steps.meta-migrate.outputs.tags }}
+          labels: ${{ steps.meta-migrate.outputs.labels }}
+          annotations: ${{ steps.meta-migrate.outputs.annotations }}
 
       - name: Sign migrate image (keyless)
         run: |
           cosign sign --yes \
+            --registry-referrers-mode=oci-1-1 \
             -a owner=anekdote -a team=platform \
             -a repo=${{ github.repository }} \
             -a ref=${{ github.ref_name }} \
