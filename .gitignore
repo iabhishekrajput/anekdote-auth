@@ -44,6 +44,9 @@ go.work.sum
 cosign.key
 .buildx-*-meta.json
 
+# Local act runner secrets (do NOT commit real values)
+.secrets
+
 # Temporary Test Files
 cookies.txt
 make-run-logs.txt

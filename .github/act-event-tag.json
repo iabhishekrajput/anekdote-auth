@@ -1,0 +1,11 @@
+{
+  "ref": "refs/tags/v1.0.7",
+  "ref_type": "tag",
+  "repository": {
+    "name": "anekdote-auth",
+    "full_name": "iabhishekrajput/anekdote-auth",
+    "owner": {
+      "login": "iabhishekrajput"
+    }
+  }
+}
