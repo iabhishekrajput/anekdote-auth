@@ -1,4 +1,4 @@
-[![CI](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/iabhishekrajput/anekdote-auth?include_prereleases&display_name=release&logo=github&label=Release&cacheSeconds=3600)](https://github.com/iabhishekrajput/anekdote-auth/releases/latest) [![CodeQL Advanced](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml)
+[![CI](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/iabhishekrajput/anekdote-auth?include_prereleases&display_name=release&logo=github&label=Release&cacheSeconds=3600)](https://github.com/iabhishekrajput/anekdote-auth/releases/latest) [![Image](https://img.shields.io/badge/ghcr.io-anekdote--auth-2496ed?logo=docker&logoColor=white)](https://github.com/iabhishekrajput/anekdote-auth/pkgs/container/anekdote-auth) [![CodeQL Advanced](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/iabhishekrajput/anekdote-auth/actions/workflows/codeql.yml)
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/iabhishekrajput/anekdote-auth)](https://goreportcard.com/report/github.com/iabhishekrajput/anekdote-auth) [![Go Coverage](https://github.com/iabhishekrajput/anekdote-auth/wiki/coverage.svg)](https://raw.githack.com/wiki/iabhishekrajput/anekdote-auth/coverage.html)
 
@@ -22,7 +22,7 @@ It serves as a fully featured Identity Provider (IdP) equipped with a modern Use
   - Automatic JSON Web Key Set (JWKS) Discovery Endpoints.
 
 ## Tech Stack
-- **Go 1.22+**: Core server logic.
+- **Go 1.26+**: Core server logic.
 - **PostgreSQL**: Master persistent storage mechanism for Users and OAuth2 mapping schemas.
 - **Redis**: High-speed, ephemeral memory cache leveraged for active HTTP Session Tracking, JWT Blocklisting, and Rate Limit throttling.
 - **Tailwind CSS & Templ**: Utility-first CSS framework and type-safe HTML templating engine driving the identity web templates.
@@ -33,11 +33,12 @@ It serves as a fully featured Identity Provider (IdP) equipped with a modern Use
 
 ### 1. Requirements
 Ensure you have the following installed to run the backend natively:
-- Go 1.22+
+- Go 1.26+
 - Node.js & npm (for Tailwind CSS)
-- [templ CLI](https://templ.guide)
 - Docker and Docker Compose (to spawn backend datastores)
 - `make`
+
+[Templ](https://templ.guide) is declared as a Go tool dependency in `go.mod`, so `make generate` invokes it via `go tool templ` — no separate install needed.
 
 ### 2. Infrastructure Setup
 Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers. A built-in `Makefile` provides individual commands to manage these containers via Docker Compose:
@@ -97,6 +98,33 @@ Before submitting code, ensure the modules are cleanly formatted, vendored, and 
 make tidy
 make audit
 make build
+```
+
+---
+
+## Container Images
+
+Multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/iabhishekrajput?tab=packages) on every tagged release.
+
+| Image | Purpose |
+| ----- | ------- |
+| `ghcr.io/iabhishekrajput/anekdote-auth` | Auth server runtime. |
+| `ghcr.io/iabhishekrajput/anekdote-auth-migrate` | Goose migration runner (`entrypoint: goose -dir /app/migrations postgres`). |
+
+Pull the latest release:
+
+```bash
+docker pull ghcr.io/iabhishekrajput/anekdote-auth:latest
+docker pull ghcr.io/iabhishekrajput/anekdote-auth-migrate:latest
+```
+
+Images are signed keylessly with [Sigstore cosign](https://docs.sigstore.dev/cosign/signing/overview/) using GitHub Actions OIDC. Verify a signature with:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/iabhishekrajput/anekdote-auth/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/iabhishekrajput/anekdote-auth:latest
 ```
 
 ---
