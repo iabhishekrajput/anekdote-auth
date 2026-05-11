@@ -86,6 +86,15 @@ COPY --from=gobuilder /out/auth-server /app/auth-server
 COPY web/static/tailwind.css /app/web/static/tailwind.css
 COPY --from=assets /app/web/static/app.css /app/web/static/app.css
 
+LABEL org.opencontainers.image.title="anekdote auth" \
+      org.opencontainers.image.description="OAuth2 and OpenID Connect (OIDC) Authorization Server built in Go." \
+      org.opencontainers.image.vendor="anekdote" \
+      org.opencontainers.image.authors="Abhishek Rajput <iabhishekrajput@gmail.com>" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/iabhishekrajput/anekdote-auth" \
+      org.opencontainers.image.url="https://github.com/iabhishekrajput/anekdote-auth" \
+      org.opencontainers.image.documentation="https://github.com/iabhishekrajput/anekdote-auth#readme"
+
 USER nonroot:nonroot
 EXPOSE 8080
 ENTRYPOINT ["/app/auth-server"]
@@ -98,6 +107,15 @@ WORKDIR /app
 
 COPY --from=migratebuilder /out/goose /usr/local/bin/goose
 COPY migrations /app/migrations
+
+LABEL org.opencontainers.image.title="anekdote auth migrations" \
+      org.opencontainers.image.description="Goose migrations runner for the Anekdote Auth PostgreSQL schema." \
+      org.opencontainers.image.vendor="anekdote" \
+      org.opencontainers.image.authors="Abhishek Rajput <iabhishekrajput@gmail.com>" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.source="https://github.com/iabhishekrajput/anekdote-auth" \
+      org.opencontainers.image.url="https://github.com/iabhishekrajput/anekdote-auth" \
+      org.opencontainers.image.documentation="https://github.com/iabhishekrajput/anekdote-auth#readme"
 
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/goose", "-dir", "/app/migrations", "postgres"]
