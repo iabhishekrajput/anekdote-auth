@@ -73,9 +73,10 @@ func main() {
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys)
 	discH := handlers.NewDiscoveryHandler(keys)
 	accountH := handlers.NewAccountHandler(userStore)
+	probeH := handlers.NewProbeHandler(db, rdb)
 
 	// 7. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, sessionStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, probeH, sessionStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{

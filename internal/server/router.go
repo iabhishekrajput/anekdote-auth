@@ -19,6 +19,7 @@ func NewRouter(
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
 	accountH *handlers.AccountHandler,
+	probeH *handlers.ProbeHandler,
 	sessionStore *redisstore.SessionStore,
 	redisClient *redis.Client,
 ) *httprouter.Router {
@@ -79,7 +80,11 @@ func NewRouter(
 	router.GET("/.well-known/jwks.json", secure(discH.WellKnownJWKS))
 	router.GET("/.well-known/openid-configuration", secure(discH.OpenIDConfiguration))
 
-	// 4. Static Files
+	// 4. Health/Readiness Probes
+	router.GET("/healthz", probeH.Health)
+	router.GET("/readyz", probeH.Ready)
+
+	// 5. Static Files
 	router.ServeFiles("/static/*filepath", http.Dir("web/static"))
 
 	slog.Info("Router initialized with endpoints")
