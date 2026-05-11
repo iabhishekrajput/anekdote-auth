@@ -64,6 +64,8 @@ jobs:
           annotations: ${{ steps.meta-runtime.outputs.annotations }}
 
       - name: Sign runtime image (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
         run: |
           cosign sign --yes \
             --registry-referrers-mode=oci-1-1 \
@@ -94,6 +96,8 @@ jobs:
           annotations: ${{ steps.meta-migrate.outputs.annotations }}
 
       - name: Sign migrate image (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
         run: |
           cosign sign --yes \
             --registry-referrers-mode=oci-1-1 \
