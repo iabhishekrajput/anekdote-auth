@@ -39,12 +39,8 @@ jobs:
       - name: Install Node Dependencies
         run: npm ci
 
-      - name: Install templ
-        shell: bash
-        run: go install github.com/a-h/templ/cmd/templ@latest
-
       - name: Template Generate
-        run: templ generate ./...
+        run: go tool templ generate ./...
 
       - name: Install Go Dependencies
         run: go mod tidy && go mod vendor

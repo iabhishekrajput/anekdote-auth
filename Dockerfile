@@ -34,10 +34,6 @@ ENV GOTOOLCHAIN=local \
     GOOS=${TARGETOS} \
     GOARCH=${TARGETARCH}
 
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/a-h/templ/cmd/templ@v0.3.1001
-
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -46,7 +42,7 @@ COPY . .
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    templ generate ./...
+    go tool templ generate ./...
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
