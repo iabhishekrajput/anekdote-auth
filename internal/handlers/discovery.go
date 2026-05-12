@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"net/http"
+	"strings"
 
 	"encoding/base64"
 
@@ -13,10 +14,14 @@ import (
 
 type DiscoveryHandler struct {
 	keyStore *crypto.KeyStore
+	appURL   string
 }
 
-func NewDiscoveryHandler(ks *crypto.KeyStore) *DiscoveryHandler {
-	return &DiscoveryHandler{keyStore: ks}
+func NewDiscoveryHandler(ks *crypto.KeyStore, appURL string) *DiscoveryHandler {
+	return &DiscoveryHandler{
+		keyStore: ks,
+		appURL:   strings.TrimRight(appURL, "/"),
+	}
 }
 
 // JWK represents a single JSON Web Key
