@@ -21,7 +21,7 @@ type OIDCConfig struct {
 
 // OpenIDConfiguration serves the OIDC discovery document
 func (h *DiscoveryHandler) OpenIDConfiguration(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	baseURL := "http://" + r.Host // In prod, determine HTTPS appropriately
+	baseURL := h.appURL
 
 	config := OIDCConfig{
 		Issuer:                           baseURL,

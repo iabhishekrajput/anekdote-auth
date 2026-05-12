@@ -71,7 +71,7 @@ func main() {
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc)
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys)
-	discH := handlers.NewDiscoveryHandler(keys)
+	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
