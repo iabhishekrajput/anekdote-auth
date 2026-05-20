@@ -20,7 +20,7 @@ type OrgPendingInvite struct {
 }
 
 templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites []OrgPendingInvite, errorMsg, successMsg string) {
-	<div class="w-full max-w-3xl space-y-6">
+	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div class="flex items-center justify-between">
 			<div>
 				<h1 class="text-xl font-semibold tracking-tight">Organizations</h1>
@@ -165,7 +165,7 @@ type OrgPendingMember struct {
 }
 
 templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, isOwnerOrAdmin bool, errorMsg, successMsg string) {
-	<div class="w-full max-w-3xl space-y-6">
+	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
 			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
@@ -270,7 +270,7 @@ templ OrgClientsPage(csrfToken string, org *models.Org, isOwnerOrAdmin bool, err
 }
 
 templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, errorMsg, successMsg string) {
-	<div class="w-full max-w-3xl space-y-6">
+	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
 			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
