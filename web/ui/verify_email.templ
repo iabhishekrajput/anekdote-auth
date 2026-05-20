@@ -5,13 +5,14 @@ templ VerifyEmailPage(csrfToken string, userID string, errorMsg string, successM
 }
 
 templ VerifyEmailPageBody(csrfToken string, userID string, errorMsg string, successMsg string) {
-	<div class="w-full max-w-sm mx-auto space-y-6 rounded-lg border border-zinc-800 bg-zinc-950/80 p-6 text-center shadow">
-		<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-zinc-50">
-			<span class="text-xl">✉️</span>
+	<div class="w-full space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow text-center">
+		<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand/10">
+			<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-brand"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
 		</div>
+
 		<div class="space-y-1">
-			<h2 class="text-xl font-semibold tracking-tight">Verify Email</h2>
-			<p class="text-sm text-zinc-400">Enter the 6-digit code sent to your inbox.</p>
+			<h2 class="text-xl font-semibold tracking-tight">Check your inbox.</h2>
+			<p class="text-sm text-zinc-400">Enter the 6-digit code we sent to your email. It expires in 15 minutes.</p>
 		</div>
 
 		@AlertContainer(errorMsg, successMsg)
@@ -20,23 +21,20 @@ templ VerifyEmailPageBody(csrfToken string, userID string, errorMsg string, succ
 			<input type="hidden" name="csrf_token" value={ csrfToken } />
 			<input type="hidden" name="user_id" value={ userID } />
 
-			<div class="flex flex-col gap-2">
-				<div class="relative flex items-center">
-					<input
-						type="text"
-						id="otp"
-						name="otp"
-						placeholder="6-digit OTP code"
-						required
-						maxlength="6"
-						pattern="\d{6}"
-						class="h-11 w-full rounded-md border border-zinc-800 bg-transparent px-3 pr-10 text-center text-lg tracking-[0.35em] text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
-					/>
-				</div>
-			</div>
+			<input
+				type="text"
+				id="otp"
+				name="otp"
+				placeholder="000000"
+				required
+				maxlength="6"
+				pattern="\d{6}"
+				autocomplete="one-time-code"
+				inputmode="numeric"
+				class="h-11 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-center text-lg tracking-[0.4em] text-zinc-50 placeholder:text-zinc-600 outline-none transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-brand/50"
+			/>
 
-			@PrimaryButton("Verify & Login")
+			@PrimaryButton("Verify & continue")
 		</form>
 	</div>
 }
-
