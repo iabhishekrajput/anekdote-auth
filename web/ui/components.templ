@@ -1,19 +1,44 @@
 package ui
 
+templ Logo(size string) {
+	switch size {
+	case "sm":
+		<span class="font-semibold tracking-tight text-sm select-none">anekdot<span class="text-brand">e•</span></span>
+	case "lg":
+		<span class="font-semibold tracking-tight text-xl select-none">anekdot<span class="text-brand">e•</span></span>
+	default:
+		<span class="font-semibold tracking-tight text-base select-none">anekdot<span class="text-brand">e•</span></span>
+	}
+}
+
 templ Alert(kind string, message string) {
 	if message != "" {
-		<div class="flex w-full items-center justify-between rounded-md border border-zinc-800 px-3 py-2 text-sm font-medium">
-			<div class="flex-1">
-				{ message }
+		switch kind {
+		case "error":
+			<div class="flex w-full items-start gap-2.5 rounded-md border border-red-900 bg-red-950/50 px-3 py-2.5 text-sm text-red-400">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+				<div class="flex-1">{ message }</div>
+				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
 			</div>
-			<button
-				type="button"
-				class="ml-3 text-lg leading-none opacity-70 hover:opacity-100"
-				data-dismiss-parent
-			>
-				&times;
-			</button>
-		</div>
+		case "success":
+			<div class="flex w-full items-start gap-2.5 rounded-md border border-emerald-900 bg-emerald-950/50 px-3 py-2.5 text-sm text-emerald-400">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+				<div class="flex-1">{ message }</div>
+				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
+			</div>
+		case "info":
+			<div class="flex w-full items-start gap-2.5 rounded-md border border-sky-900 bg-sky-950/50 px-3 py-2.5 text-sm text-sky-400">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+				<div class="flex-1">{ message }</div>
+				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
+			</div>
+		default:
+			<div class="flex w-full items-start gap-2.5 rounded-md border border-amber-900 bg-amber-950/50 px-3 py-2.5 text-sm text-amber-400">
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+				<div class="flex-1">{ message }</div>
+				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
+			</div>
+		}
 	}
 }
 
@@ -26,9 +51,75 @@ templ AlertContainer(errMsg string, success string) {
 	}
 }
 
+templ FormField(label string, id string, errorMsg string, input templ.Component) {
+	<div class="flex flex-col gap-1.5">
+		<label for={ id } class="text-sm font-medium text-zinc-50">{ label }</label>
+		@input
+		if errorMsg != "" {
+			<p id={ id + "-error" } class="text-xs text-red-400 mt-0.5">{ errorMsg }</p>
+		}
+	</div>
+}
+
+templ TextInput(id string, name string, inputType string, placeholder string, value string, hasError bool) {
+	if hasError {
+		<input
+			type={ inputType }
+			id={ id }
+			name={ name }
+			placeholder={ placeholder }
+			value={ value }
+			aria-invalid="true"
+			class="h-9 w-full rounded-md border border-red-500 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors duration-150 focus:border-red-400 focus:ring-1 focus:ring-red-400/30"
+		/>
+	} else {
+		<input
+			type={ inputType }
+			id={ id }
+			name={ name }
+			placeholder={ placeholder }
+			value={ value }
+			class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-brand/50"
+		/>
+	}
+}
+
+templ PasswordInput(id string, name string, hasError bool) {
+	<div class="relative">
+		if hasError {
+			<input
+				type="password"
+				id={ id }
+				name={ name }
+				placeholder="••••••••"
+				aria-invalid="true"
+				class="h-9 w-full rounded-md border border-red-500 bg-transparent px-3 pr-10 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors duration-150 focus:border-red-400 focus:ring-1 focus:ring-red-400/30"
+			/>
+		} else {
+			<input
+				type="password"
+				id={ id }
+				name={ name }
+				placeholder="••••••••"
+				class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 pr-10 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-brand/50"
+			/>
+		}
+		<button
+			type="button"
+			data-pw-toggle
+			class="absolute right-0 top-0 flex h-full w-9 items-center justify-center text-zinc-500 hover:text-zinc-200 transition-colors"
+			aria-label="Toggle password visibility"
+		>
+			<svg data-eye xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+			<svg data-eye-off xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+		</button>
+	</div>
+}
+
 templ PrimaryButton(text string) {
 	<button
-		class="inline-flex h-9 w-full items-center justify-center rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200 active:scale-[0.98]"
+		type="submit"
+		class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
 	>
 		{ text }
 	</button>
@@ -36,9 +127,48 @@ templ PrimaryButton(text string) {
 
 templ OutlineButton(text string) {
 	<button
-		class="inline-flex h-9 w-full items-center justify-center rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-medium text-zinc-50 transition hover:bg-zinc-900 active:scale-[0.98]"
+		type="button"
+		class="inline-flex h-9 w-full items-center justify-center rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-medium text-zinc-50 transition-all duration-150 hover:bg-zinc-900 hover:border-zinc-700 active:scale-[0.98]"
 	>
 		{ text }
 	</button>
 }
 
+templ DestructiveButton(text string) {
+	<button
+		type="submit"
+		class="inline-flex h-9 w-full items-center justify-center rounded-md bg-red-600 px-3 text-sm font-medium text-zinc-50 transition-all duration-150 hover:bg-red-500 active:scale-[0.98]"
+	>
+		{ text }
+	</button>
+}
+
+templ ScopeItem(icon string, description string) {
+	<li class="flex items-start gap-2.5 text-sm text-zinc-300">
+		switch icon {
+		case "mail":
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 text-brand"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+		case "eye":
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 text-brand"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+		case "clock":
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 text-brand"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+		default:
+			<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0 text-brand"><polyline points="20 6 9 17 4 12"></polyline></svg>
+		}
+		<span>{ description }</span>
+	</li>
+}
+
+templ ClientTrustBadge(clientName string, domain string) {
+	<div class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+		<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-zinc-800">
+			if len(clientName) > 0 {
+				<span class="text-lg font-semibold text-zinc-200">{ string([]rune(clientName)[0:1]) }</span>
+			}
+		</div>
+		<div class="min-w-0">
+			<p class="truncate text-base font-semibold text-zinc-50">{ clientName }</p>
+			<p class="truncate text-xs text-zinc-500">{ domain }</p>
+		</div>
+	</div>
+}
