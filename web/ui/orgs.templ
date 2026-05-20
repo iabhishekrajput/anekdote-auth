@@ -28,7 +28,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 			</div>
 			<button
 				data-dialog-show="create-org-dialog"
-				class="inline-flex h-9 items-center gap-1 rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200"
+				class="inline-flex h-9 items-center gap-1 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
 			>
 				+ Create org
 			</button>
@@ -41,7 +41,10 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 				<h2 class="text-sm font-semibold">Your organizations</h2>
 			</div>
 			if len(orgs) == 0 {
-				<p class="px-4 py-6 text-center text-sm text-zinc-500">You don't belong to any organizations yet.</p>
+				<div class="flex flex-col items-center gap-3 px-4 py-10 text-center">
+					<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-700"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+					<p class="text-sm text-zinc-500">You're not in any organizations yet.</p>
+				</div>
 			} else {
 				<table class="w-full text-sm">
 					<thead>
@@ -55,7 +58,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 					</thead>
 					<tbody>
 						for _, item := range orgs {
-							<tr class="border-b border-zinc-800/50 last:border-0">
+							<tr class="border-b border-zinc-800/50 last:border-0 transition-colors duration-100 hover:bg-zinc-900/50">
 								<td class="px-4 py-3 font-medium">{ item.Org.DisplayName }</td>
 								<td class="px-4 py-3 font-mono text-xs text-zinc-400">{ item.Org.Slug }</td>
 								<td class="px-4 py-3">
@@ -64,9 +67,9 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 								<td class="px-4 py-3 text-zinc-400">{ fmt.Sprintf("%d", item.MemberCount) }</td>
 								<td class="px-4 py-3 text-right">
 									if item.Role == "owner" || item.Role == "admin" {
-										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-zinc-50">Manage →</a>
+										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-brand transition-colors duration-150">Manage →</a>
 									} else {
-										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-zinc-50">View →</a>
+										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-brand transition-colors duration-150">View →</a>
 									}
 								</td>
 							</tr>
@@ -101,7 +104,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 								<td class="px-4 py-3 text-right flex gap-2 justify-end">
 									<a
 										href={ templ.URL("/join?token=" + inv.Token) }
-										class="inline-flex h-7 items-center rounded-md bg-zinc-50 px-2 text-xs font-medium text-zinc-900 hover:bg-zinc-200"
+										class="inline-flex h-7 items-center rounded-md bg-brand px-2 text-xs font-medium text-zinc-950 transition-all hover:bg-brand-hover active:scale-[0.98]"
 									>Accept</a>
 								</td>
 							</tr>
@@ -125,7 +128,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 						name="display_name"
 						required
 						placeholder="Acme Corp"
-						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
 					/>
 				</div>
 				<div class="flex flex-col gap-1.5">
@@ -136,7 +139,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 						required
 						placeholder="acme-corp"
 						pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"
-						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
 					/>
 					<p class="text-xs text-zinc-500">Lowercase letters, numbers, hyphens. 3–63 chars.</p>
 				</div>
@@ -175,8 +178,8 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 
 		<!-- Tab bar -->
 		<div class="flex border-b border-zinc-800">
-			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="border-b-2 border-zinc-50 px-4 py-2 text-sm font-medium text-zinc-50 -mb-px">Members</a>
-			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50">OAuth Clients</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="border-b-2 border-brand px-4 py-2 text-sm font-medium text-brand -mb-px">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">OAuth Clients</a>
 		</div>
 
 		<!-- Members table -->
@@ -243,19 +246,19 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 							name="email"
 							required
 							placeholder="colleague@example.com"
-							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
 						/>
 					</div>
 					<select
 						name="role"
-						class="h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none focus:border-zinc-300"
+						class="h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
 					>
 						<option value="member">member</option>
 						<option value="admin">admin</option>
 					</select>
 					<button
 						type="submit"
-						class="h-9 rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+						class="h-9 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
 					>Send invite</button>
 				</form>
 				<p class="text-xs text-zinc-500">They'll receive an email with a 24-hour invite link. No account required — they can register on accept.</p>
@@ -280,8 +283,8 @@ templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, err
 
 		<!-- Tab bar -->
 		<div class="flex border-b border-zinc-800">
-			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50">Members</a>
-			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="border-b-2 border-zinc-50 px-4 py-2 text-sm font-medium text-zinc-50 -mb-px">OAuth Clients</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="border-b-2 border-brand px-4 py-2 text-sm font-medium text-brand -mb-px">OAuth Clients</a>
 		</div>
 
 		<div class="rounded-lg border border-zinc-800 p-6 text-center space-y-2">
@@ -294,10 +297,10 @@ templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, err
 func orgRoleBadgeClass(role string) string {
 	switch role {
 	case "owner":
-		return "rounded-full border border-zinc-600 bg-zinc-800 px-2 py-0.5 text-xs font-bold"
+		return "rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs font-medium text-amber-400"
 	case "admin":
-		return "rounded-full border border-zinc-700 px-2 py-0.5 text-xs"
+		return "rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-xs text-sky-400"
 	default:
-		return "rounded-full px-2 py-0.5 text-xs text-zinc-400"
+		return "rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400"
 	}
 }

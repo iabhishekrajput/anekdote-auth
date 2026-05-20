@@ -7,88 +7,54 @@ templ AccountPage(csrfToken string, user *models.User, errorMsg string, successM
 }
 
 templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, successMsg string) {
-	<div class="w-full max-w-2xl mx-auto space-y-6 rounded-lg border border-zinc-800 bg-zinc-950/80 p-8 shadow">
-		<div class="flex flex-col items-center gap-1 text-center">
-			<h2 class="text-xl font-semibold tracking-tight">Account Center</h2>
-			<p class="text-sm text-zinc-400">Welcome back, { user.Name }</p>
+	<div class="w-full max-w-2xl mx-auto space-y-0">
+		<div class="mb-8">
+			<h1 class="text-xl font-semibold tracking-tight">Account settings</h1>
+			<p class="mt-0.5 text-sm text-zinc-400">Manage your profile and security</p>
 		</div>
 
 		@AlertContainer(errorMsg, successMsg)
 
-		<div class="space-y-6">
-			<section class="space-y-4 rounded-md border border-zinc-800 bg-transparent p-6">
-				<div class="space-y-1">
-					<h3 class="text-base font-semibold">Profile Details</h3>
-					<p class="text-sm text-zinc-400">Update your account information</p>
-				</div>
-
-				<form method="POST" action="/account/profile" class="space-y-3">
+		<section>
+			<h3 class="text-base font-semibold">Profile</h3>
+			<p class="mt-0.5 text-sm text-zinc-400">Update your display name</p>
+			<div class="mt-4 pb-8 border-b border-zinc-800/60">
+				<form method="POST" action="/account/profile" class="flex flex-col gap-4 max-w-sm">
 					<input type="hidden" name="csrf_token" value={ csrfToken } />
-					<div class="flex flex-col gap-1.5">
-						<label for="name" class="text-sm font-medium text-zinc-50">Full Name</label>
-						<input
-							type="text"
-							id="name"
-							name="name"
-							value={ user.Name }
-							required
-							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
-						/>
-					</div>
+					@FormField("Full name", "name", "", TextInput("name", "name", "text", "Jane Doe", user.Name, false))
 					<div>
-						@OutlineButton("Update Profile")
+						@OutlineButton("Save changes")
 					</div>
-				</form>
-			</section>
-
-			<section class="space-y-4 rounded-md border border-zinc-800 bg-transparent p-6">
-				<div class="space-y-1">
-					<h3 class="text-base font-semibold">Change Password</h3>
-					<p class="text-sm text-zinc-400">Update your security credentials</p>
-				</div>
-
-				<form method="POST" action="/account/password" class="space-y-3">
-					<input type="hidden" name="csrf_token" value={ csrfToken } />
-					<div class="flex flex-col gap-1.5">
-						<label for="old_password" class="text-sm font-medium text-zinc-50">Current Password</label>
-						<input
-							type="password"
-							id="old_password"
-							name="old_password"
-							placeholder="********"
-							required
-							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
-						/>
-					</div>
-					<div class="flex flex-col gap-1.5">
-						<label for="new_password" class="text-sm font-medium text-zinc-50">New Password</label>
-						<input
-							type="password"
-							id="new_password"
-							name="new_password"
-							placeholder="********"
-							required
-							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none ring-0 transition focus:border-zinc-300 focus:ring-1 focus:ring-zinc-300"
-						/>
-					</div>
-					<div>
-						@OutlineButton("Change Password")
-					</div>
-				</form>
-			</section>
-
-			<div class="pt-2">
-				<form method="POST" action="/logout" class="w-full">
-					<input type="hidden" name="csrf_token" value={ csrfToken } />
-					<button
-						type="submit"
-						class="inline-flex h-9 w-full items-center justify-center rounded-md bg-red-500 px-3 text-sm font-medium text-zinc-50 transition hover:bg-red-600 active:scale-[0.98]"
-					>
-						Logout
-					</button>
 				</form>
 			</div>
-		</div>
+		</section>
+
+		<section class="mt-8">
+			<h3 class="text-base font-semibold">Change password</h3>
+			<p class="mt-0.5 text-sm text-zinc-400">Update your security credentials</p>
+			<div class="mt-4 pb-8 border-b border-zinc-800/60">
+				<form method="POST" action="/account/password" class="flex flex-col gap-4 max-w-sm" data-confirm-form>
+					<input type="hidden" name="csrf_token" value={ csrfToken } />
+					@FormField("Current password", "old_password", "", PasswordInput("old_password", "old_password", false))
+					@FormField("New password", "new_password", "", PasswordInput("new_password", "new_password", false))
+					<div>
+						@OutlineButton("Update password")
+					</div>
+				</form>
+			</div>
+		</section>
+
+		<section class="mt-8 pt-0">
+			<div class="mt-2 border-t border-red-900/30 pt-6">
+				<h3 class="text-base font-semibold text-zinc-50">Sign out</h3>
+				<p class="mt-0.5 text-sm text-zinc-400">End your current session on this device</p>
+				<div class="mt-4 max-w-sm">
+					<form method="POST" action="/logout">
+						<input type="hidden" name="csrf_token" value={ csrfToken } />
+						@DestructiveButton("Sign out")
+					</form>
+				</div>
+			</div>
+		</section>
 	</div>
 }
-
