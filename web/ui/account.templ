@@ -3,7 +3,7 @@ package ui
 import "github.com/iabhishekrajput/anekdote-auth/internal/models"
 
 templ AccountPage(csrfToken string, user *models.User, errorMsg string, successMsg string) {
-	@BaseLayout("Account Center - anekdote", AccountPageBody(csrfToken, user, errorMsg, successMsg))
+	@AccountLayout("Account Settings - anekdote", "/account", AccountPageBody(csrfToken, user, errorMsg, successMsg))
 }
 
 templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, successMsg string) {

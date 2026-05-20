@@ -3,12 +3,14 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"net/http"
 	"regexp"
 	"time"
 
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
@@ -25,6 +27,8 @@ type IdentityHandler struct {
 	userStore    *postgres.UserStore
 	sessionStore *redis.SessionStore
 	mailer       *mailer.Mailer
+	orgStore     *postgres.OrgStore // optional; enables invite join on verify-email
+	rdb          *goredis.Client    // optional; required for invite Redis cleanup
 }
 
 func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *redis.SessionStore, mailSvc *mailer.Mailer) *IdentityHandler {
@@ -34,6 +38,13 @@ func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *
 		sessionStore: sStore,
 		mailer:       mailSvc,
 	}
+}
+
+// WithOrgSupport enables the invite-join flow in RegisterFunc and VerifyEmailFunc.
+func (h *IdentityHandler) WithOrgSupport(orgStore *postgres.OrgStore, rdb *goredis.Client) *IdentityHandler {
+	h.orgStore = orgStore
+	h.rdb = rdb
+	return h
 }
 
 func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
@@ -136,6 +147,12 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
 	}
 
+	// If this registration came from an invite link, store the token so
+	// VerifyEmailFunc can complete the org join after OTP verification.
+	if inviteToken := r.URL.Query().Get("invite"); inviteToken != "" && h.orgStore != nil {
+		_ = h.sessionStore.SetPendingInvite(context.Background(), user.ID, inviteToken)
+	}
+
 	http.Redirect(w, r, fmt.Sprintf("/verify-email?user_id=%s", user.ID.String()), http.StatusFound)
 }
 
@@ -226,6 +243,30 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 		Secure:   h.config.AppEnv == "production",
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	// Complete org invite join if there's a pending invite token for this user.
+	if h.orgStore != nil && h.rdb != nil {
+		if inviteToken, err := h.sessionStore.GetAndDeletePendingInvite(context.Background(), userID); err == nil && inviteToken != "" {
+			if raw, err := h.rdb.Get(context.Background(), "org:invite:"+inviteToken).Result(); err == nil {
+				var inv struct {
+					OrgID string `json:"org_id"`
+					Role  string `json:"role"`
+				}
+				if json.Unmarshal([]byte(raw), &inv) == nil {
+					if orgID, err := uuid.Parse(inv.OrgID); err == nil {
+						if addErr := h.orgStore.AddMember(context.Background(), orgID, userID, inv.Role, nil); addErr == nil {
+							h.rdb.Del(context.Background(), "org:invite:"+inviteToken)
+							h.rdb.SRem(context.Background(), "org:invites:"+inv.OrgID, inviteToken)
+							// Redirect to the org detail page instead of /account
+							http.Redirect(w, r, "/account/orgs?message=You+joined+the+organization", http.StatusFound)
+							return
+						}
+					}
+				}
+			}
+			// Invite expired or invalid — verification still succeeded, just go to /account
+		}
+	}
 
 	http.Redirect(w, r, "/account", http.StatusFound)
 }

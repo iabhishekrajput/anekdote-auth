@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/a-h/templ v0.3.1020
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/go-oauth2/oauth2/v4 v4.5.4
 	github.com/go-oauth2/redis/v4 v4.1.1
@@ -20,7 +21,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
 	github.com/a-h/parse v0.0.0-20250122154542-74294addb73e // indirect
-	github.com/a-h/templ v0.3.1020 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

@@ -20,6 +20,7 @@ func TestNewRouter(t *testing.T) {
 		&handlers.OAuth2Handler{},
 		&handlers.DiscoveryHandler{},
 		&handlers.AccountHandler{},
+		&handlers.OrgHandler{},
 		&handlers.ProbeHandler{},
 		&redisstore.SessionStore{},
 		&redis.Client{},

@@ -118,3 +118,12 @@ HTML templates use [Templ](https://templ.guide): source files are `web/ui/*.temp
 - Migrations are SQL files in `migrations/` managed by [Goose](https://github.com/pressly/goose); applied separately, not at startup.
 - The `vendor/` directory is committed; use `make tidy` to update it. Builds use `-mod=vendor` implicitly.
 - Go 1.26.0 (see `go.mod`); release builds set `CGO_ENABLED=0` (see `.goreleaser.yaml`).
+
+---
+
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+Available gstack skills:
+`/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/design-shotgun`, `/design-html`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/connect-chrome`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/setup-gbrain`, `/retro`, `/investigate`, `/document-release`, `/document-generate`, `/codex`, `/cso`, `/autoplan`, `/plan-devex-review`, `/devex-review`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`, `/learn`

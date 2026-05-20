@@ -66,6 +66,24 @@ func (m *Mailer) SendPasswordReset(ctx context.Context, toEmail, resetLink strin
 	return m.client.DialAndSendWithContext(ctx, msg)
 }
 
+func (m *Mailer) SendOrgInvite(ctx context.Context, toEmail, orgName, inviterEmail, acceptURL string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmail); err != nil {
+		return err
+	}
+	msg.Subject("You're invited to " + orgName + " - anekdote")
+
+	var body bytes.Buffer
+	if err := uiemail.OrgInviteEmail(orgName, inviterEmail, acceptURL).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
 func (m *Mailer) SendOTP(ctx context.Context, toEmail, otp string) error {
 	msg := mail.NewMsg()
 	if err := msg.From(m.config.SMTPFrom); err != nil {

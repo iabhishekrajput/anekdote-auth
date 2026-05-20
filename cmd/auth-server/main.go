@@ -53,6 +53,7 @@ func main() {
 	// 3. Initialize Stores
 	userStore := postgres.NewUserStore(db)
 	clientStore := postgres.NewClientStore(db)
+	orgStore := postgres.NewOrgStore(db)
 
 	sessionStore := redis.NewSessionStore(rdb)
 	revocStore := redis.NewRevocationStore(rdb)
@@ -60,7 +61,7 @@ func main() {
 
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
-	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, issuer)
+	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer)
 
 	// 5. Initialize Mailer
 	mailSvc, err := mailer.NewMailer(cfg)
@@ -69,14 +70,16 @@ func main() {
 	}
 
 	// 6. Initialize Handlers
-	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc)
-	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys)
+	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc).
+		WithOrgSupport(orgStore, rdb)
+	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
+	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, cfg.AppURL)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
 	// 7. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, probeH, sessionStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, probeH, sessionStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{

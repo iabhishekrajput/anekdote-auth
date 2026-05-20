@@ -1,0 +1,72 @@
+package email
+
+templ OrgInviteEmail(orgName, inviterEmail, acceptURL string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>You're invited to { orgName } - anekdote</title>
+			<style>
+				body {
+					font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+					background-color: #09090b;
+					color: #fafafa;
+					margin: 0;
+					padding: 0;
+					line-height: 1.6;
+					-webkit-font-smoothing: antialiased;
+				}
+				.container { max-width: 600px; margin: 40px auto; padding: 20px; }
+				.card {
+					background-color: #09090b;
+					border: 1px solid #27272a;
+					border-radius: 8px;
+					padding: 32px;
+					text-align: center;
+					box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+				}
+				.header { margin-bottom: 24px; }
+				.header h2 { margin: 0; color: #fafafa; font-size: 24px; font-weight: 600; letter-spacing: -0.025em; }
+				.content { font-size: 16px; color: #a1a1aa; margin-bottom: 32px; }
+				.btn {
+					display: inline-block;
+					background-color: #fafafa;
+					color: #09090b;
+					font-weight: 600;
+					font-size: 14px;
+					padding: 12px 28px;
+					border-radius: 6px;
+					text-decoration: none;
+					margin-bottom: 24px;
+				}
+				.footer {
+					font-size: 12px;
+					color: #a1a1aa;
+					margin-top: 32px;
+					border-top: 1px solid #27272a;
+					padding-top: 24px;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<div class="card">
+					<div class="header">
+						<h2>You're invited to { orgName }</h2>
+					</div>
+					<div class="content">
+						<p>{ inviterEmail } has invited you to join <strong>{ orgName }</strong> on anekdote.</p>
+						<p>This invitation link expires in 24 hours.</p>
+					</div>
+					<a href={ templ.URL(acceptURL) } class="btn">Accept Invitation</a>
+					<div class="footer">
+						<p>Or copy this link: { acceptURL }</p>
+						<p>If you did not expect this invitation, you can safely ignore this email.</p>
+						<p>&copy; 2026 anekdote. All rights reserved.</p>
+					</div>
+				</div>
+			</div>
+		</body>
+	</html>
+}

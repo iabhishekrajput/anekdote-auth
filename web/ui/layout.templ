@@ -16,7 +16,52 @@ templ BaseLayout(title string, body templ.Component) {
 			<main class="w-full max-w-md md:max-w-lg">
 				@body
 			</main>
+			<script src="/static/app.js"></script>
 		</body>
 	</html>
+}
+
+templ AccountLayout(title string, currentPath string, body templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8" />
+			<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+			<title>{ title }</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com" />
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+			<link rel="stylesheet" href="/static/app.css" />
+		</head>
+		<body class="min-h-screen bg-zinc-950 text-zinc-50">
+			<header class="border-b border-zinc-800 px-6 py-3">
+				<div class="mx-auto flex max-w-4xl items-center justify-between">
+					<span class="text-sm font-semibold tracking-tight">anekdote</span>
+					<nav class="flex items-center gap-1">
+						<a
+							href="/account"
+							class={ accountNavClass(currentPath, "/account") }
+						>Settings</a>
+						<a
+							href="/account/orgs"
+							class={ accountNavClass(currentPath, "/account/orgs") }
+						>Organizations</a>
+					</nav>
+				</div>
+			</header>
+			<main class="mx-auto max-w-4xl px-6 py-8">
+				@body
+			</main>
+			<script src="/static/app.js"></script>
+		</body>
+	</html>
+}
+
+func accountNavClass(currentPath, target string) string {
+	base := "px-3 py-1.5 rounded-md text-sm transition "
+	if currentPath == target || (target == "/account/orgs" && len(currentPath) > 13 && currentPath[:13] == "/account/orgs") {
+		return base + "bg-zinc-800 text-zinc-50 font-medium"
+	}
+	return base + "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900"
 }
 

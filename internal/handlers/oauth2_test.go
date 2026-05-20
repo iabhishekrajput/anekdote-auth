@@ -55,10 +55,10 @@ func setupOAuth2MockedHandler(t *testing.T) (*OAuth2Handler, sqlmock.Sqlmock, *m
 	}
 
 	// 4. Build Server
-	srv := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, "http://localhost:8080")
+	srv := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, nil, "http://localhost:8080")
 
 	// 5. Build Handler
-	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore)
+	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, nil)
 
 	return handler, mock, mr
 }

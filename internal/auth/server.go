@@ -17,30 +17,22 @@ func BuildServer(
 	tokenStore *oredis.TokenStore,
 	revStore *redis.RevocationStore,
 	keyStore *crypto.KeyStore,
+	orgReader OrgMembershipReader,
 	issuer string,
 ) *server.Server {
 	manager := manage.NewDefaultManager()
 
-	// 1. Token Expiration Configuration
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
-
-	// 2. Map the Postgres Client Store
 	manager.MapClientStorage(clientStore)
-
-	// 3. For Tokens, use the Redis store
 	manager.MapTokenStorage(tokenStore)
 
-	// 4. Custom JWT Generation
-	jwtGen := NewJWTGenerator(keyStore, issuer)
+	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader)
 	manager.MapAccessGenerate(jwtGen)
 
-	// 5. Build the Server
 	srv := server.NewDefaultServer(manager)
-	srv.SetAllowGetAccessRequest(false) // Security: Require POST for tokens
+	srv.SetAllowGetAccessRequest(false)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
 
-	// Enable PKCE (Proof Key for Code Exchange) Support
-	// go-oauth2 handles PKCE generation and validation automatically if requested by the client.
 	manager.SetAuthorizeCodeExp(time.Minute * 10)
 
 	slog.Info("OAuth2 Server Manager Initialized", "issuer", issuer)

@@ -1,0 +1,303 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
+
+// OrgListPage renders /account/orgs
+templ OrgListPage(csrfToken string, orgs []postgres.OrgListItem, pendingInvites []OrgPendingInvite, errorMsg, successMsg string) {
+	@AccountLayout("Organizations - anekdote", "/account/orgs", OrgListBody(csrfToken, orgs, pendingInvites, errorMsg, successMsg))
+}
+
+type OrgPendingInvite struct {
+	OrgName    string
+	OrgSlug    string
+	InviterEmail string
+	Role       string
+	Token      string
+}
+
+templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites []OrgPendingInvite, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl space-y-6">
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Organizations</h1>
+				<p class="text-sm text-zinc-400">Orgs you belong to or own.</p>
+			</div>
+			<button
+				data-dialog-show="create-org-dialog"
+				class="inline-flex h-9 items-center gap-1 rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-200"
+			>
+				+ Create org
+			</button>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3">
+				<h2 class="text-sm font-semibold">Your organizations</h2>
+			</div>
+			if len(orgs) == 0 {
+				<p class="px-4 py-6 text-center text-sm text-zinc-500">You don't belong to any organizations yet.</p>
+			} else {
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+							<th class="px-4 py-2 text-left">Name</th>
+							<th class="px-4 py-2 text-left">Slug</th>
+							<th class="px-4 py-2 text-left">Role</th>
+							<th class="px-4 py-2 text-left">Members</th>
+							<th class="px-4 py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, item := range orgs {
+							<tr class="border-b border-zinc-800/50 last:border-0">
+								<td class="px-4 py-3 font-medium">{ item.Org.DisplayName }</td>
+								<td class="px-4 py-3 font-mono text-xs text-zinc-400">{ item.Org.Slug }</td>
+								<td class="px-4 py-3">
+									<span class={ orgRoleBadgeClass(item.Role) }>{ item.Role }</span>
+								</td>
+								<td class="px-4 py-3 text-zinc-400">{ fmt.Sprintf("%d", item.MemberCount) }</td>
+								<td class="px-4 py-3 text-right">
+									if item.Role == "owner" || item.Role == "admin" {
+										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-zinc-50">Manage →</a>
+									} else {
+										<a href={ templ.URL("/account/orgs/" + item.Org.Slug) } class="text-xs text-zinc-400 hover:text-zinc-50">View →</a>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+
+		if len(pendingInvites) > 0 {
+			<div class="rounded-lg border border-zinc-800">
+				<div class="border-b border-zinc-800 px-4 py-3">
+					<h2 class="text-sm font-semibold">Pending invitations</h2>
+				</div>
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+							<th class="px-4 py-2 text-left">Org</th>
+							<th class="px-4 py-2 text-left">Invited by</th>
+							<th class="px-4 py-2 text-left">Role</th>
+							<th class="px-4 py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, inv := range pendingInvites {
+							<tr class="border-b border-zinc-800/50 last:border-0">
+								<td class="px-4 py-3 font-medium">{ inv.OrgName }</td>
+								<td class="px-4 py-3 text-zinc-400">{ inv.InviterEmail }</td>
+								<td class="px-4 py-3">
+									<span class={ orgRoleBadgeClass(inv.Role) }>{ inv.Role }</span>
+								</td>
+								<td class="px-4 py-3 text-right flex gap-2 justify-end">
+									<a
+										href={ templ.URL("/join?token=" + inv.Token) }
+										class="inline-flex h-7 items-center rounded-md bg-zinc-50 px-2 text-xs font-medium text-zinc-900 hover:bg-zinc-200"
+									>Accept</a>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</div>
+
+	<!-- Create org dialog -->
+	<div id="create-org-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+		<div class="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl">
+			<h2 class="mb-4 text-base font-semibold">Create organization</h2>
+			<form method="POST" action="/account/orgs" class="space-y-4">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="flex flex-col gap-1.5">
+					<label class="text-sm font-medium">Display name</label>
+					<input
+						type="text"
+						name="display_name"
+						required
+						placeholder="Acme Corp"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+					/>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label class="text-sm font-medium">Slug</label>
+					<input
+						type="text"
+						name="slug"
+						required
+						placeholder="acme-corp"
+						pattern="[a-z0-9][a-z0-9-]{1,61}[a-z0-9]"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+					/>
+					<p class="text-xs text-zinc-500">Lowercase letters, numbers, hyphens. 3–63 chars.</p>
+				</div>
+				<div class="flex gap-2 justify-end">
+					<button
+						type="button"
+						data-dialog-hide="create-org-dialog"
+						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+					>Cancel</button>
+					@PrimaryButton("Create")
+				</div>
+			</form>
+		</div>
+	</div>
+}
+
+// OrgDetailPage renders /account/orgs/:slug
+templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, isOwnerOrAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, isOwnerOrAdmin, errorMsg, successMsg))
+}
+
+type OrgPendingMember struct {
+	Email string
+	Role  string
+	Token string
+}
+
+templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, isOwnerOrAdmin bool, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl space-y-6">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
+			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<!-- Tab bar -->
+		<div class="flex border-b border-zinc-800">
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="border-b-2 border-zinc-50 px-4 py-2 text-sm font-medium text-zinc-50 -mb-px">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50">OAuth Clients</a>
+		</div>
+
+		<!-- Members table -->
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3">
+				<h2 class="text-sm font-semibold">Members ({ fmt.Sprintf("%d", len(members)) })</h2>
+			</div>
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+						<th class="px-4 py-2 text-left">Email</th>
+						<th class="px-4 py-2 text-left">Role</th>
+						<th class="px-4 py-2 text-left">Joined</th>
+						<th class="px-4 py-2"></th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, m := range members {
+						<tr class="border-b border-zinc-800/50 last:border-0">
+							<td class="px-4 py-3">{ m.UserEmail }</td>
+							<td class="px-4 py-3">
+								<span class={ orgRoleBadgeClass(m.Role) }>{ m.Role }</span>
+							</td>
+							<td class="px-4 py-3 text-zinc-400 text-xs">{ m.JoinedAt.Format("2006-01-02") }</td>
+							<td class="px-4 py-3 text-right">
+								if isOwnerOrAdmin && m.UserID.String() != currentUserID && m.Role != "owner" {
+									<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline">
+										<input type="hidden" name="csrf_token" value={ csrfToken }/>
+										<button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+									</form>
+								}
+							</td>
+						</tr>
+					}
+					for _, p := range pending {
+						<tr class="border-b border-zinc-800/50 last:border-0">
+							<td class="px-4 py-3 text-zinc-400 italic">{ p.Email }</td>
+							<td class="px-4 py-3">
+								<span class="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">invited</span>
+							</td>
+							<td class="px-4 py-3 text-zinc-500 text-xs">pending</td>
+							<td class="px-4 py-3 text-right">
+								if isOwnerOrAdmin {
+									<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/invites/" + p.Token + "/revoke") } class="inline">
+										<input type="hidden" name="csrf_token" value={ csrfToken }/>
+										<button type="submit" class="text-xs text-zinc-400 hover:text-zinc-50">Revoke</button>
+									</form>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+
+		if isOwnerOrAdmin {
+			<div class="rounded-lg border border-zinc-800 p-4 space-y-3">
+				<h2 class="text-sm font-semibold">Invite a new member</h2>
+				<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/invites") } class="flex gap-2 items-end">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="flex-1 flex flex-col gap-1">
+						<input
+							type="email"
+							name="email"
+							required
+							placeholder="colleague@example.com"
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none focus:border-zinc-300"
+						/>
+					</div>
+					<select
+						name="role"
+						class="h-9 rounded-md border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none focus:border-zinc-300"
+					>
+						<option value="member">member</option>
+						<option value="admin">admin</option>
+					</select>
+					<button
+						type="submit"
+						class="h-9 rounded-md bg-zinc-50 px-3 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+					>Send invite</button>
+				</form>
+				<p class="text-xs text-zinc-500">They'll receive an email with a 24-hour invite link. No account required — they can register on accept.</p>
+			</div>
+		}
+	</div>
+}
+
+// OrgClientsPage renders /account/orgs/:slug/clients (read-only MVP)
+templ OrgClientsPage(csrfToken string, org *models.Org, isOwnerOrAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" — Clients - anekdote", "/account/orgs/"+org.Slug+"/clients", OrgClientsBody(csrfToken, org, isOwnerOrAdmin, errorMsg, successMsg))
+}
+
+templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl space-y-6">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
+			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<!-- Tab bar -->
+		<div class="flex border-b border-zinc-800">
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="border-b-2 border-zinc-50 px-4 py-2 text-sm font-medium text-zinc-50 -mb-px">OAuth Clients</a>
+		</div>
+
+		<div class="rounded-lg border border-zinc-800 p-6 text-center space-y-2">
+			<p class="text-sm text-zinc-400">Client registration is coming soon.</p>
+			<p class="text-xs text-zinc-500">Org-scoped clients registered here will include <span class="font-mono">org_id: { org.Slug }</span> and <span class="font-mono">org_role</span> as JWT claims.</p>
+		</div>
+	</div>
+}
+
+func orgRoleBadgeClass(role string) string {
+	switch role {
+	case "owner":
+		return "rounded-full border border-zinc-600 bg-zinc-800 px-2 py-0.5 text-xs font-bold"
+	case "admin":
+		return "rounded-full border border-zinc-700 px-2 py-0.5 text-xs"
+	default:
+		return "rounded-full px-2 py-0.5 text-xs text-zinc-400"
+	}
+}

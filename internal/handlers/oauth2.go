@@ -10,7 +10,10 @@ import (
 	oautherrors "github.com/go-oauth2/oauth2/v4/errors"
 	"github.com/go-oauth2/oauth2/v4/server"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/auth"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
@@ -22,14 +25,16 @@ type OAuth2Handler struct {
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
+	orgStore     auth.OrgMembershipReader // optional; enables org membership check at /authorize
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore auth.OrgMembershipReader) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,
 		revocStore:   rev,
 		keyStore:     keys,
+		orgStore:     orgStore,
 	}
 
 	h.server.SetUserAuthorizationHandler(h.userAuthorizeHandler)
@@ -78,10 +83,27 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		return "", oautherrors.ErrAccessDenied
 	}
 
-	// 3. Render the Consent UI for GET request
+	// 3. For org-scoped clients: verify membership BEFORE rendering consent.
+	//    This prevents non-members from even seeing the consent page.
 	clientID := r.FormValue("client_id")
-	if clientID == "" { // Fallback just in case
+	if clientID == "" {
 		clientID = "Unknown Application"
+	}
+
+	if h.orgStore != nil && clientID != "Unknown Application" {
+		client, err := h.server.Manager.GetClient(r.Context(), clientID)
+		if err == nil && client != nil {
+			if oci, ok := client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
+				userUUID, parseErr := uuid.Parse(uid.String())
+				if parseErr != nil {
+					return "", oautherrors.ErrAccessDenied
+				}
+				role, memberErr := h.orgStore.GetMembership(r.Context(), *oci.OrgID, userUUID)
+				if memberErr != nil || role == "" {
+					return "", oautherrors.ErrAccessDenied
+				}
+			}
+		}
 	}
 
 	// Parse requested scopes

@@ -195,3 +195,4 @@ vite.config.ts.timestamp-*
 
 # Ignore templ generated Go files
 *_templ.go
+.gstack/

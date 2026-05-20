@@ -23,6 +23,7 @@ func TestBuildServer(t *testing.T) {
 		&oredis.TokenStore{},
 		&redis.RevocationStore{},
 		&crypto.KeyStore{},
+		nil, // orgReader — nil is valid (no org membership checks)
 		"http://localhost",
 	)
 
@@ -46,7 +47,7 @@ func TestJWTGenerator_Token(t *testing.T) {
 		PublicKey:  &privateKey.PublicKey,
 	}
 
-	gen := NewJWTGenerator(keyStore, "http://issuer")
+	gen := NewJWTGenerator(keyStore, "http://issuer", nil)
 
 	client := &models.Client{ID: "client-id"}
 	tokenInfo := &models.Token{

@@ -7,7 +7,16 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/models"
+	"github.com/google/uuid"
 )
+
+// OrgClientInfo wraps the library's ClientInfo and adds OrgID.
+// GetByID wraps ALL clients — existing clients with no org_id get OrgID=nil,
+// so the type assertion in JWTGenerator always succeeds; nil is the safe fallback.
+type OrgClientInfo struct {
+	oauth2.ClientInfo
+	OrgID *uuid.UUID
+}
 
 // ClientStore implements oauth2.ClientStore interface using PostgreSQL
 type ClientStore struct {
@@ -19,25 +28,29 @@ func NewClientStore(db *sql.DB) *ClientStore {
 	return &ClientStore{db: db}
 }
 
-// GetByID retrieves a client by its ID
+// GetByID retrieves a client by its ID, always wrapped in OrgClientInfo.
 func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo, error) {
 	var (
 		secret string
 		domain string
 		public bool
+		orgID  *uuid.UUID
 	)
-	err := s.db.QueryRowContext(ctx, "SELECT secret, domain, public FROM oauth2_clients WHERE id = $1", id).Scan(&secret, &domain, &public)
+	err := s.db.QueryRowContext(ctx,
+		"SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = $1", id,
+	).Scan(&secret, &domain, &public, &orgID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil // oauth2 framework expects nil, nil when client is not found
+			return nil, nil
 		}
 		return nil, err
 	}
 
-	return &models.Client{
+	base := &models.Client{
 		ID:     id,
 		Secret: secret,
 		Domain: domain,
 		Public: public,
-	}, nil
+	}
+	return &OrgClientInfo{ClientInfo: base, OrgID: orgID}, nil
 }

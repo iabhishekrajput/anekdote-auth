@@ -24,9 +24,9 @@ func TestClientStore_GetByID_Success(t *testing.T) {
 
 	store := NewClientStore(db)
 
-	mock.ExpectQuery(`SELECT secret, domain, public FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("client-123").
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public"}).AddRow("secret-abc", "http://localhost", true))
+		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).AddRow("secret-abc", "http://localhost", true, nil))
 
 	client, err := store.GetByID(context.Background(), "client-123")
 	if err != nil {
@@ -53,7 +53,7 @@ func TestClientStore_GetByID_NotFound(t *testing.T) {
 
 	store := NewClientStore(db)
 
-	mock.ExpectQuery(`SELECT secret, domain, public FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("client-missing").
 		WillReturnError(sql.ErrNoRows)
 

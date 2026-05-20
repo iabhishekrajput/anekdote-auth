@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	sessionTTL = 24 * time.Hour
-	otpTTL     = 15 * time.Minute
+	sessionTTL       = 24 * time.Hour
+	otpTTL           = 15 * time.Minute
+	pendingInviteTTL = 30 * time.Minute
 )
 
 var ErrSessionNotFound = errors.New("session not found")
@@ -155,4 +156,25 @@ func (s *SessionStore) GetUserByResetToken(ctx context.Context, resetToken strin
 func (s *SessionStore) DeleteResetToken(ctx context.Context, resetToken string) error {
 	key := "reset_token:" + resetToken
 	return s.client.Del(ctx, key).Err()
+}
+
+// SetPendingInvite stores an invite token for the user awaiting OTP verification.
+// Called by RegisterFunc when ?invite=<T> is present in the request.
+func (s *SessionStore) SetPendingInvite(ctx context.Context, userID uuid.UUID, inviteToken string) error {
+	key := "invite:pending:" + userID.String()
+	return s.client.Set(ctx, key, inviteToken, pendingInviteTTL).Err()
+}
+
+// GetAndDeletePendingInvite reads and atomically deletes the pending invite token.
+// Returns ("", nil) if no pending invite exists — not an error.
+func (s *SessionStore) GetAndDeletePendingInvite(ctx context.Context, userID uuid.UUID) (string, error) {
+	key := "invite:pending:" + userID.String()
+	val, err := s.client.GetDel(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", nil
+		}
+		return "", err
+	}
+	return val, nil
 }

@@ -19,6 +19,7 @@ func NewRouter(
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
 	accountH *handlers.AccountHandler,
+	orgH *handlers.OrgHandler,
 	probeH *handlers.ProbeHandler,
 	sessionStore *redisstore.SessionStore,
 	redisClient *redis.Client,
@@ -69,6 +70,17 @@ func NewRouter(
 	router.GET("/account", secure(middleware.RequireAuth(sessionStore, accountH.ViewAccount)))
 	router.POST("/account/profile", secure(middleware.RequireAuth(sessionStore, accountH.UpdateProfile)))
 	router.POST("/account/password", secure(middleware.RequireAuth(sessionStore, accountH.UpdatePassword)))
+
+	// Org routes — /join is the public accept route (unauthenticated invite link)
+	router.GET("/join", secure(orgH.AcceptInvite))
+	router.GET("/account/orgs", secure(middleware.RequireAuth(sessionStore, orgH.ListOrgs)))
+	router.POST("/account/orgs", secure(middleware.RequireAuth(sessionStore, orgH.CreateOrg)))
+	router.GET("/account/orgs/:slug", secure(middleware.RequireAuth(sessionStore, orgH.OrgDetail)))
+	router.GET("/account/orgs/:slug/clients", secure(middleware.RequireAuth(sessionStore, orgH.OrgClients)))
+	router.POST("/account/orgs/:slug/invites", secure(middleware.RequireAuth(sessionStore, orgH.SendInvite)))
+	router.POST("/account/orgs/:slug/invites/:token/revoke", secure(middleware.RequireAuth(sessionStore, orgH.RevokeInvite)))
+	router.POST("/account/orgs/:slug/members/:userID/role", secure(middleware.RequireAuth(sessionStore, orgH.ChangeMemberRole)))
+	router.POST("/account/orgs/:slug/members/:userID/remove", secure(middleware.RequireAuth(sessionStore, orgH.RemoveMember)))
 
 	// 2. OAuth2 Endpoints
 	router.GET("/authorize", secure(oauthH.Authorize))
