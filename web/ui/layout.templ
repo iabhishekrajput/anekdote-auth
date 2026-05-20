@@ -12,7 +12,10 @@ templ BaseLayout(title string, body templ.Component) {
 			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 			<link rel="stylesheet" href="/static/app.css" />
 		</head>
-		<body class="min-h-screen bg-zinc-950 text-zinc-50 flex items-center justify-center px-6 py-6">
+		<body class="min-h-screen bg-zinc-950 text-zinc-50 flex flex-col items-center justify-center px-6 py-10">
+			<div class="mb-8">
+				@Logo("md")
+			</div>
 			<main class="w-full max-w-md md:max-w-lg">
 				@body
 			</main>
@@ -36,7 +39,7 @@ templ AccountLayout(title string, currentPath string, body templ.Component) {
 		<body class="min-h-screen bg-zinc-950 text-zinc-50">
 			<header class="border-b border-zinc-800 px-6 py-3">
 				<div class="mx-auto flex max-w-4xl items-center justify-between">
-					<span class="text-sm font-semibold tracking-tight">anekdote</span>
+					@Logo("sm")
 					<nav class="flex items-center gap-1">
 						<a
 							href="/account"
@@ -58,10 +61,9 @@ templ AccountLayout(title string, currentPath string, body templ.Component) {
 }
 
 func accountNavClass(currentPath, target string) string {
-	base := "px-3 py-1.5 rounded-md text-sm transition "
+	base := "px-3 py-1.5 rounded-md text-sm transition-colors duration-150 "
 	if currentPath == target || (target == "/account/orgs" && len(currentPath) > 13 && currentPath[:13] == "/account/orgs") {
-		return base + "bg-zinc-800 text-zinc-50 font-medium"
+		return base + "bg-zinc-800 text-brand font-medium"
 	}
 	return base + "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900"
 }
-
