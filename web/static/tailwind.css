@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand: #fbbf24;
+  --color-brand-hover: #f59e0b;
+}
+
 button[data-loading] {
   opacity: 0.6;
   pointer-events: none;
