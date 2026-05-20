@@ -114,9 +114,19 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		requestedScopes = []string{"openid", "profile"}
 	}
 
+	// Extract domain from registered redirect URI for trust badge display
+	clientDomain := ""
+	if client, err := h.server.Manager.GetClient(r.Context(), clientID); err == nil && client != nil {
+		if rawDomain := client.GetDomain(); rawDomain != "" {
+			if parsed, err := url.Parse(rawDomain); err == nil {
+				clientDomain = parsed.Host
+			}
+		}
+	}
+
 	csrfToken := nosurf.Token(r)
 
-	ui.ConsentPage(clientID, requestedScopes, csrfToken, "", "", "").Render(r.Context(), w)
+	ui.ConsentPage(clientID, clientDomain, requestedScopes, csrfToken, "", "", "").Render(r.Context(), w)
 
 	// Since we rendered the HTML response, we return empty userID and NO error
 	// to tell go-oauth2 to halt and not overwrite the response.
