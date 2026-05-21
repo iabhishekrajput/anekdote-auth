@@ -15,9 +15,7 @@ CREATE TABLE users (
     updated_at    TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_email ON users(email);
-
-CREATE OR REPLACE FUNCTION trigger_set_timestamp() RETURNS TRIGGER AS $$
+CREATE FUNCTION trigger_set_timestamp() RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
@@ -35,7 +33,6 @@ CREATE TRIGGER set_timestamp_users
 
 DROP TRIGGER IF EXISTS set_timestamp_users ON users;
 DROP FUNCTION IF EXISTS trigger_set_timestamp();
-DROP INDEX IF EXISTS idx_users_email;
 DROP TABLE IF EXISTS users;
 -- Careful in shared DBs — only drop if this is the sole tenant.
 DROP EXTENSION IF EXISTS "uuid-ossp";

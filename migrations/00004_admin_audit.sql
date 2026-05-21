@@ -2,7 +2,7 @@
 -- +goose StatementBegin
 
 CREATE TABLE admin_audit_log (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     admin_id    UUID REFERENCES users(id) ON DELETE SET NULL,
     action      TEXT        NOT NULL,
     target_type TEXT        NOT NULL,
