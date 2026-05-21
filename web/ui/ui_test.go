@@ -22,7 +22,7 @@ func renderComp(t *testing.T, name string, comp templ.Component) string {
 }
 
 func TestLoginPage(t *testing.T) {
-	html := renderComp(t, "LoginPage", ui.LoginPage("csrf-token-123", "", "", ""))
+	html := renderComp(t, "LoginPage", ui.LoginPage("csrf-token-123", "", "", "", ""))
 	if !strings.Contains(html, "csrf-token-123") {
 		t.Error("expected CSRF token in output")
 	}
@@ -32,7 +32,7 @@ func TestLoginPage(t *testing.T) {
 }
 
 func TestRegisterPage(t *testing.T) {
-	html := renderComp(t, "RegisterPage", ui.RegisterPage("csrf-xyz", "", ""))
+	html := renderComp(t, "RegisterPage", ui.RegisterPage("csrf-xyz", "", "", "", ""))
 	if !strings.Contains(html, "Create your account") {
 		t.Error("expected heading in output")
 	}
