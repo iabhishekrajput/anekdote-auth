@@ -3,11 +3,15 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func setupTestDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
@@ -24,9 +28,11 @@ func TestClientStore_GetByID_Success(t *testing.T) {
 
 	store := NewClientStore(db)
 
+	hash, _ := bcrypt.GenerateFromPassword([]byte("secret-abc"), bcrypt.MinCost)
+
 	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("client-123").
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).AddRow("secret-abc", "http://localhost", true, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).AddRow(string(hash), "http://localhost", true, nil))
 
 	client, err := store.GetByID(context.Background(), "client-123")
 	if err != nil {
@@ -36,8 +42,17 @@ func TestClientStore_GetByID_Success(t *testing.T) {
 	if client.GetID() != "client-123" {
 		t.Errorf("expected client-123, got %s", client.GetID())
 	}
-	if client.GetSecret() != "secret-abc" {
-		t.Errorf("expected secret-abc, got %s", client.GetSecret())
+	// Secrets are stored as bcrypt hashes; GetSecret() always returns "".
+	// Verify via the ClientPasswordVerifier interface instead.
+	cpv, ok := client.(oauth2.ClientPasswordVerifier)
+	if !ok {
+		t.Fatal("expected client to implement ClientPasswordVerifier")
+	}
+	if !cpv.VerifyPassword("secret-abc") {
+		t.Error("expected VerifyPassword to succeed for correct secret")
+	}
+	if cpv.VerifyPassword("wrong-secret") {
+		t.Error("expected VerifyPassword to fail for wrong secret")
 	}
 	if client.GetDomain() != "http://localhost" {
 		t.Errorf("expected http://localhost, got %s", client.GetDomain())
@@ -143,5 +158,198 @@ func TestUserStore_Updates(t *testing.T) {
 	err = store.UpdateVerified(userID)
 	if err != nil {
 		t.Errorf("UpdateVerified failed: %v", err)
+	}
+}
+
+// --- ClientStore new methods ---
+
+func TestClientStore_ListOrgClients_Empty(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectQuery(`SELECT id, name, domain, public, created_at FROM oauth2_clients WHERE org_id = \$1`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at"}))
+
+	clients, err := store.ListOrgClients(context.Background(), orgID)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(clients) != 0 {
+		t.Errorf("expected 0 clients, got %d", len(clients))
+	}
+}
+
+func TestClientStore_ListOrgClients_WithRows(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT id, name, domain, public, created_at FROM oauth2_clients WHERE org_id = \$1`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at"}).
+			AddRow("client-1", "My App", "https://example.com/cb", false, now).
+			AddRow("client-2", "SPA", "https://spa.example.com/cb", true, now))
+
+	clients, err := store.ListOrgClients(context.Background(), orgID)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("expected 2 clients, got %d", len(clients))
+	}
+	if clients[0].ID != "client-1" || clients[0].Name != "My App" {
+		t.Errorf("unexpected first client: %+v", clients[0])
+	}
+	if clients[1].Public != true {
+		t.Error("expected second client to be public")
+	}
+}
+
+func TestClientStore_CreateOrgClient_Confidential(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectExec(`INSERT INTO oauth2_clients`).
+		WithArgs(sqlmock.AnyArg(), "My App", sqlmock.AnyArg(), "https://example.com/cb", false, orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "My App", "https://example.com/cb", false)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if clientID == "" {
+		t.Error("expected non-empty clientID")
+	}
+	if !strings.HasPrefix(plainSecret, "key_") {
+		t.Errorf("expected secret to start with 'key_', got %q", plainSecret)
+	}
+}
+
+func TestClientStore_CreateOrgClient_Public(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectExec(`INSERT INTO oauth2_clients`).
+		WithArgs(sqlmock.AnyArg(), "SPA", "", "https://spa.example.com/cb", true, orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "SPA", "https://spa.example.com/cb", true)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if clientID == "" {
+		t.Error("expected non-empty clientID")
+	}
+	if plainSecret != "" {
+		t.Errorf("expected empty secret for public client, got %q", plainSecret)
+	}
+}
+
+func TestClientStore_DeleteOrgClient_Success(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectExec(`DELETE FROM oauth2_clients WHERE id = \$1 AND org_id = \$2`).
+		WithArgs("client-123", orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.DeleteOrgClient(context.Background(), "client-123", orgID); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestClientStore_DeleteOrgClient_CrossOrg(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectExec(`DELETE FROM oauth2_clients WHERE id = \$1 AND org_id = \$2`).
+		WithArgs("client-123", orgID).
+		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows → cross-org attempt
+
+	err := store.DeleteOrgClient(context.Background(), "client-123", orgID)
+	if !errors.Is(err, ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestClientStore_RotateOrgClientSecret_Success(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+		WithArgs("client-123", orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(false))
+	mock.ExpectExec(`UPDATE oauth2_clients SET secret = \$1 WHERE id = \$2 AND org_id = \$3`).
+		WithArgs(sqlmock.AnyArg(), "client-123", orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	newSecret, err := store.RotateOrgClientSecret(context.Background(), "client-123", orgID)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(newSecret, "key_") {
+		t.Errorf("expected secret to start with 'key_', got %q", newSecret)
+	}
+}
+
+func TestClientStore_RotateOrgClientSecret_ClientNotFound(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+		WithArgs("client-missing", orgID).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+
+	_, err := store.RotateOrgClientSecret(context.Background(), "client-missing", orgID)
+	if !errors.Is(err, ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestClientStore_RotateOrgClientSecret_PublicClient(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	orgID := uuid.New()
+	store := NewClientStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+		WithArgs("client-pub", orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(true))
+	mock.ExpectRollback()
+
+	_, err := store.RotateOrgClientSecret(context.Background(), "client-pub", orgID)
+	if err == nil {
+		t.Error("expected error for public client rotation")
 	}
 }

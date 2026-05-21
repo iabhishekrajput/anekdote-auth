@@ -61,7 +61,7 @@ func main() {
 
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
-	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer)
+	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer, rdb)
 
 	// 5. Initialize Mailer
 	mailSvc, err := mailer.NewMailer(cfg)
@@ -75,7 +75,7 @@ func main() {
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
-	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, cfg.AppURL)
+	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.AppURL)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
 	// 7. Init Router

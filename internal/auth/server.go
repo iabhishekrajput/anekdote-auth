@@ -7,6 +7,7 @@ import (
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/server"
 	oredis "github.com/go-oauth2/redis/v4"
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -19,6 +20,7 @@ func BuildServer(
 	keyStore *crypto.KeyStore,
 	orgReader OrgMembershipReader,
 	issuer string,
+	rdb *goredis.Client,
 ) *server.Server {
 	manager := manage.NewDefaultManager()
 
@@ -26,12 +28,13 @@ func BuildServer(
 	manager.MapClientStorage(clientStore)
 	manager.MapTokenStorage(tokenStore)
 
-	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader)
+	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader, rdb)
 	manager.MapAccessGenerate(jwtGen)
 
 	srv := server.NewDefaultServer(manager)
 	srv.SetAllowGetAccessRequest(false)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
+	srv.Config.ForcePKCE = true
 
 	manager.SetAuthorizeCodeExp(time.Minute * 10)
 

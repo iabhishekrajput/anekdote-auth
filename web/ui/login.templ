@@ -1,10 +1,10 @@
 package ui
 
-templ LoginPage(csrfToken string, req string, errorMsg string, successMsg string) {
-	@BaseLayout("Login - anekdote", LoginPageBody(csrfToken, req, errorMsg, successMsg))
+templ LoginPage(csrfToken, req, email, errorMsg, successMsg string) {
+	@BaseLayout("Login - anekdote", LoginPageBody(csrfToken, req, email, errorMsg, successMsg))
 }
 
-templ LoginPageBody(csrfToken string, req string, errorMsg string, successMsg string) {
+templ LoginPageBody(csrfToken, req, email, errorMsg, successMsg string) {
 	<div class="w-full space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow">
 		<div class="flex flex-col items-center gap-1.5 text-center">
 			<h2 class="text-xl font-semibold tracking-tight">Welcome back.</h2>
@@ -20,7 +20,7 @@ templ LoginPageBody(csrfToken string, req string, errorMsg string, successMsg st
 			}
 
 			<div class="flex flex-col gap-4">
-				@FormField("Email", "email", "", TextInput("email", "email", "email", "user@example.com", "", false))
+				@FormField("Email", "email", "", TextInput("email", "email", "email", "user@example.com", email, false))
 
 				<div class="flex flex-col gap-1.5">
 					<div class="flex items-center justify-between">

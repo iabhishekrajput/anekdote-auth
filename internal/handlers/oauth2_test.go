@@ -55,7 +55,7 @@ func setupOAuth2MockedHandler(t *testing.T) (*OAuth2Handler, sqlmock.Sqlmock, *m
 	}
 
 	// 4. Build Server
-	srv := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, nil, "http://localhost:8080")
+	srv := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, nil, "http://localhost:8080", rdb)
 
 	// 5. Build Handler
 	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, nil)
@@ -92,7 +92,10 @@ func TestAuthorize_LoggedIn_Consent(t *testing.T) {
 	// HandleAuthorizeRequest might not query the client store immediately before
 	// dropping into the userAuthorizeHandler. No sqlmock query expectation needed here.
 
-	req := httptest.NewRequest(http.MethodGet, "/oauth2/auth?client_id=test-client&response_type=code&redirect_uri=http://localhost/callback", nil)
+	// code_challenge is required (ForcePKCE=true). Min length 43. Method defaults to plain.
+	// The consent handler returns "" to halt processing before GetAuthorizeToken, so the
+	// verifier is never checked — any valid-length challenge works here.
+	req := httptest.NewRequest(http.MethodGet, "/oauth2/auth?client_id=test-client&response_type=code&redirect_uri=http://localhost/callback&code_challenge=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&code_challenge_method=plain", nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
 	rr := httptest.NewRecorder()
 

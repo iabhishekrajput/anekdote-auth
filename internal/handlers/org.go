@@ -21,6 +21,8 @@ import (
 	"github.com/justinas/nosurf"
 )
 
+const clientSecretFlashTTL = 60 * time.Second
+
 var (
 	slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
 
@@ -48,6 +50,7 @@ type OrgHandler struct {
 	userStore    *postgres.UserStore
 	clientStore  *postgres.ClientStore
 	sessionStore *redis.SessionStore
+	revocStore   *redis.RevocationStore
 	mailer       *mailer.Mailer
 	rdb          *goredis.Client
 	appURL       string
@@ -60,6 +63,7 @@ func NewOrgHandler(
 	sessionStore *redis.SessionStore,
 	mailSvc *mailer.Mailer,
 	rdb *goredis.Client,
+	revocStore *redis.RevocationStore,
 	appURL string,
 ) *OrgHandler {
 	return &OrgHandler{
@@ -67,6 +71,7 @@ func NewOrgHandler(
 		userStore:    userStore,
 		clientStore:  clientStore,
 		sessionStore: sessionStore,
+		revocStore:   revocStore,
 		mailer:       mailSvc,
 		rdb:          rdb,
 		appURL:       appURL,
@@ -172,7 +177,10 @@ func (h *OrgHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 	if !strings.EqualFold(currentUser.Email, inv.Email) {
-		http.Error(w, "This invite was sent to "+inv.Email+". Please log in with that account.", http.StatusForbidden)
+		logoutRedirect := "/login?req=" + url.QueryEscape("/join?token="+token)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = ui.InviteEmailMismatch(inv.Email, currentUser.Email, logoutRedirect, nosurf.Token(r)).Render(r.Context(), w)
 		return
 	}
 
@@ -392,6 +400,20 @@ func (h *OrgHandler) RemoveMember(w http.ResponseWriter, r *http.Request, ps htt
 	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Member removed"), http.StatusFound)
 }
 
+// storeSecretFlash saves a one-time secret in Redis for the POST→GET secret reveal flow.
+func (h *OrgHandler) storeSecretFlash(ctx context.Context, clientID, secret string) error {
+	return h.rdb.Set(ctx, "oauth:client-secret-flash:"+clientID, secret, clientSecretFlashTTL).Err()
+}
+
+// popSecretFlash atomically reads and deletes the flash secret (requires Redis >= 6.2.0).
+func (h *OrgHandler) popSecretFlash(ctx context.Context, clientID string) string {
+	val, err := h.rdb.GetDel(ctx, "oauth:client-secret-flash:"+clientID).Result()
+	if err != nil {
+		return ""
+	}
+	return val
+}
+
 // OrgClients handles GET /account/orgs/:slug/clients
 func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
@@ -409,11 +431,139 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 		return
 	}
 
+	newClientID := r.URL.Query().Get("newClientID")
+	newSecret := ""
+	if newClientID != "" {
+		newSecret = h.popSecretFlash(r.Context(), newClientID)
+	}
+
+	clients, _ := h.clientStore.ListOrgClients(r.Context(), org.ID)
 	isOwnerOrAdmin := role == "owner" || role == "admin"
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgClientsPage(csrfToken, org, isOwnerOrAdmin,
+	_ = ui.OrgClientsPage(csrfToken, org, isOwnerOrAdmin, clients, newClientID, newSecret,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
+// RegisterClient handles POST /account/orgs/:slug/clients
+func (h *OrgHandler) RegisterClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+	redirectBase := "/account/orgs/" + slug + "/clients"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	name := r.FormValue("name")
+	redirectURI := r.FormValue("redirect_uri")
+	isPublic := r.FormValue("public") == "on"
+
+	if len(name) == 0 || len(name) > 255 {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client name must be 1–255 characters"), http.StatusFound)
+		return
+	}
+	if err := validateRedirectURI(redirectURI); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	clientID, plainSecret, err := h.clientStore.CreateOrgClient(r.Context(), org.ID, name, redirectURI, isPublic)
+	if err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to register client"), http.StatusFound)
+		return
+	}
+
+	if plainSecret != "" {
+		if err := h.storeSecretFlash(r.Context(), clientID, plainSecret); err != nil {
+			http.Redirect(w, r, redirectBase+"?newClientID="+url.QueryEscape(clientID)+"&error="+url.QueryEscape("Client created but secret could not be saved. Click Rotate Secret to reveal a new one."), http.StatusFound)
+			return
+		}
+	}
+
+	http.Redirect(w, r, redirectBase+"?newClientID="+url.QueryEscape(clientID), http.StatusFound)
+}
+
+// DeleteClient handles POST /account/orgs/:slug/clients/:clientID/delete
+func (h *OrgHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+	redirectBase := "/account/orgs/" + slug + "/clients"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	if err := h.clientStore.DeleteOrgClient(r.Context(), clientID, org.ID); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client not found"), http.StatusFound)
+		return
+	}
+
+	// Best-effort: revoke all outstanding tokens issued to this client.
+	// Errors are non-fatal — the client row is already deleted and tokens
+	// will expire naturally within their TTL (~1 hour).
+	if h.revocStore != nil {
+		indexKey := "oauth:client-tokens:" + clientID
+		if jtis, err := h.rdb.SMembers(r.Context(), indexKey).Result(); err == nil && len(jtis) > 0 {
+			for _, jti := range jtis {
+				h.revocStore.RevokeJTI(r.Context(), jti, time.Hour)
+			}
+			h.rdb.Del(r.Context(), indexKey)
+		}
+	}
+
+	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Client deleted"), http.StatusFound)
+}
+
+// RotateClientSecret handles POST /account/orgs/:slug/clients/:clientID/rotate-secret
+func (h *OrgHandler) RotateClientSecret(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+	redirectBase := "/account/orgs/" + slug + "/clients"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	newSecret, err := h.clientStore.RotateOrgClientSecret(r.Context(), clientID, org.ID)
+	if err != nil {
+		msg := "Failed to rotate secret"
+		if errors.Is(err, postgres.ErrClientNotFound) {
+			msg = "Client not found"
+		}
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(msg), http.StatusFound)
+		return
+	}
+
+	if err := h.storeSecretFlash(r.Context(), clientID, newSecret); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Secret rotated but could not be displayed. Try rotating again."), http.StatusFound)
+		return
+	}
+
+	http.Redirect(w, r, redirectBase+"?newClientID="+url.QueryEscape(clientID), http.StatusFound)
 }
 
 // loadPendingInvites reads org:invites:{orgID} SET and fetches each invite payload,
@@ -451,4 +601,18 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
+}
+
+func validateRedirectURI(rawURI string) error {
+	if rawURI == "" {
+		return errors.New("redirect URI is required")
+	}
+	u, err := url.Parse(rawURI)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return errors.New("redirect URI must start with http:// or https://")
+	}
+	if strings.Contains(rawURI, "*") {
+		return errors.New("redirect URI must not contain wildcards")
+	}
+	return nil
 }

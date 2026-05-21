@@ -24,6 +24,19 @@ document.addEventListener('DOMContentLoaded', function () {
       setTimeout(function () { el.remove(); }, 200);
       return;
     }
+
+    var copyTarget = e.target.closest('[data-copy]');
+    if (copyTarget) {
+      var text = copyTarget.getAttribute('data-copy');
+      var orig = copyTarget.textContent;
+      navigator.clipboard.writeText(text).then(function () {
+        copyTarget.textContent = 'Copied!';
+        setTimeout(function () { copyTarget.textContent = orig; }, 2000);
+      }).catch(function () {
+        copyTarget.textContent = orig;
+      });
+      return;
+    }
   });
 
   // Password visibility toggle

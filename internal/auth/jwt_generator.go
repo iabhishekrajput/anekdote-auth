@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-oauth2/oauth2/v4"
 	oauth2errors "github.com/go-oauth2/oauth2/v4/errors"
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
@@ -28,13 +29,15 @@ type JWTGenerator struct {
 	keyStore *crypto.KeyStore
 	issuer   string
 	orgStore OrgMembershipReader
+	rdb      *goredis.Client
 }
 
-func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader) *JWTGenerator {
+func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, rdb *goredis.Client) *JWTGenerator {
 	return &JWTGenerator{
 		keyStore: keyStore,
 		issuer:   issuer,
 		orgStore: orgStore,
+		rdb:      rdb,
 	}
 }
 
@@ -76,6 +79,10 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 	access, err = token.SignedString(g.keyStore.PrivateKey)
 	if err != nil {
 		return "", "", errors.New("internal server error signing jwt")
+	}
+
+	if g.rdb != nil {
+		g.rdb.SAdd(ctx, "oauth:client-tokens:"+data.Client.GetID(), jti)
 	}
 
 	if isGenRefresh {

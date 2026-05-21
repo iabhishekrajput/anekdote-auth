@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
@@ -76,11 +77,14 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 
 	switch name {
 	case "register.tmpl":
-		component := ui.RegisterPage(csrfToken, errorMsg, successMsg)
+		inviteEmail, _ := data["InviteEmail"].(string)
+		inviteToken, _ := data["InviteToken"].(string)
+		component := ui.RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg)
 		_ = component.Render(r.Context(), w)
 	case "login.tmpl":
 		req, _ := data["Req"].(string)
-		component := ui.LoginPage(csrfToken, req, errorMsg, successMsg)
+		email, _ := data["Email"].(string)
+		component := ui.LoginPage(csrfToken, req, email, errorMsg, successMsg)
 		_ = component.Render(r.Context(), w)
 	case "forgot_password.tmpl":
 		component := ui.ForgotPasswordPage(csrfToken, errorMsg, successMsg)
@@ -101,37 +105,58 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 
 func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
-		h.render(w, r, "register.tmpl", nil)
+		data := map[string]interface{}{}
+		if tok := r.URL.Query().Get("invite"); tok != "" && h.rdb != nil {
+			if raw, err := h.rdb.Get(r.Context(), "org:invite:"+tok).Result(); err == nil {
+				var inv struct {
+					Email string `json:"email"`
+				}
+				if json.Unmarshal([]byte(raw), &inv) == nil && inv.Email != "" {
+					data["InviteEmail"] = inv.Email
+					data["InviteToken"] = tok
+				}
+			}
+		}
+		h.render(w, r, "register.tmpl", data)
 		return
 	}
 
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 	name := r.FormValue("name")
+	inviteToken := r.FormValue("invite_token")
+
+	inviteData := func(extra map[string]interface{}) map[string]interface{} {
+		if inviteToken != "" {
+			extra["InviteToken"] = inviteToken
+			extra["InviteEmail"] = email
+		}
+		return extra
+	}
 
 	if email == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
-		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Email and password required"})
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Email and password required"}))
 		return
 	}
 
 	if err := validatePassword(password); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": err.Error()})
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": err.Error()}))
 		return
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Server Error"})
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Server Error"}))
 		return
 	}
 
 	user, err := h.userStore.Create(email, name, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
-		h.render(w, r, "register.tmpl", map[string]interface{}{"Error": "Error creating user (maybe email exists)"})
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Error creating user (maybe email exists)"}))
 		return
 	}
 
@@ -149,7 +174,8 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 
 	// If this registration came from an invite link, store the token so
 	// VerifyEmailFunc can complete the org join after OTP verification.
-	if inviteToken := r.URL.Query().Get("invite"); inviteToken != "" && h.orgStore != nil {
+	// inviteToken comes from the hidden form field (the URL query param is lost on POST).
+	if inviteToken != "" && h.orgStore != nil {
 		_ = h.sessionStore.SetPendingInvite(context.Background(), user.ID, inviteToken)
 	}
 
@@ -273,9 +299,9 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 
 func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	if r.Method == http.MethodGet {
-		reqURI := r.URL.Query().Get("req")
 		h.render(w, r, "login.tmpl", map[string]interface{}{
-			"Req": reqURI,
+			"Req":   r.URL.Query().Get("req"),
+			"Email": r.URL.Query().Get("email"),
 		})
 		return
 	}
@@ -362,7 +388,11 @@ func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ h
 		HttpOnly: true,
 	})
 
-	http.Redirect(w, r, "/login", http.StatusFound)
+	redirectTo := "/login"
+	if next := r.FormValue("redirect_to"); strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+		redirectTo = next
+	}
+	http.Redirect(w, r, redirectTo, http.StatusFound)
 }
 
 func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

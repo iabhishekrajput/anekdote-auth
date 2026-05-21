@@ -2,13 +2,20 @@ package postgres
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"log"
+	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
-	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// ErrClientNotFound is returned when a client does not exist or does not belong to the given org.
+var ErrClientNotFound = errors.New("client not found or not in org")
 
 // OrgClientInfo wraps the library's ClientInfo and adds OrgID.
 // GetByID wraps ALL clients — existing clients with no org_id get OrgID=nil,
@@ -16,6 +23,47 @@ import (
 type OrgClientInfo struct {
 	oauth2.ClientInfo
 	OrgID *uuid.UUID
+}
+
+// VerifyPassword implements oauth2.ClientPasswordVerifier, delegating to the
+// inner ClientInfo if it also implements the interface. This allows go-oauth2's
+// manager to use bcrypt comparison instead of plaintext equality.
+func (c *OrgClientInfo) VerifyPassword(plain string) bool {
+	if cp, ok := c.ClientInfo.(oauth2.ClientPasswordVerifier); ok {
+		return cp.VerifyPassword(plain)
+	}
+	return plain == ""
+}
+
+// HashedClient is an oauth2.ClientInfo whose secret column stores a bcrypt hash.
+// GetSecret returns "" so go-oauth2 never uses the raw hash for equality checks;
+// VerifyPassword is the authorised comparison path.
+type HashedClient struct {
+	id     string
+	domain string
+	public bool
+	hash   string
+}
+
+func (c *HashedClient) GetID() string     { return c.id }
+func (c *HashedClient) GetSecret() string { return "" }
+func (c *HashedClient) GetDomain() string { return c.domain }
+func (c *HashedClient) IsPublic() bool    { return c.public }
+func (c *HashedClient) GetUserID() string { return "" }
+func (c *HashedClient) VerifyPassword(plain string) bool {
+	if c.hash == "" {
+		return plain == ""
+	}
+	return bcrypt.CompareHashAndPassword([]byte(c.hash), []byte(plain)) == nil
+}
+
+// OrgClient is a row from oauth2_clients scoped to an org.
+type OrgClient struct {
+	ID        string
+	Name      string
+	Domain    string
+	Public    bool
+	CreatedAt time.Time
 }
 
 // ClientStore implements oauth2.ClientStore interface using PostgreSQL
@@ -46,11 +94,124 @@ func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo
 		return nil, err
 	}
 
-	base := &models.Client{
-		ID:     id,
-		Secret: secret,
-		Domain: domain,
-		Public: public,
+	return &OrgClientInfo{ClientInfo: &HashedClient{
+		id:     id,
+		domain: domain,
+		public: public,
+		hash:   secret,
+	}, OrgID: orgID}, nil
+}
+
+// ListOrgClients returns all clients belonging to the given org, newest first.
+func (s *ClientStore) ListOrgClients(ctx context.Context, orgID uuid.UUID) ([]*OrgClient, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, name, domain, public, created_at FROM oauth2_clients WHERE org_id = $1 ORDER BY created_at DESC",
+		orgID,
+	)
+	if err != nil {
+		return nil, err
 	}
-	return &OrgClientInfo{ClientInfo: base, OrgID: orgID}, nil
+	defer rows.Close()
+
+	var clients []*OrgClient
+	for rows.Next() {
+		c := &OrgClient{}
+		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		clients = append(clients, c)
+	}
+	return clients, rows.Err()
+}
+
+// CreateOrgClient registers a new OAuth2 client scoped to the given org.
+// For confidential clients it returns the plaintext secret; for public clients it returns "".
+func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID uuid.UUID, name, redirectURI string, public bool) (clientID, plainSecret string, err error) {
+	clientID = uuid.New().String()
+	var storedSecret string
+	if !public {
+		plainSecret = generateClientSecret()
+		hash, hashErr := bcrypt.GenerateFromPassword([]byte(plainSecret), bcrypt.DefaultCost)
+		if hashErr != nil {
+			return "", "", hashErr
+		}
+		storedSecret = string(hash)
+	}
+	_, err = s.db.ExecContext(ctx,
+		"INSERT INTO oauth2_clients (id, name, secret, domain, public, org_id) VALUES ($1,$2,$3,$4,$5,$6)",
+		clientID, name, storedSecret, redirectURI, public, orgID,
+	)
+	if err != nil {
+		return "", "", err
+	}
+	return clientID, plainSecret, nil
+}
+
+// DeleteOrgClient removes a client that belongs to the given org.
+// Returns ErrClientNotFound if no matching row exists.
+func (s *ClientStore) DeleteOrgClient(ctx context.Context, clientID string, orgID uuid.UUID) error {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM oauth2_clients WHERE id = $1 AND org_id = $2",
+		clientID, orgID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
+// RotateOrgClientSecret generates and stores a new secret for a confidential org client.
+// Uses SELECT FOR UPDATE to prevent races. The secret is only returned after a successful commit.
+func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string, orgID uuid.UUID) (string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var isPublic bool
+	err = tx.QueryRowContext(ctx,
+		"SELECT public FROM oauth2_clients WHERE id = $1 AND org_id = $2 FOR UPDATE",
+		clientID, orgID,
+	).Scan(&isPublic)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrClientNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if isPublic {
+		return "", errors.New("cannot rotate secret for a public client")
+	}
+
+	newSecret := generateClientSecret()
+	hash, hashErr := bcrypt.GenerateFromPassword([]byte(newSecret), bcrypt.DefaultCost)
+	if hashErr != nil {
+		return "", hashErr
+	}
+	if _, err = tx.ExecContext(ctx,
+		"UPDATE oauth2_clients SET secret = $1 WHERE id = $2 AND org_id = $3",
+		string(hash), clientID, orgID,
+	); err != nil {
+		return "", err
+	}
+	if err = tx.Commit(); err != nil {
+		return "", err
+	}
+	return newSecret, nil
+}
+
+func generateClientSecret() string {
+	b := make([]byte, 30)
+	if _, err := rand.Read(b); err != nil {
+		log.Fatalf("crypto/rand unavailable: %v", err)
+	}
+	return "key_" + hex.EncodeToString(b)
 }

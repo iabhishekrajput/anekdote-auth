@@ -24,7 +24,7 @@ templ BaseLayout(title string, body templ.Component) {
 	</html>
 }
 
-templ AccountLayout(title string, currentPath string, body templ.Component) {
+templ AccountLayout(title string, currentPath string, csrfToken string, body templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -40,16 +40,34 @@ templ AccountLayout(title string, currentPath string, body templ.Component) {
 			<header class="border-b border-zinc-800 px-6 py-3">
 				<div class="mx-auto flex max-w-4xl items-center justify-between">
 					@Logo("sm")
-					<nav class="flex items-center gap-1">
-						<a
-							href="/account"
-							class={ accountNavClass(currentPath, "/account") }
-						>Settings</a>
-						<a
-							href="/account/orgs"
-							class={ accountNavClass(currentPath, "/account/orgs") }
-						>Organizations</a>
-					</nav>
+					<div class="flex items-center gap-2">
+						<nav class="flex items-center gap-1">
+							<a
+								href="/account"
+								class={ accountNavClass(currentPath, "/account") }
+							>Settings</a>
+							<a
+								href="/account/orgs"
+								class={ accountNavClass(currentPath, "/account/orgs") }
+							>Organizations</a>
+						</nav>
+						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
+						<form method="POST" action="/logout">
+							<input type="hidden" name="csrf_token" value={ csrfToken }/>
+							<button
+								type="submit"
+								title="Sign out"
+								aria-label="Sign out"
+								class="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900 transition-colors duration-150"
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+									<polyline points="16 17 21 12 16 7"></polyline>
+									<line x1="21" y1="12" x2="9" y2="12"></line>
+								</svg>
+							</button>
+						</form>
+					</div>
 				</div>
 			</header>
 			<main class="mx-auto max-w-4xl px-6 py-8">

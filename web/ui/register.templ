@@ -1,10 +1,12 @@
 package ui
 
-templ RegisterPage(csrfToken string, errorMsg string, successMsg string) {
-	@BaseLayout("Register - anekdote", RegisterPageBody(csrfToken, errorMsg, successMsg))
+import "net/url"
+
+templ RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg string) {
+	@BaseLayout("Register - anekdote", RegisterPageBody(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg))
 }
 
-templ RegisterPageBody(csrfToken string, errorMsg string, successMsg string) {
+templ RegisterPageBody(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg string) {
 	<div class="w-full space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow">
 		<div class="flex flex-col items-center gap-1.5 text-center">
 			<h2 class="text-xl font-semibold tracking-tight">Create your account</h2>
@@ -15,10 +17,27 @@ templ RegisterPageBody(csrfToken string, errorMsg string, successMsg string) {
 
 		<form method="POST" action="/register" class="flex flex-col gap-5">
 			<input type="hidden" name="csrf_token" value={ csrfToken } />
+			if inviteToken != "" {
+				<input type="hidden" name="invite_token" value={ inviteToken } />
+			}
 
 			<div class="flex flex-col gap-4">
 				@FormField("Full name", "name", "", TextInput("name", "name", "text", "Jane Doe", "", false))
-				@FormField("Email address", "email", "", TextInput("email", "email", "email", "user@example.com", "", false))
+				if inviteEmail != "" {
+					<div class="flex flex-col gap-1.5">
+						<label for="email" class="text-sm font-medium text-zinc-50">Email address</label>
+						<input
+							type="email"
+							id="email"
+							name="email"
+							value={ inviteEmail }
+							readonly
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-400 outline-none cursor-not-allowed opacity-60"
+						/>
+					</div>
+				} else {
+					@FormField("Email address", "email", "", TextInput("email", "email", "email", "user@example.com", "", false))
+				}
 
 				<div class="flex flex-col gap-1.5">
 					<label for="password" class="text-sm font-medium text-zinc-50">Password</label>
@@ -55,12 +74,21 @@ templ RegisterPageBody(csrfToken string, errorMsg string, successMsg string) {
 
 		<p class="text-center text-xs text-zinc-400">
 			Already have an account?
-			<a
-				href="/login"
-				class="ml-1 font-medium text-zinc-50 hover:text-brand transition-colors duration-150"
-			>
-				Sign in →
-			</a>
+			if inviteToken != "" {
+				<a
+					href={ templ.SafeURL("/login?req=" + url.QueryEscape("/join?token="+inviteToken) + "&email=" + url.QueryEscape(inviteEmail)) }
+					class="ml-1 font-medium text-zinc-50 hover:text-brand transition-colors duration-150"
+				>
+					Sign in →
+				</a>
+			} else {
+				<a
+					href="/login"
+					class="ml-1 font-medium text-zinc-50 hover:text-brand transition-colors duration-150"
+				>
+					Sign in →
+				</a>
+			}
 		</p>
 	</div>
 }

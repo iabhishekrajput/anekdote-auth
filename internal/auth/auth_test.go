@@ -25,6 +25,7 @@ func TestBuildServer(t *testing.T) {
 		&crypto.KeyStore{},
 		nil, // orgReader — nil is valid (no org membership checks)
 		"http://localhost",
+		nil, // rdb — nil disables token-index tracking
 	)
 
 	if srv == nil {
@@ -47,7 +48,7 @@ func TestJWTGenerator_Token(t *testing.T) {
 		PublicKey:  &privateKey.PublicKey,
 	}
 
-	gen := NewJWTGenerator(keyStore, "http://issuer", nil)
+	gen := NewJWTGenerator(keyStore, "http://issuer", nil, nil)
 
 	client := &models.Client{ID: "client-id"}
 	tokenInfo := &models.Token{

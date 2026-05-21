@@ -279,3 +279,61 @@ func TestResetPasswordFunc_Success(t *testing.T) {
 		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
 	}
 }
+
+func TestLogoutFunc_WithRedirectTo(t *testing.T) {
+	handler, _, mr := setupMockedHandler(t)
+	defer mr.Close()
+
+	dest := "/login?req=%2Fjoin%3Ftoken%3Dabc123"
+	form := url.Values{}
+	form.Set("redirect_to", dest)
+	req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	handler.LogoutFunc(rr, req, nil)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != dest {
+		t.Errorf("expected redirect to %q, got %q", dest, loc)
+	}
+}
+
+func TestLogoutFunc_NoRedirectTo(t *testing.T) {
+	handler, _, mr := setupMockedHandler(t)
+	defer mr.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	rr := httptest.NewRecorder()
+
+	handler.LogoutFunc(rr, req, nil)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/login" {
+		t.Errorf("expected redirect to /login, got %q", loc)
+	}
+}
+
+func TestLogoutFunc_OpenRedirectGuard(t *testing.T) {
+	handler, _, mr := setupMockedHandler(t)
+	defer mr.Close()
+
+	cases := []string{"//evil.com", "//evil.com/path", "http://evil.com", "https://evil.com"}
+	for _, bad := range cases {
+		form := url.Values{}
+		form.Set("redirect_to", bad)
+		req := httptest.NewRequest(http.MethodPost, "/logout", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		handler.LogoutFunc(rr, req, nil)
+
+		if loc := rr.Header().Get("Location"); loc != "/login" {
+			t.Errorf("redirect_to=%q: expected /login, got %q", bad, loc)
+		}
+	}
+}

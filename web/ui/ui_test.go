@@ -117,9 +117,28 @@ func TestOrgDetailPage(t *testing.T) {
 
 func TestOrgClientsPage(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgClientsPage", ui.OrgClientsPage("csrf-xyz", org, true, "", ""))
+	html := renderComp(t, "OrgClientsPage", ui.OrgClientsPage("csrf-xyz", org, true, nil, "", "", "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
+	}
+}
+
+func TestOrgClientsPageWithSecret(t *testing.T) {
+	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
+	html := renderComp(t, "OrgClientsPageWithSecret", ui.OrgClientsPage("csrf-xyz", org, true, nil, "client-id-123", "key_abc123", "", ""))
+	if !strings.Contains(html, "Save your client secret") {
+		t.Error("expected secret modal in output")
+	}
+	if !strings.Contains(html, "key_abc123") {
+		t.Error("expected secret value in output")
+	}
+}
+
+func TestOrgClientsPageNonAdmin(t *testing.T) {
+	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
+	html := renderComp(t, "OrgClientsPageNonAdmin", ui.OrgClientsPage("csrf-xyz", org, false, nil, "", "", "", ""))
+	if strings.Contains(html, "Register client") {
+		t.Error("non-admin should not see register button")
 	}
 }
 
