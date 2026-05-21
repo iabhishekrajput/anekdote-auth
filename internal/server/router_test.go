@@ -6,6 +6,7 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
+	pgstore "github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	redisstore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 )
 
@@ -21,8 +22,10 @@ func TestNewRouter(t *testing.T) {
 		&handlers.DiscoveryHandler{},
 		&handlers.AccountHandler{},
 		&handlers.OrgHandler{},
+		&handlers.AdminHandler{},
 		&handlers.ProbeHandler{},
 		&redisstore.SessionStore{},
+		&pgstore.UserStore{},
 		&redis.Client{},
 	)
 

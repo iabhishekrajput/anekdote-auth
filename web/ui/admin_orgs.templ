@@ -1,0 +1,117 @@
+package ui
+
+import (
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
+
+templ AdminOrgList(csrfToken string, orgs []postgres.AdminOrgItem, errorMsg, successMsg string) {
+	@AdminLayout("Orgs - Admin", "/admin/orgs", csrfToken, adminOrgListBody(orgs, errorMsg, successMsg))
+}
+
+templ adminOrgListBody(orgs []postgres.AdminOrgItem, errorMsg, successMsg string) {
+	<div class="space-y-4">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">Organizations</h1>
+			<p class="text-sm text-zinc-400">{ intToStr(len(orgs)) } orgs on the platform</p>
+		</div>
+		@AlertContainer(errorMsg, successMsg)
+		<div class="rounded-lg border border-zinc-800 overflow-hidden">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-zinc-800 bg-zinc-900/60">
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Name</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Slug</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Members</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Clients</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Created</th>
+						<th class="px-4 py-2.5"></th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(orgs) == 0 {
+						<tr>
+							<td colspan="6" class="px-4 py-8 text-center text-zinc-500">No organizations yet.</td>
+						</tr>
+					}
+					for _, o := range orgs {
+						<tr class="border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40">
+							<td class="px-4 py-3 font-medium text-zinc-200">{ o.Org.DisplayName }</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-400">{ o.Org.Slug }</td>
+							<td class="px-4 py-3 tabular-nums text-zinc-300">{ intToStr(o.MemberCount) }</td>
+							<td class="px-4 py-3 tabular-nums text-zinc-300">{ intToStr(o.ClientCount) }</td>
+							<td class="px-4 py-3 text-xs text-zinc-500">{ o.Org.CreatedAt.Format("2006-01-02") }</td>
+							<td class="px-4 py-3 text-right">
+								<a href={ templ.SafeURL("/admin/orgs/" + o.Org.Slug) } class="text-xs text-brand hover:underline">Manage</a>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}
+
+templ AdminOrgDetail(csrfToken string, org *models.Org, members []*models.OrgMembership, errorMsg, successMsg string) {
+	@AdminLayout("Org Detail - Admin", "/admin/orgs", csrfToken, adminOrgDetailBody(csrfToken, org, members, errorMsg, successMsg))
+}
+
+templ adminOrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, errorMsg, successMsg string) {
+	<div class="space-y-6 max-w-2xl">
+		<div class="flex items-center gap-3">
+			<a href="/admin/orgs" class="text-sm text-zinc-400 hover:text-zinc-200">← Orgs</a>
+		</div>
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
+			<p class="text-sm text-zinc-400">{ org.Slug }</p>
+		</div>
+		@AlertContainer(errorMsg, successMsg)
+		<div class="rounded-lg border border-zinc-800 overflow-hidden">
+			<div class="border-b border-zinc-800 px-4 py-3">
+				<h2 class="text-sm font-medium">Members</h2>
+			</div>
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-zinc-800 bg-zinc-900/60">
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Email</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Role</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Joined</th>
+						<th class="px-4 py-2.5"></th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(members) == 0 {
+						<tr>
+							<td colspan="4" class="px-4 py-6 text-center text-zinc-500">No members.</td>
+						</tr>
+					}
+					for _, m := range members {
+						<tr class="border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40">
+							<td class="px-4 py-3 font-mono text-xs text-zinc-200">{ m.UserEmail }</td>
+							<td class="px-4 py-3">
+								if m.Role == "owner" {
+									<span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400">Owner</span>
+								} else {
+									<span class="text-xs text-zinc-400">{ m.Role }</span>
+								}
+							</td>
+							<td class="px-4 py-3 text-xs text-zinc-500">{ m.JoinedAt.Format("2006-01-02") }</td>
+							<td class="px-4 py-3 text-right">
+								if m.Role != "owner" {
+									<form
+										method="POST"
+										action={ templ.SafeURL("/admin/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") }
+										data-confirm={ "Remove " + m.UserEmail + " from " + org.DisplayName + "?" }
+									>
+										<input type="hidden" name="csrf_token" value={ csrfToken }/>
+										<button type="submit" class="text-xs text-red-400 hover:text-red-300 hover:underline">Remove</button>
+									</form>
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	</div>
+}

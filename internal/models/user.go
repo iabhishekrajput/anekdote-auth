@@ -12,6 +12,7 @@ type User struct {
 	Name         string
 	PasswordHash string
 	IsVerified   bool
+	DisabledAt   *time.Time
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }

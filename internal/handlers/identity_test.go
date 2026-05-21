@@ -133,8 +133,8 @@ func TestLoginFunc_Success(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
-		AddRow(userID, "login@example.com", "Test User", string(hash), true, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "login@example.com", "Test User", string(hash), true, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("login@example.com").
@@ -223,8 +223,8 @@ func TestForgotPasswordFunc_Success(t *testing.T) {
 	defer mr.Close()
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
-		AddRow(userID, "forgot@example.com", "Test User", "hash", true, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "forgot@example.com", "Test User", "hash", true, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("forgot@example.com").

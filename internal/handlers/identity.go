@@ -335,6 +335,15 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 
 	h.sessionStore.ResetFailedLogin(context.Background(), email)
 
+	if user.DisabledAt != nil {
+		w.WriteHeader(http.StatusForbidden)
+		h.render(w, r, "login.tmpl", map[string]interface{}{
+			"Error": "Your account has been disabled. Contact your administrator.",
+			"Req":   oauthReq,
+		})
+		return
+	}
+
 	if !user.IsVerified {
 		w.WriteHeader(http.StatusForbidden)
 		h.render(w, r, "login.tmpl", map[string]interface{}{

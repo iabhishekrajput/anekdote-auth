@@ -90,8 +90,8 @@ func TestUserStore_GetByEmail(t *testing.T) {
 	userID := uuid.New()
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
-			AddRow(userID, "test@example.com", "Test Name", "hash", true, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+			AddRow(userID, "test@example.com", "Test Name", "hash", true, nil, time.Now(), time.Now()))
 
 	user, err := store.GetByEmail("test@example.com")
 	if err != nil {

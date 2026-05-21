@@ -1,0 +1,103 @@
+package ui
+
+import "strconv"
+
+templ AdminLayout(title string, currentPath string, csrfToken string, body templ.Component) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title }</title>
+			<link rel="preconnect" href="https://fonts.googleapis.com"/>
+			<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body class="min-h-screen bg-zinc-950 text-zinc-50">
+			<header class="border-b border-zinc-800 px-6 py-3">
+				<div class="mx-auto flex max-w-5xl items-center justify-between">
+					<div class="flex items-center gap-3">
+						@Logo("sm")
+						<span class="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 uppercase tracking-wide">Admin</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<nav class="flex items-center gap-1">
+							<a href="/admin" class={ adminNavClass(currentPath, "/admin") }>Dashboard</a>
+							<a href="/admin/users" class={ adminNavClass(currentPath, "/admin/users") }>Users</a>
+							<a href="/admin/clients" class={ adminNavClass(currentPath, "/admin/clients") }>Clients</a>
+							<a href="/admin/orgs" class={ adminNavClass(currentPath, "/admin/orgs") }>Orgs</a>
+						</nav>
+						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
+						<form method="POST" action="/logout">
+							<input type="hidden" name="csrf_token" value={ csrfToken }/>
+							<button
+								type="submit"
+								title="Sign out"
+								aria-label="Sign out"
+								class="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900 transition-colors duration-150"
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+									<polyline points="16 17 21 12 16 7"></polyline>
+									<line x1="21" y1="12" x2="9" y2="12"></line>
+								</svg>
+							</button>
+						</form>
+					</div>
+				</div>
+			</header>
+			<main class="mx-auto max-w-5xl px-6 py-8">
+				@body
+			</main>
+			<script src="/static/app.js"></script>
+		</body>
+	</html>
+}
+
+func adminNavClass(currentPath, target string) string {
+	base := "px-3 py-1.5 rounded-md text-sm transition-colors duration-150 "
+	if currentPath == target || (len(currentPath) > len(target) && currentPath[:len(target)] == target && target != "/admin") {
+		return base + "bg-zinc-800 text-brand font-medium"
+	}
+	return base + "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900"
+}
+
+templ AdminDashboard(csrfToken string, userCount, orgCount, clientCount int) {
+	@AdminLayout("Admin Dashboard - anekdote", "/admin", csrfToken, adminDashboardBody(userCount, orgCount, clientCount))
+}
+
+templ adminDashboardBody(userCount, orgCount, clientCount int) {
+	<div class="space-y-6">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">Platform Overview</h1>
+			<p class="text-sm text-zinc-400">Live stats across all tenants.</p>
+		</div>
+		<div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+			<a href="/admin/users" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
+				<p class="text-sm text-zinc-400">Total users</p>
+				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(userCount) }</p>
+			</a>
+			<a href="/admin/orgs" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
+				<p class="text-sm text-zinc-400">Organizations</p>
+				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(orgCount) }</p>
+			</a>
+			<a href="/admin/clients" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
+				<p class="text-sm text-zinc-400">OAuth2 clients</p>
+				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(clientCount) }</p>
+			</a>
+		</div>
+		<div class="rounded-lg border border-zinc-800 p-5 text-sm text-zinc-400 space-y-1">
+			<p class="font-medium text-zinc-300">Quick links</p>
+			<ul class="list-disc list-inside space-y-1 mt-2">
+				<li><a href="/admin/users" class="text-brand hover:underline">View all users →</a></li>
+				<li><a href="/admin/clients" class="text-brand hover:underline">View all OAuth clients →</a></li>
+				<li><a href="/admin/orgs" class="text-brand hover:underline">View all organizations →</a></li>
+			</ul>
+		</div>
+	</div>
+}
+
+func intToStr(n int) string {
+	return strconv.Itoa(n)
+}

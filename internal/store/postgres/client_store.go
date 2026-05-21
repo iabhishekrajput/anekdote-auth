@@ -208,6 +208,65 @@ func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string
 	return newSecret, nil
 }
 
+// AdminClientItem is used by the admin panel for the client list view.
+type AdminClientItem struct {
+	ID        string
+	Name      string
+	Domain    string
+	Public    bool
+	OrgSlug   string
+	OrgName   string
+	CreatedAt time.Time
+}
+
+// ListAll returns all OAuth2 clients across all orgs, newest first.
+func (s *ClientStore) ListAll(ctx context.Context) ([]*AdminClientItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.id, c.name, c.domain, c.public, c.created_at,
+		        COALESCE(o.slug, '') AS org_slug, COALESCE(o.display_name, '') AS org_name
+		 FROM oauth2_clients c
+		 LEFT JOIN organizations o ON o.id = c.org_id
+		 ORDER BY c.created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var clients []*AdminClientItem
+	for rows.Next() {
+		c := &AdminClientItem{}
+		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.CreatedAt, &c.OrgSlug, &c.OrgName); err != nil {
+			return nil, err
+		}
+		clients = append(clients, c)
+	}
+	return clients, rows.Err()
+}
+
+// CountAll returns the total number of OAuth2 clients.
+func (s *ClientStore) CountAll(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth2_clients`).Scan(&count)
+	return count, err
+}
+
+// DeleteAny removes a client by ID regardless of org (admin-only operation).
+func (s *ClientStore) DeleteAny(ctx context.Context, clientID string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM oauth2_clients WHERE id = $1`, clientID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrClientNotFound
+	}
+	return nil
+}
+
 func generateClientSecret() string {
 	b := make([]byte, 30)
 	if _, err := rand.Read(b); err != nil {

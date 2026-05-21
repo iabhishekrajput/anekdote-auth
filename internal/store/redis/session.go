@@ -165,6 +165,33 @@ func (s *SessionStore) SetPendingInvite(ctx context.Context, userID uuid.UUID, i
 	return s.client.Set(ctx, key, inviteToken, pendingInviteTTL).Err()
 }
 
+// DeleteAllForUser scans all session keys and deletes any belonging to userID.
+// Used by the admin panel when disabling an account to immediately revoke active sessions.
+func (s *SessionStore) DeleteAllForUser(ctx context.Context, userID uuid.UUID) error {
+	target := userID.String()
+	var cursor uint64
+	for {
+		keys, next, err := s.client.Scan(ctx, cursor, "session:*", 100).Result()
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			val, err := s.client.Get(ctx, key).Result()
+			if err != nil {
+				continue
+			}
+			if val == target {
+				s.client.Del(ctx, key)
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
+}
+
 // GetAndDeletePendingInvite reads and atomically deletes the pending invite token.
 // Returns ("", nil) if no pending invite exists — not an error.
 func (s *SessionStore) GetAndDeletePendingInvite(ctx context.Context, userID uuid.UUID) (string, error) {

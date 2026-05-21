@@ -255,3 +255,45 @@ func (s *OrgStore) CountClients(ctx context.Context, orgID uuid.UUID) (int, erro
 	).Scan(&count)
 	return count, err
 }
+
+// AdminOrgItem is used by the admin panel for the org list view.
+type AdminOrgItem struct {
+	Org         models.Org
+	MemberCount int
+	ClientCount int
+}
+
+// ListAll returns all orgs with member and client counts, newest first.
+func (s *OrgStore) ListAll(ctx context.Context) ([]AdminOrgItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT o.id, o.slug, o.display_name, o.owner_id, o.created_at, o.updated_at,
+		        (SELECT COUNT(*) FROM org_memberships m WHERE m.org_id = o.id AND m.removed_at IS NULL) AS member_count,
+		        (SELECT COUNT(*) FROM oauth2_clients c WHERE c.org_id = o.id) AS client_count
+		 FROM organizations o ORDER BY o.created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []AdminOrgItem
+	for rows.Next() {
+		var item AdminOrgItem
+		if err := rows.Scan(
+			&item.Org.ID, &item.Org.Slug, &item.Org.DisplayName, &item.Org.OwnerID,
+			&item.Org.CreatedAt, &item.Org.UpdatedAt,
+			&item.MemberCount, &item.ClientCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// CountAll returns the total number of orgs.
+func (s *OrgStore) CountAll(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM organizations`).Scan(&count)
+	return count, err
+}

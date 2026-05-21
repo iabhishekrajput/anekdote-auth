@@ -9,6 +9,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/middleware"
+	pgstore "github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	redisstore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/julienschmidt/httprouter"
 )
@@ -20,8 +21,10 @@ func NewRouter(
 	discH *handlers.DiscoveryHandler,
 	accountH *handlers.AccountHandler,
 	orgH *handlers.OrgHandler,
+	adminH *handlers.AdminHandler,
 	probeH *handlers.ProbeHandler,
 	sessionStore *redisstore.SessionStore,
+	userStore *pgstore.UserStore,
 	redisClient *redis.Client,
 ) *httprouter.Router {
 	router := httprouter.New()
@@ -44,6 +47,10 @@ func NewRouter(
 
 	secureUnauth := func(h httprouter.Handle) httprouter.Handle {
 		return secure(authRateLimit(middleware.RedirectIfAuthenticated(sessionStore, h)))
+	}
+
+	requireAdmin := func(h httprouter.Handle) httprouter.Handle {
+		return secure(middleware.RequireAdmin(cfg, sessionStore, userStore, h))
 	}
 
 	// 1. Identity Endpoints (UI / Form Submissions)
@@ -84,6 +91,18 @@ func NewRouter(
 	router.POST("/account/orgs/:slug/clients", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RegisterClient))))
 	router.POST("/account/orgs/:slug/clients/:clientID/delete", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.DeleteClient))))
 	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RotateClientSecret))))
+
+	// Admin routes — all behind RequireAdmin
+	router.GET("/admin", requireAdmin(adminH.Dashboard))
+	router.GET("/admin/users", requireAdmin(adminH.UserList))
+	router.GET("/admin/users/:id", requireAdmin(adminH.UserDetail))
+	router.POST("/admin/users/:id/disable", requireAdmin(adminH.DisableUser))
+	router.POST("/admin/users/:id/enable", requireAdmin(adminH.EnableUser))
+	router.GET("/admin/clients", requireAdmin(adminH.ClientList))
+	router.POST("/admin/clients/:id/delete", requireAdmin(adminH.DeleteClient))
+	router.GET("/admin/orgs", requireAdmin(adminH.OrgList))
+	router.GET("/admin/orgs/:slug", requireAdmin(adminH.OrgDetail))
+	router.POST("/admin/orgs/:slug/members/:user_id/remove", requireAdmin(adminH.RemoveOrgMember))
 
 	// 2. OAuth2 Endpoints
 	router.GET("/authorize", secure(oauthH.Authorize))

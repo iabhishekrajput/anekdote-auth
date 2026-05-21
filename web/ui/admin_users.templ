@@ -1,0 +1,151 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
+
+templ AdminUserList(csrfToken string, users []*postgres.UserListItem, page, total, pageSize int, errorMsg, successMsg string) {
+	@AdminLayout("Users - Admin", "/admin/users", csrfToken, adminUserListBody(csrfToken, users, page, total, pageSize, errorMsg, successMsg))
+}
+
+templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, total, pageSize int, errorMsg, successMsg string) {
+	<div class="space-y-4">
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Users</h1>
+				<p class="text-sm text-zinc-400">{ intToStr(total) } total</p>
+			</div>
+		</div>
+		@AlertContainer(errorMsg, successMsg)
+		<div class="rounded-lg border border-zinc-800 overflow-hidden">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-zinc-800 bg-zinc-900/60">
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Email</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Name</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Verified</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Status</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Joined</th>
+						<th class="px-4 py-2.5"></th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(users) == 0 {
+						<tr>
+							<td colspan="6" class="px-4 py-8 text-center text-zinc-500">No users found.</td>
+						</tr>
+					}
+					for _, u := range users {
+						<tr class="border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40">
+							<td class="px-4 py-3 font-mono text-xs text-zinc-200">{ u.Email }</td>
+							<td class="px-4 py-3 text-zinc-300">{ u.Name }</td>
+							<td class="px-4 py-3">
+								if u.IsVerified {
+									<span class="text-xs text-emerald-400">Yes</span>
+								} else {
+									<span class="text-xs text-zinc-500">No</span>
+								}
+							</td>
+							<td class="px-4 py-3">
+								if u.DisabledAt != nil {
+									<span class="rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-400">Disabled</span>
+								} else {
+									<span class="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400">Active</span>
+								}
+							</td>
+							<td class="px-4 py-3 text-xs text-zinc-500">{ u.CreatedAt.Format("2006-01-02") }</td>
+							<td class="px-4 py-3 text-right">
+								<a href={ templ.SafeURL("/admin/users/" + u.ID.String()) } class="text-xs text-brand hover:underline">View</a>
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if total > pageSize {
+			<div class="flex items-center justify-between text-sm text-zinc-400">
+				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
+				<div class="flex gap-2">
+					if page > 1 {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/users?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
+					}
+					if page*pageSize < total {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/users?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ AdminUserDetail(csrfToken string, user *models.User, orgs interface{}, errorMsg, successMsg string) {
+	@AdminLayout("User Detail - Admin", "/admin/users", csrfToken, adminUserDetailBody(csrfToken, user, errorMsg, successMsg))
+}
+
+templ adminUserDetailBody(csrfToken string, user *models.User, errorMsg, successMsg string) {
+	<div class="space-y-6 max-w-2xl">
+		<div class="flex items-center gap-3">
+			<a href="/admin/users" class="text-sm text-zinc-400 hover:text-zinc-200">← Users</a>
+		</div>
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ user.Email }</h1>
+			<p class="text-sm text-zinc-400">User ID: { user.ID.String() }</p>
+		</div>
+		@AlertContainer(errorMsg, successMsg)
+		<div class="rounded-lg border border-zinc-800 divide-y divide-zinc-800">
+			<div class="px-4 py-3">
+				<p class="text-xs text-zinc-500 uppercase tracking-wide">Profile</p>
+			</div>
+			<div class="px-4 py-3 flex justify-between text-sm">
+				<span class="text-zinc-400">Name</span>
+				<span class="text-zinc-200">{ user.Name }</span>
+			</div>
+			<div class="px-4 py-3 flex justify-between text-sm">
+				<span class="text-zinc-400">Email verified</span>
+				if user.IsVerified {
+					<span class="text-emerald-400">Yes</span>
+				} else {
+					<span class="text-zinc-500">No</span>
+				}
+			</div>
+			<div class="px-4 py-3 flex justify-between text-sm">
+				<span class="text-zinc-400">Status</span>
+				if user.DisabledAt != nil {
+					<span class="text-red-400">Disabled since { user.DisabledAt.Format("2006-01-02 15:04 UTC") }</span>
+				} else {
+					<span class="text-emerald-400">Active</span>
+				}
+			</div>
+			<div class="px-4 py-3 flex justify-between text-sm">
+				<span class="text-zinc-400">Joined</span>
+				<span class="text-zinc-300">{ user.CreatedAt.Format("2006-01-02 15:04 UTC") }</span>
+			</div>
+		</div>
+		<div class="rounded-lg border border-zinc-800 p-4 space-y-3">
+			<p class="text-sm font-medium text-zinc-300">Account actions</p>
+			if user.DisabledAt != nil {
+				<form method="POST" action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/enable") }>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<button
+						type="submit"
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-700 px-3 text-sm text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+					>Re-enable account</button>
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/disable") }
+					data-confirm="Disable this user and revoke all their active sessions?"
+				>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<button
+						type="submit"
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-800 px-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+					>Disable account</button>
+				</form>
+			}
+		</div>
+	</div>
+}

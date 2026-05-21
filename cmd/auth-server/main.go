@@ -80,10 +80,11 @@ func main() {
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.AppURL)
+	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
 	// 7. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, probeH, sessionStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{
