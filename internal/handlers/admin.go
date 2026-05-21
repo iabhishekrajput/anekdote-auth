@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -62,12 +62,21 @@ func (h *AdminHandler) UserList(w http.ResponseWriter, r *http.Request, _ httpro
 		page = p
 	}
 	const pageSize = 50
-	users, _ := h.userStore.ListAll(ctx, pageSize, (page-1)*pageSize)
-	total, _ := h.userStore.CountAll(ctx)
-
+	users, listErr := h.userStore.ListAll(ctx, pageSize, (page-1)*pageSize)
+	if listErr != nil {
+		slog.Error("admin: list users", "err", listErr)
+	}
+	total, countErr := h.userStore.CountAll(ctx)
+	if countErr != nil {
+		slog.Error("admin: count users", "err", countErr)
+	}
+	errMsg := r.URL.Query().Get("error")
+	if (listErr != nil || countErr != nil) && errMsg == "" {
+		errMsg = "Database error — data may be incomplete"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.AdminUserList(nosurf.Token(r), users, page, total, pageSize,
-		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(ctx, w)
+		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
 func (h *AdminHandler) UserDetail(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -96,7 +105,11 @@ func (h *AdminHandler) DisableUser(w http.ResponseWriter, r *http.Request, ps ht
 		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
 		return
 	}
-	adminID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
 	if id == adminID {
 		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("You cannot disable your own account"), http.StatusFound)
 		return
@@ -125,11 +138,17 @@ func (h *AdminHandler) EnableUser(w http.ResponseWriter, r *http.Request, ps htt
 
 func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	clients, _ := h.clientStore.ListAll(ctx)
-
+	clients, listErr := h.clientStore.ListAll(ctx)
+	if listErr != nil {
+		slog.Error("admin: list clients", "err", listErr)
+	}
+	errMsg := r.URL.Query().Get("error")
+	if listErr != nil && errMsg == "" {
+		errMsg = "Database error — data may be incomplete"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.AdminClientList(nosurf.Token(r), clients,
-		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(ctx, w)
+		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
 func (h *AdminHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -148,11 +167,17 @@ func (h *AdminHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps h
 
 func (h *AdminHandler) OrgList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	orgs, _ := h.orgStore.ListAll(ctx)
-
+	orgs, listErr := h.orgStore.ListAll(ctx)
+	if listErr != nil {
+		slog.Error("admin: list orgs", "err", listErr)
+	}
+	errMsg := r.URL.Query().Get("error")
+	if listErr != nil && errMsg == "" {
+		errMsg = "Database error — data may be incomplete"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.AdminOrgList(nosurf.Token(r), orgs,
-		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(ctx, w)
+		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
 func (h *AdminHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -178,7 +203,11 @@ func (h *AdminHandler) RemoveOrgMember(w http.ResponseWriter, r *http.Request, p
 		http.Redirect(w, r, "/admin/orgs?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
 		return
 	}
-	adminID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
 	if targetUserID == adminID {
 		http.Redirect(w, r, "/admin/orgs/"+slug+"?error="+url.QueryEscape("You cannot remove yourself via the admin panel"), http.StatusFound)
 		return
@@ -190,7 +219,7 @@ func (h *AdminHandler) RemoveOrgMember(w http.ResponseWriter, r *http.Request, p
 	}
 	if err := h.orgStore.RemoveMember(ctx, org.ID, targetUserID); err != nil {
 		errMsg := "Failed to remove member"
-		if strings.Contains(err.Error(), "owner") {
+		if errors.Is(err, postgres.ErrOwnerCannotBeRemoved) {
 			errMsg = "Cannot remove the org owner; transfer ownership first"
 		}
 		http.Redirect(w, r, "/admin/orgs/"+slug+"?error="+url.QueryEscape(errMsg), http.StatusFound)

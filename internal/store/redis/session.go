@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -181,7 +182,9 @@ func (s *SessionStore) DeleteAllForUser(ctx context.Context, userID uuid.UUID) e
 				continue
 			}
 			if val == target {
-				s.client.Del(ctx, key)
+				if delErr := s.client.Del(ctx, key).Err(); delErr != nil {
+					slog.Warn("session: failed to delete session for user", "user_id", target, "key", key, "err", delErr)
+				}
 			}
 		}
 		cursor = next

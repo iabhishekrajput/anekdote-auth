@@ -142,6 +142,36 @@ func TestOrgClientsPageNonAdmin(t *testing.T) {
 	}
 }
 
+func TestOAuthAccessDeniedPageWithOrg(t *testing.T) {
+	html := renderComp(t, "OAuthAccessDeniedPage (with org)", ui.OAuthAccessDeniedPage("my-app", "Acme Corp", ""))
+	if !strings.Contains(html, "Access denied") {
+		t.Error("expected heading in output")
+	}
+	if !strings.Contains(html, "Acme Corp") {
+		t.Error("expected org name in output")
+	}
+}
+
+func TestOAuthAccessDeniedPageWithoutOrg(t *testing.T) {
+	html := renderComp(t, "OAuthAccessDeniedPage (no org)", ui.OAuthAccessDeniedPage("my-app", "", ""))
+	if !strings.Contains(html, "Access denied") {
+		t.Error("expected heading in output")
+	}
+	if !strings.Contains(html, "my-app") {
+		t.Error("expected client name in output when org is unknown")
+	}
+}
+
+func TestOAuthAccessDeniedPageWithReturnURL(t *testing.T) {
+	html := renderComp(t, "OAuthAccessDeniedPage (with returnURL)", ui.OAuthAccessDeniedPage("my-app", "Acme Corp", "https://myapp.example.com/callback"))
+	if !strings.Contains(html, "Return to my-app") {
+		t.Error("expected return-to-app link in output")
+	}
+	if !strings.Contains(html, "https://myapp.example.com/callback") {
+		t.Error("expected return URL href in output")
+	}
+}
+
 func TestAlertVariants(t *testing.T) {
 	for _, kind := range []string{"error", "success", "info", "warning"} {
 		comp := ui.Alert(kind, "Test message for "+kind)

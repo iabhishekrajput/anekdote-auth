@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/google/uuid"
@@ -65,12 +66,17 @@ func isAdminEmail(adminEmails []string, email string) bool {
 }
 
 // InjectAdminStatus reads the userID already injected by RequireAuth and stores isAdmin bool in context.
+// Also enforces DisabledAt — a disabled user with a live session is redirected to /login immediately.
 // Must run inside RequireAuth in the chain — unauthenticated requests are rejected before reaching this.
 func InjectAdminStatus(cfg *config.Config, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		isAdmin := false
 		if userID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID); ok {
 			if user, err := userStore.GetByID(userID); err == nil {
+				if user.DisabledAt != nil {
+					http.Redirect(w, r, "/login?error="+url.QueryEscape("Your account has been disabled"), http.StatusFound)
+					return
+				}
 				isAdmin = isAdminEmail(cfg.AdminEmails, user.Email)
 			}
 		}

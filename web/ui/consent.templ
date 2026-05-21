@@ -51,6 +51,50 @@ templ ConsentPageBody(clientName string, domain string, scopes []string, csrfTok
 	</div>
 }
 
+templ OAuthAccessDeniedPage(clientName string, orgName string, returnURL string) {
+	@BaseLayout("Access Denied - anekdote", OAuthAccessDeniedBody(clientName, orgName, returnURL))
+}
+
+templ OAuthAccessDeniedBody(clientName string, orgName string, returnURL string) {
+	<div class="w-full space-y-5 rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow text-center">
+		<div class="flex justify-center">
+			<div class="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-400">
+					<circle cx="12" cy="12" r="10"></circle>
+					<line x1="15" y1="9" x2="9" y2="15"></line>
+					<line x1="9" y1="9" x2="15" y2="15"></line>
+				</svg>
+			</div>
+		</div>
+		<div>
+			<h1 class="text-lg font-semibold">Access denied</h1>
+			if orgName != "" {
+				<p class="mt-1.5 text-sm text-zinc-400">
+					You are not a member of <span class="text-zinc-200">{ orgName }</span>.
+					Contact an org owner to request access.
+				</p>
+			} else {
+				<p class="mt-1.5 text-sm text-zinc-400">
+					You don&#39;t have access to <span class="text-zinc-200">{ clientName }</span>.
+					Contact the application owner to request access.
+				</p>
+			}
+		</div>
+		<div class="flex flex-col gap-2">
+			if returnURL != "" {
+				<a
+					href={ templ.SafeURL(returnURL) }
+					class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
+				>Return to { clientName }</a>
+			}
+			<a
+				href="/account"
+				class="inline-flex h-9 w-full items-center justify-center rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-medium text-zinc-50 transition-all duration-150 hover:bg-zinc-900 hover:border-zinc-700"
+			>Back to your account</a>
+		</div>
+	</div>
+}
+
 func scopeDescription(scope string) string {
 	switch scope {
 	case "openid":

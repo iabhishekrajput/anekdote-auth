@@ -39,7 +39,7 @@ templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, 
 						</tr>
 					}
 					for _, u := range users {
-						<tr class="border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40">
+						<tr class={ disabledRowClass(u.DisabledAt != nil) }>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-200">{ u.Email }</td>
 							<td class="px-4 py-3 text-zinc-300">{ u.Name }</td>
 							<td class="px-4 py-3">
@@ -127,7 +127,11 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 		<div class="rounded-lg border border-zinc-800 p-4 space-y-3">
 			<p class="text-sm font-medium text-zinc-300">Account actions</p>
 			if user.DisabledAt != nil {
-				<form method="POST" action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/enable") }>
+				<form
+					method="POST"
+					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/enable") }
+					data-confirm="Re-enable this account? The user will regain full access."
+				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
 					<button
 						type="submit"
@@ -181,6 +185,14 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			}
 		</div>
 	</div>
+}
+
+func disabledRowClass(disabled bool) string {
+	base := "border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40"
+	if disabled {
+		return base + " opacity-50"
+	}
+	return base
 }
 
 func adminOrgRoleBadgeClass(role string) string {

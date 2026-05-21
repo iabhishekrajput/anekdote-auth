@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/auth"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
@@ -20,15 +22,21 @@ import (
 	"github.com/justinas/nosurf"
 )
 
+// oauth2OrgStore extends OrgMembershipReader with org name lookup for the access-denied page.
+type oauth2OrgStore interface {
+	auth.OrgMembershipReader
+	GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, error)
+}
+
 type OAuth2Handler struct {
 	server       *server.Server
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
-	orgStore     auth.OrgMembershipReader // optional; enables org membership check at /authorize
+	orgStore     oauth2OrgStore // optional; enables org membership check and friendly denial page at /authorize
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore auth.OrgMembershipReader) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,
@@ -76,32 +84,43 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 	// 2. Handle Consent Form Submission
 	if r.Method == http.MethodPost {
 		if r.FormValue("accept") == "true" {
-			// User approved!
 			return uid.String(), nil
 		}
-		// User rejected request
 		return "", oautherrors.ErrAccessDenied
 	}
 
-	// 3. For org-scoped clients: verify membership BEFORE rendering consent.
-	//    This prevents non-members from even seeing the consent page.
 	clientID := r.FormValue("client_id")
 	if clientID == "" {
 		clientID = "Unknown Application"
 	}
 
-	if h.orgStore != nil && clientID != "Unknown Application" {
-		client, err := h.server.Manager.GetClient(r.Context(), clientID)
-		if err == nil && client != nil {
-			if oci, ok := client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
-				userUUID, parseErr := uuid.Parse(uid.String())
-				if parseErr != nil {
-					return "", oautherrors.ErrAccessDenied
+	// 3. Fetch client once — used for both org membership gate and domain display.
+	type clientInfoIface interface{ GetDomain() string }
+	var fetchedClient clientInfoIface
+	if clientID != "Unknown Application" {
+		if c, cErr := h.server.Manager.GetClient(r.Context(), clientID); cErr == nil && c != nil {
+			fetchedClient = c
+		}
+	}
+
+	// 4. For org-scoped clients: verify membership BEFORE rendering consent.
+	if h.orgStore != nil && fetchedClient != nil {
+		if oci, ok := fetchedClient.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
+			userUUID, parseErr := uuid.Parse(uid.String())
+			if parseErr != nil {
+				slog.Error("authorize: session user ID is not a valid UUID", "uid", uid.String())
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return "", nil
+			}
+			role, memberErr := h.orgStore.GetMembership(r.Context(), *oci.OrgID, userUUID)
+			if memberErr != nil || role == "" {
+				orgName := ""
+				if org, lookupErr := h.orgStore.GetOrgByID(r.Context(), *oci.OrgID); lookupErr == nil && org != nil {
+					orgName = org.DisplayName
 				}
-				role, memberErr := h.orgStore.GetMembership(r.Context(), *oci.OrgID, userUUID)
-				if memberErr != nil || role == "" {
-					return "", oautherrors.ErrAccessDenied
-				}
+				returnURL := r.URL.Query().Get("redirect_uri")
+				_ = ui.OAuthAccessDeniedPage(clientID, orgName, returnURL).Render(r.Context(), w)
+				return "", nil
 			}
 		}
 	}
@@ -116,8 +135,8 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 
 	// Extract domain from registered redirect URI for trust badge display
 	clientDomain := ""
-	if client, err := h.server.Manager.GetClient(r.Context(), clientID); err == nil && client != nil {
-		if rawDomain := client.GetDomain(); rawDomain != "" {
+	if fetchedClient != nil {
+		if rawDomain := fetchedClient.GetDomain(); rawDomain != "" {
 			if parsed, err := url.Parse(rawDomain); err == nil {
 				clientDomain = parsed.Host
 			}
