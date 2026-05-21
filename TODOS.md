@@ -20,6 +20,24 @@ Deferred items — each has a clear "why not now" note so the decision doesn't g
 
 ## Auth & Security
 
+### Sensitive data stored plaintext in Redis
+Three Redis keys hold usable secrets in plaintext. A Redis read compromise (or a `redis-cli MONITOR` during an incident) directly exposes them:
+
+| Key pattern | Value stored | Risk |
+|---|---|---|
+| `otp:{userID}` | 6-digit verification code | Attacker bypasses email OTP for any active user |
+| `oauth:client-secret-flash:{clientID}` | Full plaintext OAuth2 client secret (60s TTL) | Attacker gets a long-lived credential in the flash window |
+| `reset_token:{TOKEN}` | userID (token is the key name) | `SCAN reset_token:*` reveals all active password-reset links |
+
+**When:** Before any production deployment with more than one Redis client, or before any compliance review.
+
+**Shape:**
+- **OTPs** — hash before storing: `redis.Set("otp:"+userID, sha256hex(otp), otpTTL)`. On verify, hash the submitted code and compare. `crypto/sha256` in stdlib, no new dependencies.
+- **Reset tokens** — same pattern: store `reset_token:{sha256hex(TOKEN)}` → `{userID}`. Send raw token to user in email; hash on lookup. The raw token never appears as a Redis key.
+- **Client secret flash** — encrypt with an app-level key before storing. `AES-256-GCM` via `crypto/aes` + `crypto/cipher` in stdlib. The key comes from a new env var `REDIS_ENCRYPTION_KEY` (32 random bytes). `storeSecretFlash` encrypts; `popSecretFlash` decrypts. Redis holds ciphertext only.
+
+Shared infrastructure: a `redisutil` package with `HashForStorage(val string) string` (SHA-256 hex) and `Encrypt/Decrypt(key []byte, plaintext string)` (AES-256-GCM) covers all three cases.
+
 ### Role gradations beyond `is_admin`
 `is_admin` is a binary: full access or none. There's no read-only admin (view-only, no mutations) or scoped admin (manage orgs but not clients, etc.).
 **When:** When the admin team grows beyond 1-2 trusted people, or when audit requirements demand least-privilege roles.
