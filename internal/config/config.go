@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"strings"
 )
 
 type Config struct {
@@ -24,8 +23,6 @@ type Config struct {
 
 	AppEnv             string
 	CORSAllowedOrigins string
-
-	AdminEmails []string
 }
 
 func Load() *Config {
@@ -47,13 +44,6 @@ func Load() *Config {
 	appURL := getEnvOrDefault("APP_URL", "http://localhost:"+port)
 	corsAllowed := getEnvOrDefault("CORS_ALLOWED_ORIGINS", "http://localhost:8080")
 
-	var adminEmails []string
-	for _, e := range strings.Split(getEnvOrDefault("ADMIN_EMAILS", ""), ",") {
-		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
-			adminEmails = append(adminEmails, e)
-		}
-	}
-
 	slog.Info("Configuration loaded", "port", port, "env", appEnv)
 
 	return &Config{
@@ -72,7 +62,6 @@ func Load() *Config {
 		SMTPInsecureSkipVerify: smtpInsecureSkipVerify,
 		AppEnv:                 appEnv,
 		CORSAllowedOrigins:     corsAllowed,
-		AdminEmails:            adminEmails,
 	}
 }
 
@@ -81,9 +70,6 @@ const defaultSessionSecret = "super-secret-session-key-change-in-prod"
 func Validate(cfg *Config) error {
 	if cfg.AppEnv == "production" && (cfg.SessionSecret == defaultSessionSecret || cfg.SessionSecret == "") {
 		return errors.New("SESSION_SECRET is set to an insecure value; set a random 32+ byte secret before running in production")
-	}
-	if len(cfg.AdminEmails) == 0 {
-		slog.Warn("ADMIN_EMAILS is not set; the /admin panel will be inaccessible")
 	}
 	return nil
 }

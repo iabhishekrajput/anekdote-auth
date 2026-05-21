@@ -16,7 +16,6 @@ import (
 
 func NewRouter(
 	cfg *config.Config,
-	seedFailed bool,
 	identH *handlers.IdentityHandler,
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
@@ -51,17 +50,17 @@ func NewRouter(
 	}
 
 	requireAdmin := func(h httprouter.Handle) httprouter.Handle {
-		return secure(middleware.RequireAdmin(cfg, seedFailed, sessionStore, userStore, h))
+		return secure(middleware.RequireAdmin(sessionStore, userStore, h))
 	}
 
 	// withAuth chains RequireAuth then InjectAdminStatus so account/org handlers
 	// always have both userID and isAdmin available in context.
 	withAuth := func(h httprouter.Handle) httprouter.Handle {
-		return secure(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, seedFailed, userStore, h)))
+		return secure(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(userStore, h)))
 	}
 
 	withAuthRateLimit := func(h httprouter.Handle) httprouter.Handle {
-		return secure(authRateLimit(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, seedFailed, userStore, h))))
+		return secure(authRateLimit(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(userStore, h))))
 	}
 
 	// 1. Identity Endpoints (UI / Form Submissions)

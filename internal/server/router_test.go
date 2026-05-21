@@ -17,7 +17,6 @@ func TestNewRouter(t *testing.T) {
 
 	router := NewRouter(
 		cfg,
-		false,
 		&handlers.IdentityHandler{},
 		&handlers.OAuth2Handler{},
 		&handlers.DiscoveryHandler{},

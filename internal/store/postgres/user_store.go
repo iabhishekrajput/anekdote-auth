@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -89,30 +87,6 @@ func (s *UserStore) CountAdmins(ctx context.Context) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE is_admin = true`).Scan(&count)
 	return count, err
-}
-
-// SeedAdminEmails sets is_admin=true for every user whose email is in the list.
-// Returns the number of rows updated. Safe to call multiple times — idempotent UPDATE.
-func (s *UserStore) SeedAdminEmails(ctx context.Context, emails []string) (int, error) {
-	if len(emails) == 0 {
-		return 0, nil
-	}
-	placeholders := make([]string, len(emails))
-	args := make([]any, len(emails))
-	for i, e := range emails {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = e
-	}
-	query := fmt.Sprintf(
-		`UPDATE users SET is_admin = true, updated_at = NOW() WHERE email IN (%s)`,
-		strings.Join(placeholders, ","),
-	)
-	res, err := s.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return 0, err
-	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
 }
 
 // UserListItem is used by the admin panel for list views.

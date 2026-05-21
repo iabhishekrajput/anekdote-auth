@@ -11,7 +11,6 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
-	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	pgstore "github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	oredis "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/julienschmidt/httprouter"
@@ -84,9 +83,8 @@ func TestRequireAdmin_NoSession(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	userStore := pgstore.NewUserStore(db)
-	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
 
-	handler := RequireAdmin(cfg, false, store, userStore, mockHandler())
+	handler := RequireAdmin(store, userStore, mockHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	rr := httptest.NewRecorder()
@@ -110,7 +108,6 @@ func TestRequireAdmin_NonAdminEmail(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	userStore := pgstore.NewUserStore(db)
-	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
 
 	userID := uuid.New()
 	sessionID, _ := store.Create(context.Background(), userID)
@@ -121,7 +118,7 @@ func TestRequireAdmin_NonAdminEmail(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(rows)
 
-	handler := RequireAdmin(cfg, false, store, userStore, mockHandler())
+	handler := RequireAdmin(store, userStore, mockHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
@@ -143,7 +140,6 @@ func TestRequireAdmin_ValidAdmin(t *testing.T) {
 		t.Fatalf("sqlmock: %v", err)
 	}
 	userStore := pgstore.NewUserStore(db)
-	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
 
 	userID := uuid.New()
 	sessionID, _ := store.Create(context.Background(), userID)
@@ -154,7 +150,7 @@ func TestRequireAdmin_ValidAdmin(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(rows)
 
-	handler := RequireAdmin(cfg, false, store, userStore, mockHandler())
+	handler := RequireAdmin(store, userStore, mockHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
