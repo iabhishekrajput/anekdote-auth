@@ -70,6 +70,15 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Destructive action confirmation
+  document.querySelectorAll('form[data-confirm]').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      if (!window.confirm(form.getAttribute('data-confirm'))) {
+        e.preventDefault();
+      }
+    });
+  });
+
   // Confirm password match validation
   var confirmForm = document.querySelector('[data-confirm-form]');
   if (confirmForm) {

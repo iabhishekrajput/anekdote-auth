@@ -161,6 +161,32 @@ func TestUserStore_Updates(t *testing.T) {
 	}
 }
 
+func TestUserStore_SetDisabled(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewUserStore(db)
+	userID := uuid.New()
+
+	// Disable: SQL uses NOW() directly, only id is a parameter.
+	mock.ExpectExec(`UPDATE users SET disabled_at = NOW\(\)(.+)WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.SetDisabled(context.Background(), userID, true); err != nil {
+		t.Errorf("SetDisabled(true) failed: %v", err)
+	}
+
+	// Enable: disabled_at is set to NULL, only id is a parameter.
+	mock.ExpectExec(`UPDATE users SET disabled_at = NULL(.+)WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	if err := store.SetDisabled(context.Background(), userID, false); err != nil {
+		t.Errorf("SetDisabled(false) failed: %v", err)
+	}
+}
+
 // --- ClientStore new methods ---
 
 func TestClientStore_ListOrgClients_Empty(t *testing.T) {

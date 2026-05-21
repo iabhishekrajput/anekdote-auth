@@ -161,6 +161,43 @@ func TestSessionStore_ResetTokens(t *testing.T) {
 	}
 }
 
+func TestSessionStore_DeleteAllForUser(t *testing.T) {
+	client, mr := setupTestRedis(t)
+	defer mr.Close()
+
+	store := NewSessionStore(client)
+	ctx := context.Background()
+
+	targetID := uuid.New()
+	otherID := uuid.New()
+
+	// Create two sessions for the target user, one for another user.
+	sid1, _ := store.Create(ctx, targetID)
+	sid2, _ := store.Create(ctx, targetID)
+	sidOther, _ := store.Create(ctx, otherID)
+
+	if err := store.DeleteAllForUser(ctx, targetID); err != nil {
+		t.Fatalf("DeleteAllForUser returned error: %v", err)
+	}
+
+	// Both target sessions should be gone.
+	if _, err := store.Get(ctx, sid1); err == nil {
+		t.Error("expected session 1 to be deleted")
+	}
+	if _, err := store.Get(ctx, sid2); err == nil {
+		t.Error("expected session 2 to be deleted")
+	}
+
+	// The other user's session must survive.
+	id, err := store.Get(ctx, sidOther)
+	if err != nil {
+		t.Errorf("other user's session should still exist: %v", err)
+	}
+	if id != otherID {
+		t.Errorf("expected other user UUID %s, got %s", otherID, id)
+	}
+}
+
 func TestRevocationStore(t *testing.T) {
 	client, mr := setupTestRedis(t)
 	defer mr.Close()

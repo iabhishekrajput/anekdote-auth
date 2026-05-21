@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,12 +34,25 @@ func NewAdminHandler(uStore *postgres.UserStore, oStore *postgres.OrgStore, cSto
 
 func (h *AdminHandler) Dashboard(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	userCount, _ := h.userStore.CountAll(ctx)
-	orgCount, _ := h.orgStore.CountAll(ctx)
-	clientCount, _ := h.clientStore.CountAll(ctx)
+	var dbErr bool
+	userCount, err := h.userStore.CountAll(ctx)
+	if err != nil {
+		slog.Error("admin: count users", "err", err)
+		dbErr = true
+	}
+	orgCount, err := h.orgStore.CountAll(ctx)
+	if err != nil {
+		slog.Error("admin: count orgs", "err", err)
+		dbErr = true
+	}
+	clientCount, err := h.clientStore.CountAll(ctx)
+	if err != nil {
+		slog.Error("admin: count clients", "err", err)
+		dbErr = true
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminDashboard(nosurf.Token(r), userCount, orgCount, clientCount).Render(ctx, w)
+	_ = ui.AdminDashboard(nosurf.Token(r), userCount, orgCount, clientCount, dbErr).Render(ctx, w)
 }
 
 func (h *AdminHandler) UserList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -68,7 +82,7 @@ func (h *AdminHandler) UserDetail(w http.ResponseWriter, r *http.Request, ps htt
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
-	orgs, _ := h.orgStore.ListOrgsForUser(ctx, id)
+	orgs, _ := h.orgStore.ListOrgsForUserFull(ctx, id)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.AdminUserDetail(nosurf.Token(r), user, orgs,

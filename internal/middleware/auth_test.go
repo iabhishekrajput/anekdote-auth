@@ -5,10 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/config"
+	pgstore "github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	oredis "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/julienschmidt/httprouter"
 )
@@ -68,6 +72,98 @@ func TestRequireAuth_ValidSession(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 OK, got %d", rr.Code)
+	}
+}
+
+func TestRequireAdmin_NoSession(t *testing.T) {
+	store, mr := setupMiddlewareTestenv(t)
+	defer mr.Close()
+
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	userStore := pgstore.NewUserStore(db)
+	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
+
+	handler := RequireAdmin(cfg, store, userStore, mockHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	rr := httptest.NewRecorder()
+
+	handler(rr, req, nil)
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/login?req=/admin" {
+		t.Errorf("unexpected redirect: %s", loc)
+	}
+}
+
+func TestRequireAdmin_NonAdminEmail(t *testing.T) {
+	store, mr := setupMiddlewareTestenv(t)
+	defer mr.Close()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	userStore := pgstore.NewUserStore(db)
+	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
+
+	userID := uuid.New()
+	sessionID, _ := store.Create(context.Background(), userID)
+
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "regular@example.com", "Regular User", "hash", true, nil, time.Now(), time.Now())
+	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(rows)
+
+	handler := RequireAdmin(cfg, store, userStore, mockHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
+	rr := httptest.NewRecorder()
+
+	handler(rr, req, nil)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for non-admin, got %d", rr.Code)
+	}
+}
+
+func TestRequireAdmin_ValidAdmin(t *testing.T) {
+	store, mr := setupMiddlewareTestenv(t)
+	defer mr.Close()
+
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	userStore := pgstore.NewUserStore(db)
+	cfg := &config.Config{AdminEmails: []string{"admin@example.com"}}
+
+	userID := uuid.New()
+	sessionID, _ := store.Create(context.Background(), userID)
+
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "admin@example.com", "Admin User", "hash", true, nil, time.Now(), time.Now())
+	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(rows)
+
+	handler := RequireAdmin(cfg, store, userStore, mockHandler())
+
+	req := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
+	rr := httptest.NewRecorder()
+
+	handler(rr, req, nil)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for valid admin, got %d", rr.Code)
 	}
 }
 

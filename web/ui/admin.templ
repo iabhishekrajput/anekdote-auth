@@ -63,16 +63,21 @@ func adminNavClass(currentPath, target string) string {
 	return base + "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900"
 }
 
-templ AdminDashboard(csrfToken string, userCount, orgCount, clientCount int) {
-	@AdminLayout("Admin Dashboard - anekdote", "/admin", csrfToken, adminDashboardBody(userCount, orgCount, clientCount))
+templ AdminDashboard(csrfToken string, userCount, orgCount, clientCount int, dbErr bool) {
+	@AdminLayout("Admin Dashboard - anekdote", "/admin", csrfToken, adminDashboardBody(userCount, orgCount, clientCount, dbErr))
 }
 
-templ adminDashboardBody(userCount, orgCount, clientCount int) {
+templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 	<div class="space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">Platform Overview</h1>
 			<p class="text-sm text-zinc-400">Live stats across all tenants.</p>
 		</div>
+		if dbErr {
+			<div class="rounded-lg border border-amber-800 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+				One or more database queries failed — counts below may be inaccurate.
+			</div>
+		}
 		<div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
 			<a href="/admin/users" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
 				<p class="text-sm text-zinc-400">Total users</p>

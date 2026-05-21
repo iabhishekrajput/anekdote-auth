@@ -164,6 +164,44 @@ func TestLoginFunc_Success(t *testing.T) {
 	}
 }
 
+func TestLoginFunc_DisabledUser(t *testing.T) {
+	handler, mock, mr := setupMockedHandler(t)
+	defer mr.Close()
+
+	formData := url.Values{}
+	formData.Set("email", "disabled@example.com")
+	formData.Set("password", "ValidPass123!")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(formData.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
+	userID := uuid.New()
+	disabledAt := time.Now()
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "disabled@example.com", "Disabled User", string(hash), true, disabledAt, time.Now(), time.Now())
+
+	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("disabled@example.com").
+		WillReturnRows(rows)
+
+	handler.LoginFunc(rr, req, nil)
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("there were unfulfilled expectations: %s", err)
+	}
+	if status := rr.Code; status != http.StatusForbidden {
+		t.Errorf("expected 403 for disabled user, got %d", status)
+	}
+	// No session cookie should be set.
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "auth_session" {
+			t.Error("disabled user should not receive an auth_session cookie")
+		}
+	}
+}
+
 func TestVerifyEmailFunc_Success(t *testing.T) {
 	handler, mock, mr := setupMockedHandler(t)
 	defer mr.Close()

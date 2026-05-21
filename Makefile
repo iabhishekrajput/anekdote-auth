@@ -23,7 +23,7 @@ help: ## Display this help screen
 
 .PHONY: run
 run: ## Run the application locally
-	SMTP_INSECURE_SKIP_VERIFY=true go run $(MAIN_PKG)
+	SMTP_INSECURE_SKIP_VERIFY=true ADMIN_EMAILS=abhishek@anekdote.in go run $(MAIN_PKG)
 
 .PHONY: generate
 generate: ## Run templ generation

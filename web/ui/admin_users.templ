@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+	"strings"
 )
 
 templ AdminUserList(csrfToken string, users []*postgres.UserListItem, page, total, pageSize int, errorMsg, successMsg string) {
@@ -80,11 +81,11 @@ templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, 
 	</div>
 }
 
-templ AdminUserDetail(csrfToken string, user *models.User, orgs interface{}, errorMsg, successMsg string) {
-	@AdminLayout("User Detail - Admin", "/admin/users", csrfToken, adminUserDetailBody(csrfToken, user, errorMsg, successMsg))
+templ AdminUserDetail(csrfToken string, user *models.User, orgs []postgres.OrgListItem, errorMsg, successMsg string) {
+	@AdminLayout("User Detail - Admin", "/admin/users", csrfToken, adminUserDetailBody(csrfToken, user, orgs, errorMsg, successMsg))
 }
 
-templ adminUserDetailBody(csrfToken string, user *models.User, errorMsg, successMsg string) {
+templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.OrgListItem, errorMsg, successMsg string) {
 	<div class="space-y-6 max-w-2xl">
 		<div class="flex items-center gap-3">
 			<a href="/admin/users" class="text-sm text-zinc-400 hover:text-zinc-200">← Users</a>
@@ -147,5 +148,48 @@ templ adminUserDetailBody(csrfToken string, user *models.User, errorMsg, success
 				</form>
 			}
 		</div>
+		<div class="rounded-lg border border-zinc-800 overflow-hidden">
+			<div class="px-4 py-3 border-b border-zinc-800">
+				<p class="text-xs text-zinc-500 uppercase tracking-wide">Organization memberships</p>
+			</div>
+			if len(orgs) == 0 {
+				<p class="px-4 py-4 text-sm text-zinc-500">No organization memberships.</p>
+			} else {
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="border-b border-zinc-800 bg-zinc-900/60">
+							<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Organization</th>
+							<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Role</th>
+							<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Members</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, o := range orgs {
+							<tr class="border-b border-zinc-800/60 last:border-0">
+								<td class="px-4 py-3">
+									<a href={ templ.SafeURL("/admin/orgs/" + o.Org.Slug) } class="text-brand hover:underline">{ o.Org.DisplayName }</a>
+									<span class="ml-1 text-xs text-zinc-500">{ o.Org.Slug }</span>
+								</td>
+								<td class="px-4 py-3">
+									<span class={ adminOrgRoleBadgeClass(o.Role) }>{ strings.ToTitle(o.Role[:1]) + o.Role[1:] }</span>
+								</td>
+								<td class="px-4 py-3 text-zinc-400">{ intToStr(o.MemberCount) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
 	</div>
+}
+
+func adminOrgRoleBadgeClass(role string) string {
+	switch role {
+	case "owner":
+		return "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400"
+	case "admin":
+		return "rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-400"
+	default:
+		return "rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"
+	}
 }
