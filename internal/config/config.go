@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"log/slog"
 	"os"
 )
@@ -62,6 +63,15 @@ func Load() *Config {
 		AppEnv:                 appEnv,
 		CORSAllowedOrigins:     corsAllowed,
 	}
+}
+
+const defaultSessionSecret = "super-secret-session-key-change-in-prod"
+
+func Validate(cfg *Config) error {
+	if cfg.AppEnv == "production" && (cfg.SessionSecret == defaultSessionSecret || cfg.SessionSecret == "") {
+		return errors.New("SESSION_SECRET is set to an insecure value; set a random 32+ byte secret before running in production")
+	}
+	return nil
 }
 
 func getEnvOrDefault(key, fallback string) string {

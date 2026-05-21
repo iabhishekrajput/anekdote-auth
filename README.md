@@ -4,83 +4,75 @@
 
 # Anekdote Auth
 
-Anekdote Auth is a robust, enterprise-grade **OAuth2** and **OpenID Connect (OIDC)** Authorization Server built entirely in Go.
-
-It serves as a fully featured Identity Provider (IdP) equipped with a modern User Interface built with Tailwind CSS and Templ, comprehensive Session Management, and secure password-backed authentication flows.
+Anekdote Auth is a self-hosted **OAuth2 and OpenID Connect (OIDC)** Authorization Server built in Go. It supports multi-tenant organizations, per-org OAuth2 client registration, email-based member invites, and a full account center — making it a complete identity platform for teams and multi-tenant SaaS products.
 
 ## Features
 
-- **OAuth 2.0 & OIDC**: Full support for Authorization Code paths, Token Exchanges, and `/authorize` consent interactions. Issues cryptographically signed JSON Web Tokens (JWTs) and structured `id_token` claims.
-- **PKCE Support**: Strictly enforces Proof Key for Code Exchange validation for secure front-end SPA and mobile app architectures.
-- **Native Identity Management**: Pre-built HTTP interfaces for User Registration, Login, Forgot Password, and Password Reset (backed by `github.com/wneessen/go-mail`).
-- **Account Center Dashboard**: Dedicated, session-protected dashboard (`/account`) allowing users to dynamically manage their names and passwords.
-- **Immediate JWT Revocation**: Provides an RFC 7009 compliant `/revoke` endpoint. Denied tokens are instantly pushed to a Redis-backed blocklist (`jti` tracking).
-- **Hardened Security**:
-  - `bcrypt` iterated password hashing.
-  - Comprehensive middleware-driven Security Headers (HSTS, CSP, XSS-Protection).
-  - Token Bucket algorithms dynamically throttling routes via Redis.
-  - Automatic JSON Web Key Set (JWKS) Discovery Endpoints.
+- **OAuth 2.0 & OIDC** — Authorization Code flow, token exchange, consent UI, RS256 JWTs with standard OIDC claims.
+- **PKCE Support** — Enforced for SPA and mobile clients.
+- **Native Identity Management** — Registration, login, email verification (OTP), forgot password, and password reset.
+- **Multi-Tenant Organizations** — Orgs with owner / admin / member roles, email invites, per-org OAuth2 client registration, and a full invite acceptance state machine.
+- **Account Center Dashboard** — Session-protected dashboard for profile, password, and org management.
+- **Immediate JWT Revocation** — RFC 7009 `/revoke` endpoint; denied tokens are blocklisted in Redis by `jti`.
+- **Hardened Security** — bcrypt password hashing, CSRF protection, security headers (HSTS, CSP, X-Frame-Options), Redis-backed token-bucket rate limiting per route.
 
 ## Tech Stack
-- **Go 1.26+**: Core server logic.
-- **PostgreSQL**: Master persistent storage mechanism for Users and OAuth2 mapping schemas.
-- **Redis**: High-speed, ephemeral memory cache leveraged for active HTTP Session Tracking, JWT Blocklisting, and Rate Limit throttling.
-- **Tailwind CSS & Templ**: Utility-first CSS framework and type-safe HTML templating engine driving the identity web templates.
+
+- **Go 1.26+** — Core server logic.
+- **PostgreSQL** — Persistent storage for users, OAuth2 clients, orgs, and memberships.
+- **Redis** — Sessions (24h TTL), JWT blocklist, rate limiting, invite tokens, and flash secrets.
+- **Tailwind CSS & Templ** — Utility-first CSS and type-safe HTML templating for all UI pages.
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick Start
 
 ### 1. Requirements
-Ensure you have the following installed to run the backend natively:
+
 - Go 1.26+
 - Node.js & npm (for Tailwind CSS)
-- Docker and Docker Compose (to spawn backend datastores)
+- Docker and Docker Compose (datastores)
 - `make`
 
-[Templ](https://templ.guide) is declared as a Go tool dependency in `go.mod`, so `make generate` invokes it via `go tool templ` — no separate install needed.
+[Templ](https://templ.guide) is a Go tool dependency in `go.mod` — `make generate` invokes it via `go tool templ`, no separate install needed.
 
 ### 2. Infrastructure Setup
-Start up local PostgreSQL, Redis, and Mailpit (for local email testing) servers. A built-in `Makefile` provides individual commands to manage these containers via Docker Compose:
 
 ```bash
 make postgres-up
 make redis-up
-make mailpit-up
+make mailpit-up   # local SMTP for email testing
 ```
 
 ### 3. Cryptography Setup
-OAuth2 JWT signing and validation workflows mandate standard RSA public and private key chains.
-Execute the following `make` command to automatically generate them safely in a local `./certs` folder:
 
 ```bash
-make generate-certs
+make generate-certs   # RSA-2048 key pair → certs/private.pem + certs/public.pem
 ```
 
-### 4. Configuration (Environment Variables)
-Global variables can be provided natively or securely through a local `.env`. See the variables available natively mapped:
-- `PORT` (default: `8080`)
-- `APP_ENV` (default: `development`)
-- `APP_URL` (default: `http://localhost:8080` - dynamic based on port)
-- `CORS_ALLOWED_ORIGINS` (default: `http://localhost:8080`)
-- `DB_DSN` (default `postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable`)
-- `REDIS_URL` (default `redis://localhost:6379/0`)
-- `RSA_PRIVATE_KEY_PATH` (default `certs/private.pem`)
-- `RSA_PUBLIC_KEY_PATH` (default `certs/public.pem`)
-- `SESSION_SECRET`
+### 4. Configuration
 
-**SMTP Configurations** (to activate functional Forgot Password emails):
-- `SMTP_HOST` (default `localhost`)
-- `SMTP_PORT` (default `1025`)
-- `SMTP_USERNAME` (default `test`)
-- `SMTP_PASSWORD` (default `test`)
-- `SMTP_FROM` (default `noreply@anekdoteauth.local`)
-- `SMTP_INSECURE_SKIP_VERIFY` (default: `false`)
+Set environment variables directly or in a `.env` file:
 
-*Note: For local development, Mailpit is available via the `docker-compose.yml` file. You can set `SMTP_HOST=localhost`, `SMTP_PORT=1025`, and access the web UI at `http://localhost:8025`.*
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `PORT` | `8080` | |
+| `APP_ENV` | `development` | |
+| `APP_URL` | `http://localhost:8080` | |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:8080` | |
+| `DB_DSN` | `postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable` | |
+| `REDIS_URL` | `redis://localhost:6379/0` | |
+| `RSA_PRIVATE_KEY_PATH` | `certs/private.pem` | |
+| `RSA_PUBLIC_KEY_PATH` | `certs/public.pem` | |
+| `SESSION_SECRET` | *(insecure placeholder)* | ⚠️ Defaults to a well-known placeholder. In production (`APP_ENV=production`) the server **refuses to start** if this is not overridden — set it to a random 32+ byte secret. |
+| `SMTP_HOST` | `localhost` | |
+| `SMTP_PORT` | `1025` | |
+| `SMTP_USERNAME` | `test` | |
+| `SMTP_PASSWORD` | `test` | |
+| `SMTP_FROM` | `noreply@anekdoteauth.local` | |
+| `SMTP_INSECURE_SKIP_VERIFY` | `false` | Set `true` for local Mailpit. |
 
 ### 5. Running the Application
-A built-in `Makefile` provides macro hooks. To install dependencies, generate templates, build CSS, and start the application:
 
 ```bash
 npm install
@@ -89,15 +81,15 @@ make css-build
 make migrate-up
 make run
 ```
-_The server will connect to Postgres (schema mapped via Goose migrations), poll Redis, parse all HTML templates, load standard cryptographic certs, and bind onto port `8080`._
+
+Migrations are managed by [Goose](https://github.com/pressly/goose) and are **not** applied automatically at startup. The schema covers users, OAuth2 clients, orgs, org memberships, and org invites (as Redis keys).
 
 ### 6. Quality Control & Building
-Before submitting code, ensure the modules are cleanly formatted, vendored, and vetted via static analysis. Use the build command to generate a cross-compiled binary injected with a clean git tag release `VERSION`.
 
 ```bash
-make tidy
-make audit
-make build
+make tidy     # go mod tidy + vendor + fmt
+make audit    # vet + staticcheck + tests with -race
+make build    # cross-compiled binary (host + linux/amd64)
 ```
 
 ---
@@ -107,18 +99,16 @@ make build
 Multi-arch (`linux/amd64`, `linux/arm64`) images are published to [GitHub Container Registry](https://github.com/iabhishekrajput?tab=packages) on every tagged release.
 
 | Image | Purpose |
-| ----- | ------- |
+|-------|---------|
 | `ghcr.io/iabhishekrajput/anekdote-auth` | Auth server runtime. |
-| `ghcr.io/iabhishekrajput/anekdote-auth-migrate` | Goose migration runner (`entrypoint: goose -dir /app/migrations postgres`). |
-
-Pull the latest release:
+| `ghcr.io/iabhishekrajput/anekdote-auth-migrate` | Goose migration runner. |
 
 ```bash
 docker pull ghcr.io/iabhishekrajput/anekdote-auth:latest
 docker pull ghcr.io/iabhishekrajput/anekdote-auth-migrate:latest
 ```
 
-Images are signed keylessly with [Sigstore cosign](https://docs.sigstore.dev/cosign/signing/overview/) using GitHub Actions OIDC. Verify a signature with:
+Images are signed with [Sigstore cosign](https://docs.sigstore.dev/cosign/signing/overview/) via GitHub Actions OIDC:
 
 ```bash
 cosign verify \
@@ -129,23 +119,112 @@ cosign verify \
 
 ---
 
-## Accessing the Core Interfaces
+## Route Reference
 
-While the true purpose of this API is headless `go-oauth2` downstream logic, the application binds several Human-Facing Identity APIs natively over the browser on port `:8080`:
+### Identity
 
-| Interface | Route | Action |
-| ------ | ------ | ------ |
-| **Login** | `http://localhost:8080/login` | Native session establishment. |
-| **Register** | `http://localhost:8080/register` | Create a new Identity record in Postgres. |
-| **Dashboard** | `http://localhost:8080/account` | Protected portal for active users. |
-| **JWKS Endpoint** | `http://localhost:8080/.well-known/jwks.json` | Public key verification for Resource Servers. |
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/` | GET | Redirects to `/login`. |
+| `/register` | GET, POST | Create a new account. GET pre-fills email if `?invite=` param is present. |
+| `/login` | GET, POST | Session login. GET accepts `?email=` and `?req=` for invite flows. |
+| `/verify-email` | GET, POST | OTP verification after registration. Auto-joins org if a pending invite exists. |
+| `/forgot-password` | GET, POST | Send a password reset email. |
+| `/reset-password` | GET, POST | Set a new password via reset token. |
+| `/logout` | POST | Destroys session. Accepts `redirect_to` field (local paths only). |
+
+### Account
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/account` | GET | User profile dashboard. Requires auth. |
+| `/account/profile` | POST | Update display name. Requires auth. |
+| `/account/password` | POST | Change password. Requires auth. |
+
+### Organizations
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/join` | GET | Accept an org invite by token. Not logged in → `/register`. Wrong account → styled mismatch page. |
+| `/account/orgs` | GET, POST | List orgs / create org. Requires auth. |
+| `/account/orgs/:slug` | GET | Org detail: members, roles, pending invites. Requires auth. |
+| `/account/orgs/:slug/invites` | POST | Send an email invite. Rate-limited. Requires owner or admin role. |
+| `/account/orgs/:slug/invites/:token/revoke` | POST | Revoke a pending invite. |
+| `/account/orgs/:slug/members/:userID/role` | POST | Change member role (admin or member). Owner role cannot be assigned via this form. |
+| `/account/orgs/:slug/members/:userID/remove` | POST | Remove a member. |
+| `/account/orgs/:slug/clients` | GET, POST | List / register OAuth2 clients scoped to the org. |
+| `/account/orgs/:slug/clients/:clientID/delete` | POST | Delete an OAuth2 client. |
+| `/account/orgs/:slug/clients/:clientID/rotate-secret` | POST | Rotate client secret (one-time reveal via Redis flash). |
+
+### OAuth2 / OIDC
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/authorize` | GET, POST | Authorization Code flow. Renders consent UI if scope has not been granted. |
+| `/token` | POST | Token exchange endpoint. |
+| `/revoke` | POST | RFC 7009 token revocation. Blocklists `jti` in Redis. |
+| `/.well-known/jwks.json` | GET | Public key set for RS256 JWT verification by resource servers. |
+| `/.well-known/openid-configuration` | GET | OpenID Connect Discovery metadata. |
+
+### Infrastructure
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/healthz` | GET | Liveness probe. Returns 200 when the process is up. |
+| `/readyz` | GET | Readiness probe. Returns 200 when Postgres and Redis are reachable. |
+| `/static/*` | GET | Static assets served from `web/static/` at runtime (not embedded). |
 
 ---
 
-## Architecture Flow (Session vs OAuth)
+## Organizations
+
+Anekdote Auth supports multi-tenant organizations. Each org has a unique URL slug, a display name, an owner (the creating user), and zero or more members with roles (`owner` / `admin` / `member`). Org owners and admins can register OAuth2 clients scoped to the org.
+
+### Creating an org
+
+POST `/account/orgs` with a slug and display name. The authenticated user becomes the owner.
+
+### Inviting members
+
+Owners and admins POST `/account/orgs/:slug/invites` with an email address and a role (`admin` or `member`). An invite token (UUID) is stored in Redis with a 24-hour TTL. The invitee receives an email with a `/join?token=T` link.
+
+### Accepting an invite
+
+Here's what happens when you click an invite link:
+
+1. **You're not logged in** — you land on `/register` with your email pre-filled and read-only. Register, verify your email with the OTP, and you're automatically added to the org.
+2. **You're logged in as the right account** — you're added to the org immediately and redirected to the org page.
+3. **You're logged in as the wrong account** — you see a styled mismatch page with a "Switch account" button. It logs you out and brings you back to the invite flow so you can sign in with the correct email.
+
+### Per-org OAuth2 clients
+
+Owners and admins can register OAuth2 clients against an org (POST `/account/orgs/:slug/clients`). The client secret is shown exactly once immediately after creation and is stored bcrypt-hashed in Postgres — save it before leaving the page. If you miss it, the client must be deleted and re-created; there is no recovery path.
+
+---
+
+## Architecture Flow
 
 **Direct Web Flow:**
-When a standard user manually connects to `localhost:8080/login` and provides a valid payload, the `/login` handler validates `bcrypt` iterations, builds a unique secure UUID Session record inside **Redis**, binds the session via standard internal Browser Cookies, and drops the user straight into the `/account` profile center.
+A user navigates to `/login`, provides their credentials, and gets a session UUID stored in Redis and bound as a browser cookie. They land in the `/account` dashboard.
 
 **OAuth Flow:**
-When cross-site infrastructure (e.g. NextJS) redirects to `localhost:8080/authorize?client_id=...`, the server executes the `Authorize` workflow. Middleware traps and catches if no `auth_session` cookie is appended. The consumer is redirected to `/login` *carrying the origin path locally*. Following standard re-validation, they are returned dynamically to the Consent page to finish `code` exchange validation seamlessly!
+When a downstream app redirects to `/authorize?client_id=...`, the server checks for an active session. If none exists, the user is redirected to `/login` carrying the original path in `?req=`. After login they return to `/authorize`, which renders the consent UI. Once the user approves, the Authorization Code flow completes.
+
+**Multi-Tenant Flow:**
+When a user belongs to one or more organizations, their account dashboard exposes org management routes. OAuth2 clients are scoped to an org — the `oauth2_clients` table carries an `org_id` foreign key. The `/join` endpoint handles the full invite acceptance state machine (not logged in / wrong account / auto-join) with all state threaded through Redis and URL parameters rather than server-side session state.
+
+---
+
+## Design Decisions
+
+### 1. Invite state lives in Redis, not Postgres
+
+Org invites are stored as JSON in Redis at `org:invite:{token}` with a 24-hour TTL. The set of pending invite tokens per org is tracked at `org:invites:{orgID}` (a Redis Set) for display and revocation. This avoids a schema migration every time invite behavior changes and keeps TTL semantics natural. The tradeoff: invites don't survive a Redis flush, and there is no audit trail of expired invites.
+
+### 2. Pending invite auto-join uses a two-step Redis handoff
+
+When a new user registers via an invite link, the invite token travels as a hidden form field (not in the URL — POST strips query params). On POST, `SetPendingInvite` writes `pending_invite:{userID}` → `{orgID, role}` to Redis. On OTP verification, `GetAndDeletePendingInvite` atomically reads and deletes the key, then calls `AcceptMembership`. If the OTP step is skipped or Redis is flushed between steps, the user is registered but not auto-joined — they can click the invite link again.
+
+### 3. Client secret one-time reveal via Redis flash key
+
+After `CreateOrgClient`, the plaintext secret is stored in Redis at `oauth:client-secret-flash:{clientID}` with a 60-second TTL, and the response redirects to `/account/orgs/:slug/clients?newClientID={id}`. The GET handler calls `GetDel` (Redis ≥ 6.2) to retrieve-and-delete in one operation. The secret is never written to the URL and is bcrypt-hashed in Postgres. If the user misses the 60-second window, the client must be deleted and re-created.

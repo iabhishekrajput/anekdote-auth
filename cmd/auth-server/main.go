@@ -28,6 +28,10 @@ func main() {
 	slog.Info("Starting anekdote auth server...")
 
 	cfg := config.Load()
+	if err := config.Validate(cfg); err != nil {
+		slog.Error("Invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	// 1. Initialize Datastores
 	db, err := postgres.InitDB(cfg.DBDsn)

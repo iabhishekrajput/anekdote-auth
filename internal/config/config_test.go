@@ -5,6 +5,34 @@ import (
 	"testing"
 )
 
+func TestValidate_ProductionDefaultSecret(t *testing.T) {
+	cfg := &Config{AppEnv: "production", SessionSecret: defaultSessionSecret}
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for production with default session secret, got nil")
+	}
+}
+
+func TestValidate_ProductionEmptySecret(t *testing.T) {
+	cfg := &Config{AppEnv: "production", SessionSecret: ""}
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for production with empty session secret, got nil")
+	}
+}
+
+func TestValidate_ProductionCustomSecret(t *testing.T) {
+	cfg := &Config{AppEnv: "production", SessionSecret: "a-very-secure-random-secret-value"}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("expected nil for production with custom session secret, got %v", err)
+	}
+}
+
+func TestValidate_DevelopmentDefaultSecret(t *testing.T) {
+	cfg := &Config{AppEnv: "development", SessionSecret: defaultSessionSecret}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("expected nil for development with default session secret, got %v", err)
+	}
+}
+
 func TestLoad_DefaultValues(t *testing.T) {
 	// Clear environments logically to ensure defaults
 	os.Clearenv()
