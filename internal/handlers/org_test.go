@@ -665,8 +665,8 @@ func TestAcceptInvite_Success(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "user@example.com", "User", "hash", true, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
+			AddRow(userID, "user@example.com", "User", "hash", true, false, nil, time.Now(), time.Now()))
 	orgMock.ExpectExec(`INSERT INTO org_memberships`).
 		WithArgs(orgID, userID, "member", nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -702,8 +702,8 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
+			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, false, nil, time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/join?token="+token, nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})

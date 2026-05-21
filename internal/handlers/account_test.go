@@ -42,8 +42,8 @@ func TestViewAccount_Success(t *testing.T) {
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "test@example.com", "Test User", "hash", true, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
@@ -107,8 +107,8 @@ func TestUpdatePassword_Success(t *testing.T) {
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "test@example.com", "Test User", string(hash), true, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", string(hash), true, false, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
