@@ -219,14 +219,15 @@ type AdminClientItem struct {
 	CreatedAt time.Time
 }
 
-// ListAll returns all OAuth2 clients across all orgs, newest first.
-func (s *ClientStore) ListAll(ctx context.Context) ([]*AdminClientItem, error) {
+// ListAll returns OAuth2 clients across all orgs, newest first, with pagination.
+func (s *ClientStore) ListAll(ctx context.Context, limit, offset int) ([]*AdminClientItem, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT c.id, c.name, c.domain, c.public, c.created_at,
 		        COALESCE(o.slug, '') AS org_slug, COALESCE(o.display_name, '') AS org_name
 		 FROM oauth2_clients c
 		 LEFT JOIN organizations o ON o.id = c.org_id
-		 ORDER BY c.created_at DESC`,
+		 ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`,
+		limit, offset,
 	)
 	if err != nil {
 		return nil, err

@@ -81,11 +81,11 @@ templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, 
 	</div>
 }
 
-templ AdminUserDetail(csrfToken string, user *models.User, orgs []postgres.OrgListItem, errorMsg, successMsg string) {
-	@AdminLayout("User Detail - Admin", "/admin/users", csrfToken, adminUserDetailBody(csrfToken, user, orgs, errorMsg, successMsg))
+templ AdminUserDetail(csrfToken string, user *models.User, orgs []postgres.OrgListItem, isLastAdmin bool, errorMsg, successMsg string) {
+	@AdminLayout("User Detail - Admin", "/admin/users", csrfToken, adminUserDetailBody(csrfToken, user, orgs, isLastAdmin, errorMsg, successMsg))
 }
 
-templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.OrgListItem, errorMsg, successMsg string) {
+templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.OrgListItem, isLastAdmin bool, errorMsg, successMsg string) {
 	<div class="space-y-6 max-w-2xl">
 		<div class="flex items-center gap-3">
 			<a href="/admin/users" class="text-sm text-zinc-400 hover:text-zinc-200">← Users</a>
@@ -120,6 +120,14 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 				}
 			</div>
 			<div class="px-4 py-3 flex justify-between text-sm">
+				<span class="text-zinc-400">Admin</span>
+				if user.IsAdmin {
+					<span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400">Admin</span>
+				} else {
+					<span class="text-zinc-500">No</span>
+				}
+			</div>
+			<div class="px-4 py-3 flex justify-between text-sm">
 				<span class="text-zinc-400">Joined</span>
 				<span class="text-zinc-300">{ user.CreatedAt.Format("2006-01-02 15:04 UTC") }</span>
 			</div>
@@ -149,6 +157,43 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 						type="submit"
 						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-800 px-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
 					>Disable account</button>
+				</form>
+			}
+		</div>
+		<div class="rounded-lg border border-zinc-800 p-4 space-y-3">
+			<p class="text-sm font-medium text-zinc-300">Admin access</p>
+			if user.IsAdmin {
+				<form
+					method="POST"
+					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/demote") }
+					data-confirm={ "Remove admin access from " + user.Email + "?" }
+				>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					if isLastAdmin {
+						<button
+							type="button"
+							disabled
+							class="inline-flex h-8 items-center gap-1.5 rounded-md border border-zinc-700 px-3 text-sm text-zinc-500 opacity-40 cursor-not-allowed"
+							title="Cannot remove the last admin"
+						>Remove admin access</button>
+					} else {
+						<button
+							type="submit"
+							class="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-800 px-3 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
+						>Remove admin access</button>
+					}
+				</form>
+			} else {
+				<form
+					method="POST"
+					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/promote") }
+					data-confirm={ "Grant admin access to " + user.Email + "? They will have full access to this admin panel." }
+				>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<button
+						type="submit"
+						class="inline-flex h-8 items-center gap-1.5 rounded-md border border-violet-800 px-3 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+					>Grant admin access</button>
 				</form>
 			}
 		</div>

@@ -1,6 +1,11 @@
 package ui
 
-import "strconv"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
 
 templ AdminLayout(title string, currentPath string, csrfToken string, body templ.Component) {
 	<!DOCTYPE html>
@@ -27,6 +32,7 @@ templ AdminLayout(title string, currentPath string, csrfToken string, body templ
 							<a href="/admin/users" class={ adminNavClass(currentPath, "/admin/users") }>Users</a>
 							<a href="/admin/clients" class={ adminNavClass(currentPath, "/admin/clients") }>Clients</a>
 							<a href="/admin/orgs" class={ adminNavClass(currentPath, "/admin/orgs") }>Orgs</a>
+							<a href="/admin/audit" class={ adminNavClass(currentPath, "/admin/audit") }>Audit</a>
 						</nav>
 						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
 						<form method="POST" action="/logout">
@@ -101,6 +107,97 @@ templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 			</ul>
 		</div>
 	</div>
+}
+
+templ AdminAuditLog(csrfToken string, entries []*postgres.AuditLogEntry, page, total, pageSize int, errorMsg, successMsg string) {
+	@AdminLayout("Audit Log - Admin", "/admin/audit", csrfToken, adminAuditLogBody(entries, page, total, pageSize, errorMsg, successMsg))
+}
+
+templ adminAuditLogBody(entries []*postgres.AuditLogEntry, page, total, pageSize int, errorMsg, successMsg string) {
+	<div class="space-y-4">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">Audit Log</h1>
+			<p class="text-sm text-zinc-400">{ intToStr(total) } total entries</p>
+		</div>
+		@AlertContainer(errorMsg, successMsg)
+		<div class="rounded-lg border border-zinc-800 overflow-hidden">
+			<table class="w-full text-sm">
+				<thead>
+					<tr class="border-b border-zinc-800 bg-zinc-900/60">
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Timestamp</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Admin</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Action</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Target</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">IP</th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(entries) == 0 {
+						<tr>
+							<td colspan="5" class="px-4 py-8 text-center text-zinc-500">No audit entries yet.</td>
+						</tr>
+					}
+					for _, e := range entries {
+						<tr class="border-b border-zinc-800/60 last:border-0 hover:bg-zinc-900/40">
+							<td class="px-4 py-3 font-mono text-xs text-zinc-500">{ e.CreatedAt.Format("2006-01-02 15:04 UTC") }</td>
+							<td class="px-4 py-3 text-xs text-zinc-300">
+								if e.AdminID != nil {
+									<a href={ templ.SafeURL("/admin/users/" + e.AdminID.String()) } class="text-brand hover:underline font-mono">{ e.AdminID.String()[:8] }…</a>
+								} else {
+									<span class="text-zinc-600">—</span>
+								}
+							</td>
+							<td class="px-4 py-3">
+								<span class={ auditActionBadgeClass(string(e.Action)) }>{ string(e.Action) }</span>
+							</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-400">
+								{ auditTargetLink(e.TargetType, e.TargetID) }
+							</td>
+							<td class="px-4 py-3 font-mono text-xs text-zinc-500">{ e.IPAddress }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if total > pageSize {
+			<div class="flex items-center justify-between text-sm text-zinc-400">
+				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
+				<div class="flex gap-2">
+					if page > 1 {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/audit?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
+					}
+					if page*pageSize < total {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/audit?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+func auditActionBadgeClass(action string) string {
+	switch action {
+	case "disable_user", "delete_client":
+		return "rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-400"
+	case "enable_user":
+		return "rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400"
+	case "remove_org_member", "demote_admin":
+		return "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400"
+	case "promote_admin":
+		return "rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400"
+	default:
+		return "rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"
+	}
+}
+
+func auditTargetLink(targetType, targetID string) string {
+	switch targetType {
+	case "user":
+		return "/admin/users/" + targetID
+	case "client":
+		return "/admin/clients/" + targetID
+	}
+	return targetID
 }
 
 func intToStr(n int) string {

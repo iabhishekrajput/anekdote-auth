@@ -32,10 +32,10 @@ func RequireAuth(sessionStore *redis.SessionStore, next httprouter.Handle) httpr
 	}
 }
 
-// RequireAdmin enforces that the requester is both authenticated and an admin email.
-// Admin status is re-checked against cfg.AdminEmails on every request so that removing
-// an email from config takes effect immediately without waiting for session expiry.
-func RequireAdmin(cfg *config.Config, sessionStore *redis.SessionStore, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
+// RequireAdmin enforces that the requester is both authenticated and an admin.
+// Admin status is checked via user.IsAdmin (DB-backed). If seedFailed is true,
+// falls back to checking cfg.AdminEmails so a seed failure doesn't lock out all admins.
+func RequireAdmin(cfg *config.Config, seedFailed bool, sessionStore *redis.SessionStore, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		userID, err := sessionStore.GetUserFromSession(r)
 		if err != nil {
@@ -44,7 +44,12 @@ func RequireAdmin(cfg *config.Config, sessionStore *redis.SessionStore, userStor
 		}
 
 		user, err := userStore.GetByID(userID)
-		if err != nil || !isAdminEmail(cfg.AdminEmails, user.Email) {
+		if err != nil {
+			http.Error(w, "403 Forbidden", http.StatusForbidden)
+			return
+		}
+		isAdmin := user.IsAdmin || (seedFailed && isAdminEmail(cfg.AdminEmails, user.Email))
+		if !isAdmin {
 			http.Error(w, "403 Forbidden", http.StatusForbidden)
 			return
 		}
@@ -68,7 +73,8 @@ func isAdminEmail(adminEmails []string, email string) bool {
 // InjectAdminStatus reads the userID already injected by RequireAuth and stores isAdmin bool in context.
 // Also enforces DisabledAt — a disabled user with a live session is redirected to /login immediately.
 // Must run inside RequireAuth in the chain — unauthenticated requests are rejected before reaching this.
-func InjectAdminStatus(cfg *config.Config, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
+// If seedFailed is true, falls back to cfg.AdminEmails so a seed failure doesn't hide admin UI.
+func InjectAdminStatus(cfg *config.Config, seedFailed bool, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		isAdmin := false
 		if userID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID); ok {
@@ -77,7 +83,7 @@ func InjectAdminStatus(cfg *config.Config, userStore *postgres.UserStore, next h
 					http.Redirect(w, r, "/login?error="+url.QueryEscape("Your account has been disabled"), http.StatusFound)
 					return
 				}
-				isAdmin = isAdminEmail(cfg.AdminEmails, user.Email)
+				isAdmin = user.IsAdmin || (seedFailed && isAdminEmail(cfg.AdminEmails, user.Email))
 			}
 		}
 		ctx := context.WithValue(r.Context(), types.IsAdminContextKey, isAdmin)

@@ -1,16 +1,19 @@
 package ui
 
-import "github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+import (
+	"fmt"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
 
-templ AdminClientList(csrfToken string, clients []*postgres.AdminClientItem, errorMsg, successMsg string) {
-	@AdminLayout("Clients - Admin", "/admin/clients", csrfToken, adminClientListBody(csrfToken, clients, errorMsg, successMsg))
+templ AdminClientList(csrfToken string, clients []*postgres.AdminClientItem, page, total, pageSize int, errorMsg, successMsg string) {
+	@AdminLayout("Clients - Admin", "/admin/clients", csrfToken, adminClientListBody(csrfToken, clients, page, total, pageSize, errorMsg, successMsg))
 }
 
-templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem, errorMsg, successMsg string) {
+templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem, page, total, pageSize int, errorMsg, successMsg string) {
 	<div class="space-y-4">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">OAuth2 Clients</h1>
-			<p class="text-sm text-zinc-400">{ intToStr(len(clients)) } clients across all orgs</p>
+			<p class="text-sm text-zinc-400">{ intToStr(total) } clients across all orgs</p>
 		</div>
 		@AlertContainer(errorMsg, successMsg)
 		<div class="rounded-lg border border-zinc-800 overflow-hidden">
@@ -71,5 +74,18 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 				</tbody>
 			</table>
 		</div>
+		if total > pageSize {
+			<div class="flex items-center justify-between text-sm text-zinc-400">
+				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
+				<div class="flex gap-2">
+					if page > 1 {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
+					}
+					if page*pageSize < total {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/clients?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
+					}
+				</div>
+			</div>
+		}
 	</div>
 }

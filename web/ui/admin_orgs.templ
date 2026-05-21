@@ -1,19 +1,20 @@
 package ui
 
 import (
+	"fmt"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 )
 
-templ AdminOrgList(csrfToken string, orgs []postgres.AdminOrgItem, errorMsg, successMsg string) {
-	@AdminLayout("Orgs - Admin", "/admin/orgs", csrfToken, adminOrgListBody(orgs, errorMsg, successMsg))
+templ AdminOrgList(csrfToken string, orgs []postgres.AdminOrgItem, page, total, pageSize int, errorMsg, successMsg string) {
+	@AdminLayout("Orgs - Admin", "/admin/orgs", csrfToken, adminOrgListBody(orgs, page, total, pageSize, errorMsg, successMsg))
 }
 
-templ adminOrgListBody(orgs []postgres.AdminOrgItem, errorMsg, successMsg string) {
+templ adminOrgListBody(orgs []postgres.AdminOrgItem, page, total, pageSize int, errorMsg, successMsg string) {
 	<div class="space-y-4">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">Organizations</h1>
-			<p class="text-sm text-zinc-400">{ intToStr(len(orgs)) } orgs on the platform</p>
+			<p class="text-sm text-zinc-400">{ intToStr(total) } orgs on the platform</p>
 		</div>
 		@AlertContainer(errorMsg, successMsg)
 		<div class="rounded-lg border border-zinc-800 overflow-hidden">
@@ -49,6 +50,19 @@ templ adminOrgListBody(orgs []postgres.AdminOrgItem, errorMsg, successMsg string
 				</tbody>
 			</table>
 		</div>
+		if total > pageSize {
+			<div class="flex items-center justify-between text-sm text-zinc-400">
+				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
+				<div class="flex gap-2">
+					if page > 1 {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/orgs?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
+					}
+					if page*pageSize < total {
+						<a href={ templ.SafeURL(fmt.Sprintf("/admin/orgs?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
+					}
+				</div>
+			</div>
+		}
 	</div>
 }
 

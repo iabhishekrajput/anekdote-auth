@@ -16,6 +16,7 @@ import (
 
 func NewRouter(
 	cfg *config.Config,
+	seedFailed bool,
 	identH *handlers.IdentityHandler,
 	oauthH *handlers.OAuth2Handler,
 	discH *handlers.DiscoveryHandler,
@@ -50,17 +51,17 @@ func NewRouter(
 	}
 
 	requireAdmin := func(h httprouter.Handle) httprouter.Handle {
-		return secure(middleware.RequireAdmin(cfg, sessionStore, userStore, h))
+		return secure(middleware.RequireAdmin(cfg, seedFailed, sessionStore, userStore, h))
 	}
 
 	// withAuth chains RequireAuth then InjectAdminStatus so account/org handlers
 	// always have both userID and isAdmin available in context.
 	withAuth := func(h httprouter.Handle) httprouter.Handle {
-		return secure(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, userStore, h)))
+		return secure(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, seedFailed, userStore, h)))
 	}
 
 	withAuthRateLimit := func(h httprouter.Handle) httprouter.Handle {
-		return secure(authRateLimit(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, userStore, h))))
+		return secure(authRateLimit(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, seedFailed, userStore, h))))
 	}
 
 	// 1. Identity Endpoints (UI / Form Submissions)
@@ -108,11 +109,14 @@ func NewRouter(
 	router.GET("/admin/users/:id", requireAdmin(adminH.UserDetail))
 	router.POST("/admin/users/:id/disable", requireAdmin(adminH.DisableUser))
 	router.POST("/admin/users/:id/enable", requireAdmin(adminH.EnableUser))
+	router.POST("/admin/users/:id/promote", requireAdmin(adminH.PromoteAdmin))
+	router.POST("/admin/users/:id/demote", requireAdmin(adminH.DemoteAdmin))
 	router.GET("/admin/clients", requireAdmin(adminH.ClientList))
 	router.POST("/admin/clients/:id/delete", requireAdmin(adminH.DeleteClient))
 	router.GET("/admin/orgs", requireAdmin(adminH.OrgList))
 	router.GET("/admin/orgs/:slug", requireAdmin(adminH.OrgDetail))
 	router.POST("/admin/orgs/:slug/members/:user_id/remove", requireAdmin(adminH.RemoveOrgMember))
+	router.GET("/admin/audit", requireAdmin(adminH.AuditLog))
 
 	// 2. OAuth2 Endpoints
 	router.GET("/authorize", secure(oauthH.Authorize))

@@ -58,10 +58,26 @@ func main() {
 	userStore := postgres.NewUserStore(db)
 	clientStore := postgres.NewClientStore(db)
 	orgStore := postgres.NewOrgStore(db)
+	auditStore := postgres.NewAuditStore(db)
 
 	sessionStore := redis.NewSessionStore(rdb)
 	revocStore := redis.NewRevocationStore(rdb)
 	tokenStore := redis.NewTokenStore(rdb)
+
+	// 3b. Seed admin emails — sets is_admin=true for ADMIN_EMAILS users.
+	// If seeding fails, seedFailed=true enables ADMIN_EMAILS fallback in middleware.
+	seedCtx, seedCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer seedCancel()
+	seedFailed := false
+	if len(cfg.AdminEmails) > 0 {
+		n, seedErr := userStore.SeedAdminEmails(seedCtx, cfg.AdminEmails)
+		if seedErr != nil {
+			slog.Error("admin seed failed — falling back to ADMIN_EMAILS in middleware", "error", seedErr)
+			seedFailed = true
+		} else {
+			slog.Info("admin seed complete", "seeded", n)
+		}
+	}
 
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
@@ -80,11 +96,11 @@ func main() {
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.AppURL)
-	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore)
+	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
 	// 7. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, sessionStore, userStore, rdb)
+	router := server.NewRouter(cfg, seedFailed, identH, oauthH, discH, accountH, orgH, adminH, probeH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{

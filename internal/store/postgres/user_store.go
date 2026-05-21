@@ -4,13 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 )
 
-var ErrUserNotFound = errors.New("user not found")
+var (
+	ErrUserNotFound = errors.New("user not found")
+	ErrLastAdmin    = errors.New("cannot remove the last admin")
+)
 
 type UserStore struct {
 	db *sql.DB
@@ -23,9 +28,9 @@ func NewUserStore(db *sql.DB) *UserStore {
 func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 	u := &models.User{}
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, disabled_at, created_at, updated_at
+		SELECT id, email, name, password_hash, is_verified, is_admin, disabled_at, created_at, updated_at
 		FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -39,9 +44,9 @@ func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
 	u := &models.User{}
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, disabled_at, created_at, updated_at
+		SELECT id, email, name, password_hash, is_verified, is_admin, disabled_at, created_at, updated_at
 		FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -50,6 +55,64 @@ func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
 		return nil, err
 	}
 	return u, nil
+}
+
+// SetAdmin sets the is_admin flag for a user. Demoting the last admin returns ErrLastAdmin.
+// Uses SELECT FOR UPDATE inside a transaction to prevent TOCTOU races.
+func (s *UserStore) SetAdmin(ctx context.Context, id uuid.UUID, admin bool) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if !admin {
+		var count int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM users WHERE is_admin = true FOR UPDATE`).Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2`, admin, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// CountAdmins returns the number of admin users.
+func (s *UserStore) CountAdmins(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE is_admin = true`).Scan(&count)
+	return count, err
+}
+
+// SeedAdminEmails sets is_admin=true for every user whose email is in the list.
+// Returns the number of rows updated. Safe to call multiple times — idempotent UPDATE.
+func (s *UserStore) SeedAdminEmails(ctx context.Context, emails []string) (int, error) {
+	if len(emails) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(emails))
+	args := make([]any, len(emails))
+	for i, e := range emails {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = e
+	}
+	query := fmt.Sprintf(
+		`UPDATE users SET is_admin = true, updated_at = NOW() WHERE email IN (%s)`,
+		strings.Join(placeholders, ","),
+	)
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // UserListItem is used by the admin panel for list views.
