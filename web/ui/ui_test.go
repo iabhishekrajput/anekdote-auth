@@ -81,14 +81,14 @@ func TestAccountPage(t *testing.T) {
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
 	}
-	html := renderComp(t, "AccountPage", ui.AccountPage("csrf-xyz", user, "", ""))
+	html := renderComp(t, "AccountPage", ui.AccountPage("csrf-xyz", user, false, "", ""))
 	if !strings.Contains(html, "Jane Doe") {
 		t.Error("expected user name in output")
 	}
 }
 
 func TestOrgListPage(t *testing.T) {
-	html := renderComp(t, "OrgListPage", ui.OrgListPage("csrf-xyz", []postgres.OrgListItem{}, []ui.OrgPendingInvite{}, "", ""))
+	html := renderComp(t, "OrgListPage", ui.OrgListPage("csrf-xyz", []postgres.OrgListItem{}, []ui.OrgPendingInvite{}, false, "", ""))
 	if !strings.Contains(html, "Organizations") {
 		t.Error("expected heading in output")
 	}
@@ -98,7 +98,7 @@ func TestOrgListPageWithOrgs(t *testing.T) {
 	items := []postgres.OrgListItem{
 		{Org: models.Org{Slug: "acme", DisplayName: "Acme Corp"}, Role: "owner", MemberCount: 3},
 	}
-	html := renderComp(t, "OrgListPage with orgs", ui.OrgListPage("csrf-xyz", items, []ui.OrgPendingInvite{}, "", ""))
+	html := renderComp(t, "OrgListPage with orgs", ui.OrgListPage("csrf-xyz", items, []ui.OrgPendingInvite{}, false, "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
 	}
@@ -109,7 +109,7 @@ func TestOrgListPageWithOrgs(t *testing.T) {
 
 func TestOrgDetailPage(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, "", ""))
+	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, false, "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
 	}
@@ -117,7 +117,7 @@ func TestOrgDetailPage(t *testing.T) {
 
 func TestOrgClientsPage(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgClientsPage", ui.OrgClientsPage("csrf-xyz", org, true, nil, "", "", "", ""))
+	html := renderComp(t, "OrgClientsPage", ui.OrgClientsPage("csrf-xyz", org, true, false, nil, "", "", "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
 	}
@@ -125,7 +125,7 @@ func TestOrgClientsPage(t *testing.T) {
 
 func TestOrgClientsPageWithSecret(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgClientsPageWithSecret", ui.OrgClientsPage("csrf-xyz", org, true, nil, "client-id-123", "key_abc123", "", ""))
+	html := renderComp(t, "OrgClientsPageWithSecret", ui.OrgClientsPage("csrf-xyz", org, true, false, nil, "client-id-123", "key_abc123", "", ""))
 	if !strings.Contains(html, "Save your client secret") {
 		t.Error("expected secret modal in output")
 	}
@@ -136,7 +136,7 @@ func TestOrgClientsPageWithSecret(t *testing.T) {
 
 func TestOrgClientsPageNonAdmin(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgClientsPageNonAdmin", ui.OrgClientsPage("csrf-xyz", org, false, nil, "", "", "", ""))
+	html := renderComp(t, "OrgClientsPageNonAdmin", ui.OrgClientsPage("csrf-xyz", org, false, false, nil, "", "", "", ""))
 	if strings.Contains(html, "Register client") {
 		t.Error("non-admin should not see register button")
 	}

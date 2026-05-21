@@ -51,10 +51,12 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
+
 	switch name {
 	case "account.tmpl":
 		user, _ := data["User"].(*models.User)
-		component := ui.AccountPage(csrfToken, user, errorMsg, successMsg)
+		component := ui.AccountPage(csrfToken, user, isAdmin, errorMsg, successMsg)
 		_ = component.Render(r.Context(), w)
 	default:
 		w.WriteHeader(http.StatusInternalServerError)

@@ -2,8 +2,8 @@ package ui
 
 import "github.com/iabhishekrajput/anekdote-auth/internal/models"
 
-templ AccountPage(csrfToken string, user *models.User, errorMsg string, successMsg string) {
-	@AccountLayout("Account Settings - anekdote", "/account", csrfToken, AccountPageBody(csrfToken, user, errorMsg, successMsg))
+templ AccountPage(csrfToken string, user *models.User, isAdmin bool, errorMsg string, successMsg string) {
+	@AccountLayout("Account Settings - anekdote", "/account", csrfToken, isAdmin, AccountPageBody(csrfToken, user, errorMsg, successMsg))
 }
 
 templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, successMsg string) {

@@ -7,8 +7,8 @@ import (
 )
 
 // OrgListPage renders /account/orgs
-templ OrgListPage(csrfToken string, orgs []postgres.OrgListItem, pendingInvites []OrgPendingInvite, errorMsg, successMsg string) {
-	@AccountLayout("Organizations - anekdote", "/account/orgs", csrfToken, OrgListBody(csrfToken, orgs, pendingInvites, errorMsg, successMsg))
+templ OrgListPage(csrfToken string, orgs []postgres.OrgListItem, pendingInvites []OrgPendingInvite, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout("Organizations - anekdote", "/account/orgs", csrfToken, isAdmin, OrgListBody(csrfToken, orgs, pendingInvites, errorMsg, successMsg))
 }
 
 type OrgPendingInvite struct {
@@ -157,8 +157,8 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 }
 
 // OrgDetailPage renders /account/orgs/:slug
-templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, isOwnerOrAdmin bool, errorMsg, successMsg string) {
-	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, isOwnerOrAdmin, errorMsg, successMsg))
+templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, isOwnerOrAdmin bool, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, isOwnerOrAdmin, errorMsg, successMsg))
 }
 
 type OrgPendingMember struct {
@@ -268,8 +268,8 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 }
 
 // OrgClientsPage renders /account/orgs/:slug/clients
-templ OrgClientsPage(csrfToken string, org *models.Org, isOwnerOrAdmin bool, clients []*postgres.OrgClient, newClientID, newSecret, errorMsg, successMsg string) {
-	@AccountLayout(org.DisplayName+" — Clients - anekdote", "/account/orgs/"+org.Slug+"/clients", csrfToken, OrgClientsBody(csrfToken, org, isOwnerOrAdmin, clients, newClientID, newSecret, errorMsg, successMsg))
+templ OrgClientsPage(csrfToken string, org *models.Org, isOwnerOrAdmin bool, isAdmin bool, clients []*postgres.OrgClient, newClientID, newSecret, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" — Clients - anekdote", "/account/orgs/"+org.Slug+"/clients", csrfToken, isAdmin, OrgClientsBody(csrfToken, org, isOwnerOrAdmin, clients, newClientID, newSecret, errorMsg, successMsg))
 }
 
 templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, clients []*postgres.OrgClient, newClientID, newSecret, errorMsg, successMsg string) {
@@ -483,8 +483,8 @@ templ OrgClientsBody(csrfToken string, org *models.Org, isOwnerOrAdmin bool, cli
 }
 
 // InviteEmailMismatch renders the "wrong account" error page for /join.
-templ InviteEmailMismatch(invitedEmail, currentEmail, logoutAction, csrfToken string) {
-	@AccountLayout("Wrong account — anekdote", "/", csrfToken,
+templ InviteEmailMismatch(invitedEmail, currentEmail, logoutAction, csrfToken string, isAdmin bool) {
+	@AccountLayout("Wrong account — anekdote", "/", csrfToken, isAdmin,
 		inviteEmailMismatchBody(invitedEmail, currentEmail, logoutAction, csrfToken))
 }
 

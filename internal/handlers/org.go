@@ -88,9 +88,10 @@ func (h *OrgHandler) ListOrgs(w http.ResponseWriter, r *http.Request, _ httprout
 		return
 	}
 
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgListPage(csrfToken, orgs, nil, r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+	_ = ui.OrgListPage(csrfToken, orgs, nil, isAdmin, r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
 // CreateOrg handles POST /account/orgs
@@ -180,7 +181,8 @@ func (h *OrgHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, _ http
 		logoutRedirect := "/login?req=" + url.QueryEscape("/join?token="+token)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_ = ui.InviteEmailMismatch(inv.Email, currentUser.Email, logoutRedirect, nosurf.Token(r)).Render(r.Context(), w)
+		invIsAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
+		_ = ui.InviteEmailMismatch(inv.Email, currentUser.Email, logoutRedirect, nosurf.Token(r), invIsAdmin).Render(r.Context(), w)
 		return
 	}
 
@@ -227,9 +229,10 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 
 	pending := h.loadPendingInvites(r.Context(), org.ID.String())
 	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), isOwnerOrAdmin,
+	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), isOwnerOrAdmin, isAdmin,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
@@ -439,9 +442,10 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 
 	clients, _ := h.clientStore.ListOrgClients(r.Context(), org.ID)
 	isOwnerOrAdmin := role == "owner" || role == "admin"
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgClientsPage(csrfToken, org, isOwnerOrAdmin, clients, newClientID, newSecret,
+	_ = ui.OrgClientsPage(csrfToken, org, isOwnerOrAdmin, isAdmin, clients, newClientID, newSecret,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 

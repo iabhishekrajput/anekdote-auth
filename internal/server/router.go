@@ -53,6 +53,16 @@ func NewRouter(
 		return secure(middleware.RequireAdmin(cfg, sessionStore, userStore, h))
 	}
 
+	// withAuth chains RequireAuth then InjectAdminStatus so account/org handlers
+	// always have both userID and isAdmin available in context.
+	withAuth := func(h httprouter.Handle) httprouter.Handle {
+		return secure(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, userStore, h)))
+	}
+
+	withAuthRateLimit := func(h httprouter.Handle) httprouter.Handle {
+		return secure(authRateLimit(middleware.RequireAuth(sessionStore, middleware.InjectAdminStatus(cfg, userStore, h))))
+	}
+
 	// 1. Identity Endpoints (UI / Form Submissions)
 	router.GET("/", func(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		http.Redirect(w, r, "/login", http.StatusFound)
@@ -74,23 +84,23 @@ func NewRouter(
 
 	router.POST("/logout", secure(identH.LogoutFunc))
 
-	router.GET("/account", secure(middleware.RequireAuth(sessionStore, accountH.ViewAccount)))
-	router.POST("/account/profile", secure(middleware.RequireAuth(sessionStore, accountH.UpdateProfile)))
-	router.POST("/account/password", secure(middleware.RequireAuth(sessionStore, accountH.UpdatePassword)))
+	router.GET("/account", withAuth(accountH.ViewAccount))
+	router.POST("/account/profile", withAuth(accountH.UpdateProfile))
+	router.POST("/account/password", withAuth(accountH.UpdatePassword))
 
 	// Org routes — /join is the public accept route (unauthenticated invite link)
 	router.GET("/join", secure(orgH.AcceptInvite))
-	router.GET("/account/orgs", secure(middleware.RequireAuth(sessionStore, orgH.ListOrgs)))
-	router.POST("/account/orgs", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.CreateOrg))))
-	router.GET("/account/orgs/:slug", secure(middleware.RequireAuth(sessionStore, orgH.OrgDetail)))
-	router.GET("/account/orgs/:slug/clients", secure(middleware.RequireAuth(sessionStore, orgH.OrgClients)))
-	router.POST("/account/orgs/:slug/invites", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.SendInvite))))
-	router.POST("/account/orgs/:slug/invites/:token/revoke", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RevokeInvite))))
-	router.POST("/account/orgs/:slug/members/:userID/role", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.ChangeMemberRole))))
-	router.POST("/account/orgs/:slug/members/:userID/remove", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RemoveMember))))
-	router.POST("/account/orgs/:slug/clients", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RegisterClient))))
-	router.POST("/account/orgs/:slug/clients/:clientID/delete", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.DeleteClient))))
-	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", secure(authRateLimit(middleware.RequireAuth(sessionStore, orgH.RotateClientSecret))))
+	router.GET("/account/orgs", withAuth(orgH.ListOrgs))
+	router.POST("/account/orgs", withAuthRateLimit(orgH.CreateOrg))
+	router.GET("/account/orgs/:slug", withAuth(orgH.OrgDetail))
+	router.GET("/account/orgs/:slug/clients", withAuth(orgH.OrgClients))
+	router.POST("/account/orgs/:slug/invites", withAuthRateLimit(orgH.SendInvite))
+	router.POST("/account/orgs/:slug/invites/:token/revoke", withAuthRateLimit(orgH.RevokeInvite))
+	router.POST("/account/orgs/:slug/members/:userID/role", withAuthRateLimit(orgH.ChangeMemberRole))
+	router.POST("/account/orgs/:slug/members/:userID/remove", withAuthRateLimit(orgH.RemoveMember))
+	router.POST("/account/orgs/:slug/clients", withAuthRateLimit(orgH.RegisterClient))
+	router.POST("/account/orgs/:slug/clients/:clientID/delete", withAuthRateLimit(orgH.DeleteClient))
+	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", withAuthRateLimit(orgH.RotateClientSecret))
 
 	// Admin routes — all behind RequireAdmin
 	router.GET("/admin", requireAdmin(adminH.Dashboard))

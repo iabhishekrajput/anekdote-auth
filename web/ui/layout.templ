@@ -24,7 +24,7 @@ templ BaseLayout(title string, body templ.Component) {
 	</html>
 }
 
-templ AccountLayout(title string, currentPath string, csrfToken string, body templ.Component) {
+templ AccountLayout(title string, currentPath string, csrfToken string, isAdmin bool, body templ.Component) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -51,6 +51,10 @@ templ AccountLayout(title string, currentPath string, csrfToken string, body tem
 								class={ accountNavClass(currentPath, "/account/orgs") }
 							>Organizations</a>
 						</nav>
+						if isAdmin {
+							<span class="h-4 w-px bg-zinc-800 mx-1"></span>
+							<a href="/admin" class="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 uppercase tracking-wide hover:bg-amber-500/20 transition-colors">Admin</a>
+						}
 						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
 						<form method="POST" action="/logout">
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>

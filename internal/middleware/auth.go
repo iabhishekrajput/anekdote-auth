@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -61,6 +62,21 @@ func isAdminEmail(adminEmails []string, email string) bool {
 		}
 	}
 	return false
+}
+
+// InjectAdminStatus reads the userID already injected by RequireAuth and stores isAdmin bool in context.
+// Must run inside RequireAuth in the chain — unauthenticated requests are rejected before reaching this.
+func InjectAdminStatus(cfg *config.Config, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		isAdmin := false
+		if userID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID); ok {
+			if user, err := userStore.GetByID(userID); err == nil {
+				isAdmin = isAdminEmail(cfg.AdminEmails, user.Email)
+			}
+		}
+		ctx := context.WithValue(r.Context(), types.IsAdminContextKey, isAdmin)
+		next(w, r.WithContext(ctx), ps)
+	}
 }
 
 // RedirectIfAuthenticated is a middleware that redirects already logged-in users away from auth pages.
