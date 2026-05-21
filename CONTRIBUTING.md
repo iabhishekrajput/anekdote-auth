@@ -1,23 +1,36 @@
 # Contributing to Anekdote Auth
 
-First off, thank you for considering contributing to Anekdote Auth! It's people like you that make open source such a great community.
+Thank you for considering contributing to Anekdote Auth!
 
 ## Development Workflow
 
-1. **Fork the Repository**: Start by forking `iabhishekrajput/anekdote-auth`.
-2. **Clone Locally**: Clone your fork to your local machine.
-3. **Environment Setup**: Ensure you have Go 1.22+, Docker, and Redis installed. Start the background datastores via `docker-compose up -d`.
-4. **Create a Branch**: Create a feature branch (`git checkout -b feature/your-feature-name`).
-5. **Commit Changes**: Make your changes. Please use clear, descriptive commit messages.
-6. **Testing**: Run the local test suite if applicable, or manually verify using `make run`. Remember to run `make generate`, `make css-build`, `make fmt`, and `make lint` before pushing.
-7. **Submit a Pull Request**: Push your branch to your fork and submit a PR to the `main` branch of this repository.
+1. **Fork the repository** — start by forking `iabhishekrajput/anekdote-auth`.
+2. **Clone locally** — clone your fork to your local machine.
+3. **Environment setup** — you'll need Go 1.26+, Docker, and `make`. Start the background datastores:
+   ```bash
+   make postgres-up redis-up mailpit-up
+   ```
+4. **One-time setup** — generate certs and apply migrations:
+   ```bash
+   npm install          # Tailwind CLI
+   make generate-certs  # RSA-2048 key pair
+   make migrate-up
+   ```
+5. **Create a branch** — `git checkout -b feature/your-feature-name`.
+6. **Make changes** — after editing any `.templ` file, run `make generate`. After editing Tailwind classes, run `make css-build`.
+7. **Test and lint** — before pushing:
+   ```bash
+   make tidy     # go mod tidy + vendor + fmt
+   make audit    # vet + staticcheck + tests with -race
+   ```
+8. **Submit a pull request** — push your branch and open a PR against `main`.
 
 ## Adding Features
 
-If you plan on adding a large new feature to the OAuth2 structure (such as a new Grant Type), please open an Issue first to discuss the architectural approach before submitting a massive PR.
+If you plan on adding a large new feature (a new Grant Type, a new OAuth2 extension, etc.), please open an Issue first to discuss the approach before submitting a large PR.
 
 ## Code Style
 
-- Format your code using `go fmt`.
-- Limit dependencies to only what's absolutely necessary. We aim to keep the core server as native as possible.
-- Use explicit error handling everywhere. Do not silently swallow panics.
+- Format code with `gofmt` (or `make tidy` which runs it for you).
+- Keep dependencies minimal — the core server aims to stay as close to the standard library as practical.
+- Use explicit error handling everywhere. Do not silently swallow panics or errors.

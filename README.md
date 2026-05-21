@@ -14,6 +14,7 @@ Anekdote Auth is a self-hosted **OAuth2 and OpenID Connect (OIDC)** Authorizatio
 - **Multi-Tenant Organizations** — Orgs with owner / admin / member roles, email invites, per-org OAuth2 client registration, and a full invite acceptance state machine.
 - **Account Center Dashboard** — Session-protected dashboard for profile, password, and org management.
 - **Immediate JWT Revocation** — RFC 7009 `/revoke` endpoint; denied tokens are blocklisted in Redis by `jti`.
+- **Admin Panel** — DB-backed admin roles (`is_admin`), user management (disable/enable/promote/demote), OAuth2 client management, org management, and a tamper-evident audit log with IP and User-Agent capture.
 - **Hardened Security** — bcrypt password hashing, CSRF protection, security headers (HSTS, CSP, X-Frame-Options), Redis-backed token-bucket rate limiting per route.
 
 ## Tech Stack
@@ -165,6 +166,26 @@ cosign verify \
 | `/revoke` | POST | RFC 7009 token revocation. Blocklists `jti` in Redis. |
 | `/.well-known/jwks.json` | GET | Public key set for RS256 JWT verification by resource servers. |
 | `/.well-known/openid-configuration` | GET | OpenID Connect Discovery metadata. |
+
+### Admin
+
+All admin routes require `is_admin = true` in the database. The first admin account is bootstrapped via migration `00005_seed_admin.sql` (email: `admin@localhost`, password: `ChangeMe1!`) — log in, promote your real account, then roll back that migration or delete the bootstrap account.
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/admin` | GET | Admin dashboard. |
+| `/admin/users` | GET | Paginated user list. |
+| `/admin/users/:id` | GET | User detail. |
+| `/admin/users/:id/disable` | POST | Disable a user account. |
+| `/admin/users/:id/enable` | POST | Re-enable a disabled account. |
+| `/admin/users/:id/promote` | POST | Grant admin access. |
+| `/admin/users/:id/demote` | POST | Revoke admin access. Protected: last admin cannot be demoted. |
+| `/admin/clients` | GET | Paginated OAuth2 client list. |
+| `/admin/clients/:id/delete` | POST | Delete an OAuth2 client. |
+| `/admin/orgs` | GET | Paginated org list. |
+| `/admin/orgs/:slug` | GET | Org detail and members. |
+| `/admin/orgs/:slug/members/:user_id/remove` | POST | Remove a member from an org. |
+| `/admin/audit` | GET | Paginated admin audit log (action, target, IP, User-Agent). |
 
 ### Infrastructure
 

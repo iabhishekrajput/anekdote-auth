@@ -74,7 +74,7 @@ Migrations are **not** auto-applied at startup — they run via the goose CLI. `
 
 Two storage backends, both under `internal/store/`:
 
-- **`postgres/`** — persistent storage: `UserStore` (users table), `ClientStore` (OAuth2 clients).
+- **`postgres/`** — persistent storage: `UserStore` (users, is_admin), `ClientStore` (OAuth2 clients), `OrgStore` (organizations + memberships), `AuditStore` (admin_audit_log).
 - **`redis/`** — ephemeral storage:
   - `SessionStore` — browser sessions (24h TTL), keyed by UUID session ID.
   - `TokenStore` — wraps `go-oauth2/redis` with extra user→token index and revocation checks.
@@ -95,6 +95,7 @@ Each handler in `internal/handlers/` handles one domain:
 - `OAuth2Handler` — `/authorize`, `/token`, `/revoke`; the `userAuthorizeHandler` intercepts to check for an active session and renders consent.
 - `DiscoveryHandler` — JWKS and OpenID configuration endpoints (`discovery.go` + `oidc_discovery.go`).
 - `AccountHandler` — session-protected `/account` dashboard.
+- `AdminHandler` — `/admin/*` routes: user management (disable/enable/promote/demote), OAuth2 client management, org management, and the paginated audit log.
 
 ### UI layer
 
@@ -109,6 +110,8 @@ HTML templates use [Templ](https://templ.guide): source files are `web/ui/*.temp
 - `RateLimitMiddleware` — token bucket via Redis, per-route (`global`: 100/min, `auth`: 10/min).
 - `RequireAuth` — redirects to `/login?req=<original_url>` if no valid session; injects `userID` via `types.UserContextKey`.
 - `RedirectIfAuthenticated` — bounces logged-in users away from login/register pages.
+- `RequireAdmin` — checks `user.IsAdmin` (DB-backed); redirects non-admins to `/`.
+- `InjectAdminStatus` — injects `isAdmin bool` into context for nav rendering on auth'd pages.
 
 ### Key patterns
 

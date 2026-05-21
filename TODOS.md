@@ -1,35 +1,35 @@
 # TODOS
 
-Deferred items from the autoplan review pipeline (2026-05-21).
-These are genuine gaps, not taste decisions — each has a clear "why now is wrong" note.
+Deferred items — each has a clear "why not now" note so the decision doesn't get relitigated.
+
+---
+
+## Admin Panel
+
+### Cursor-based pagination on admin list pages
+`/admin/users`, `/admin/clients`, `/admin/orgs`, `/admin/audit` use offset/limit pagination. Acceptable at current scale; degrades past ~10k rows per list.
+**When:** When any list hits 10k+ rows.
+**Shape:** Cursor-based pagination keyed on `created_at DESC` + `id` (stable tiebreaker). The page/pageSize wiring already exists; the query layer needs a `WHERE created_at < $cursor` clause.
+
+### Audit log filter and export
+`/admin/audit` shows all events unfiltered. No way to narrow by admin, date range, or action type. No export for compliance evidence.
+**When:** Before SOC 2 or any compliance audit, or when the audit table exceeds a few thousand rows.
+**Shape:** Query params: `?admin_id=`, `?action=`, `?from=`, `?to=`. Export: `GET /admin/audit/export.csv` streaming from the same query. Retention: auto-delete entries older than configurable TTL (default 90 days).
 
 ---
 
 ## Auth & Security
 
-### Audit log for admin actions
-Admin actions (disable user, delete client, remove org member) have no audit trail. There is no record of who did what or when.
-**When:** Before production use at scale. A single-tenant or trusted-team deployment can defer this, but any multi-admin deployment needs it.
-**Shape:** Postgres `admin_audit_log` table: `admin_id`, `action`, `target_type`, `target_id`, `created_at`.
-
-### DB-backed admin roles (replace ADMIN_EMAILS)
-`ADMIN_EMAILS` env var is correct for the current stage but doesn't scale — it requires a deploy to add/remove admins and can't support role gradations (e.g., read-only admin vs. full admin).
-**When:** When the admin team grows beyond 1-2 people or when role gradations are needed.
-**Shape:** `user_roles` table or a `role` column on users; `RequireAdmin` checks DB instead of env.
+### Role gradations beyond `is_admin`
+`is_admin` is a binary: full access or none. There's no read-only admin (view-only, no mutations) or scoped admin (manage orgs but not clients, etc.).
+**When:** When the admin team grows beyond 1-2 trusted people, or when audit requirements demand least-privilege roles.
+**Shape:** `admin_roles` table or a `role` column with values like `superadmin`, `readonly`, `org_admin`. `RequireAdmin` becomes `RequireRole(...)`.
 
 ---
 
 ## OAuth2
 
-### Integration test for userAuthorizeHandler "return nil" contract
-The `"", nil` return from `userAuthorizeHandler` stops go-oauth2 from overwriting a custom-rendered response. This contract is not tested — a go-oauth2 library upgrade could silently break the denial page.
-**When:** Before upgrading go-oauth2. Consider adding a narrow integration test that verifies the response body when a non-member hits /authorize.
-
----
-
-## Admin UX
-
-### Pagination on admin list pages
-`/admin/users`, `/admin/clients`, `/admin/orgs` load all rows. Fine for small deployments; will degrade at thousands of records.
-**When:** When any list grows past ~500 rows.
-**Shape:** Cursor-based pagination; the page/pageSize wiring already exists in `UserList`.
+### Full OAuth2 flow integration suite
+Only the org-denial path in `userAuthorizeHandler` is integration-tested. The full Authorization Code flow (consent render, code exchange, token validation, revocation) has no end-to-end test.
+**When:** Before upgrading `go-oauth2` or making structural changes to the authorize/token pipeline.
+**Shape:** A test server spun up with a real in-memory Postgres (testcontainers) and Redis; flow driven via `net/http/httptest`. Assert each step: redirect to login → consent render → code in redirect → token exchange → JWKS validation → revocation.
