@@ -83,6 +83,7 @@ FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 WORKDIR /app
 
 COPY --from=gobuilder /out/auth-server /app/auth-server
+COPY web/static/app.js /app/web/static/app.js
 COPY web/static/tailwind.css /app/web/static/tailwind.css
 COPY --from=assets /app/web/static/app.css /app/web/static/app.css
 
