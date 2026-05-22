@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -735,5 +736,200 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 	// Token must NOT be consumed
 	if _, err := mr.Get("org:invite:" + token); err != nil {
 		t.Error("invite token should still be valid after mismatch")
+	}
+}
+
+// --- LeaveOrg POST ---
+
+func leaveOrgRequest(t *testing.T, userID uuid.UUID) (*http.Request, *httptest.ResponseRecorder) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/leave", nil)
+	req = withUserContext(req, userID)
+	return req, httptest.NewRecorder()
+}
+
+func TestLeaveOrg_OrgNotFound(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	userID := uuid.New()
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?error=") {
+		t.Errorf("expected error redirect, got %s", loc)
+	}
+	if !strings.Contains(url.PathEscape(loc), url.PathEscape("Organization")) {
+		// just check redirect has error param
+	}
+}
+
+func TestLeaveOrg_NotMember(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"role"}))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?error=") {
+		t.Errorf("expected error redirect, got %s", loc)
+	}
+}
+
+func TestLeaveOrg_OwnerBlocked_ViaStore(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+	// RemoveMember: owner check query returns userID as owner_id → ErrOwnerCannotBeRemoved
+	orgMock.ExpectQuery(`SELECT owner_id FROM organizations WHERE id`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(userID))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?error=") {
+		t.Errorf("expected error redirect, got %s", loc)
+	}
+}
+
+func TestLeaveOrg_Success_Member(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	differentOwner := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}).
+			AddRow(orgID, "acme", "Acme Corp", differentOwner, time.Now(), time.Now()))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("member"))
+	// RemoveMember: owner check
+	orgMock.ExpectQuery(`SELECT owner_id FROM organizations WHERE id`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(differentOwner))
+	orgMock.ExpectExec(`UPDATE org_memberships SET removed_at`).
+		WithArgs(orgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?message=") {
+		t.Errorf("expected success redirect, got %s", loc)
+	}
+	if !strings.Contains(loc, "Acme+Corp") && !strings.Contains(loc, "Acme%20Corp") && !strings.Contains(loc, "Acme") {
+		t.Errorf("expected org name in message, got %s", loc)
+	}
+}
+
+func TestLeaveOrg_Success_Admin(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	differentOwner := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}).
+			AddRow(orgID, "acme", "Acme Corp", differentOwner, time.Now(), time.Now()))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT owner_id FROM organizations WHERE id`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(differentOwner))
+	orgMock.ExpectExec(`UPDATE org_memberships SET removed_at`).
+		WithArgs(orgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?message=") {
+		t.Errorf("expected success redirect, got %s", loc)
+	}
+}
+
+func TestLeaveOrg_StoreError(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	differentOwner := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}).
+			AddRow(orgID, "acme", "Acme Corp", differentOwner, time.Now(), time.Now()))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("member"))
+	orgMock.ExpectQuery(`SELECT owner_id FROM organizations WHERE id`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id"}).AddRow(differentOwner))
+	orgMock.ExpectExec(`UPDATE org_memberships SET removed_at`).
+		WithArgs(orgID, userID).
+		WillReturnError(errors.New("db failure"))
+
+	req, rr := leaveOrgRequest(t, userID)
+	h.LeaveOrg(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?error=") {
+		t.Errorf("expected error redirect, got %s", loc)
 	}
 }

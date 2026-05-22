@@ -585,6 +585,50 @@ func (h *OrgHandler) RotateClientSecret(w http.ResponseWriter, r *http.Request, 
 	http.Redirect(w, r, redirectBase+"?newClientID="+url.QueryEscape(clientID), http.StatusFound)
 }
 
+// LeaveOrg handles POST /account/orgs/:slug/leave
+func (h *OrgHandler) LeaveOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+
+	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if err != nil {
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to verify membership"), http.StatusFound)
+		return
+	}
+	if role == "" {
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("You are not a member of this organization"), http.StatusFound)
+		return
+	}
+
+	if err := h.orgStore.RemoveMember(r.Context(), org.ID, userID); err != nil {
+		if errors.Is(err, postgres.ErrOwnerCannotBeRemoved) {
+			http.Redirect(w, r, "/account?error="+url.QueryEscape("Transfer ownership before leaving the organization"), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to leave organization"), http.StatusFound)
+		return
+	}
+
+	// Best-effort: revoke all org-scoped tokens issued to this user for this org.
+	if h.revocStore != nil && h.rdb != nil {
+		indexKey := "oauth:user-org-tokens:" + userID.String() + ":" + org.ID.String()
+		if jtis, err := h.rdb.SMembers(r.Context(), indexKey).Result(); err == nil && len(jtis) > 0 {
+			for _, jti := range jtis {
+				h.revocStore.RevokeJTI(r.Context(), jti, time.Hour)
+			}
+			h.rdb.Del(r.Context(), indexKey)
+		}
+	}
+
+	http.Redirect(w, r, "/account?message="+url.QueryEscape("You've left "+org.DisplayName+"."), http.StatusFound)
+}
+
 // loadPendingInvites reads org:invites:{orgID} SET and fetches each invite payload,
 // lazily pruning stale tokens.
 func (h *OrgHandler) loadPendingInvites(ctx context.Context, orgID string) []ui.OrgPendingMember {

@@ -71,6 +71,10 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		}
 		claims["org_id"] = oci.OrgID.String()
 		claims["org_role"] = role
+
+		if g.rdb != nil {
+			g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+data.UserID+":"+oci.OrgID.String(), jti)
+		}
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
