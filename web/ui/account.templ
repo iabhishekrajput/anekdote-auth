@@ -1,12 +1,15 @@
 package ui
 
-import "github.com/iabhishekrajput/anekdote-auth/internal/models"
+import (
+	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+)
 
-templ AccountPage(csrfToken string, user *models.User, isAdmin bool, errorMsg string, successMsg string) {
-	@AccountLayout("Account Settings - anekdote", "/account", csrfToken, isAdmin, AccountPageBody(csrfToken, user, errorMsg, successMsg))
+templ AccountPage(csrfToken string, user *models.User, isAdmin bool, orgs []postgres.OrgListItem, errorMsg string, successMsg string) {
+	@AccountLayout("Account Settings - anekdote", "/account", csrfToken, isAdmin, AccountPageBody(csrfToken, user, orgs, errorMsg, successMsg))
 }
 
-templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, successMsg string) {
+templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgListItem, errorMsg string, successMsg string) {
 	<div class="w-full max-w-2xl mx-auto">
 		<div class="mb-8">
 			<h1 class="text-xl font-semibold tracking-tight">Account settings</h1>
@@ -55,6 +58,40 @@ templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, succ
 					<p class="text-xs text-zinc-500">{ user.Email }</p>
 				</div>
 			</div>
+		</section>
+
+		<!-- Organizations section -->
+		<section class="mt-8 pb-8 border-b border-zinc-800/60">
+			<div class="flex items-center justify-between mb-3">
+				<h3 class="text-base font-semibold">Organizations</h3>
+				<a
+					href="/account/orgs"
+					class="h-8 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50 hover:border-zinc-700 transition-colors duration-150 inline-flex items-center"
+				>Manage →</a>
+			</div>
+			if len(orgs) == 0 {
+				<p class="text-sm text-zinc-500">You don't belong to any organizations.</p>
+			} else {
+				<ul class="space-y-2">
+					for _, item := range orgs {
+						<li class="flex items-center justify-between gap-3 rounded-md border border-zinc-800/60 bg-zinc-900/40 px-3 py-2">
+							<div>
+								<p class="text-sm font-medium text-zinc-50">{ item.Org.DisplayName }</p>
+								<p class="text-xs text-zinc-500 capitalize">{ item.Role }</p>
+							</div>
+							if item.Role == "owner" {
+								<span class="text-xs text-zinc-600 italic">Transfer ownership to leave</span>
+							} else {
+								<button
+									type="button"
+									data-dialog-show={ "leave-" + item.Org.Slug + "-dialog" }
+									class="shrink-0 h-7 rounded-md border border-zinc-800 px-2.5 text-xs text-zinc-400 hover:text-red-400 hover:border-red-900 transition-colors duration-150"
+								>Leave</button>
+							}
+						</li>
+					}
+				</ul>
+			}
 		</section>
 
 		<!-- Security section -->
@@ -118,4 +155,30 @@ templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, succ
 			</form>
 		</div>
 	</div>
+
+	<!-- Leave org confirmation modals -->
+	for _, item := range orgs {
+		if item.Role != "owner" {
+			<div id={ "leave-" + item.Org.Slug + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+				<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl">
+					<h2 class="mb-2 text-base font-semibold">Leave { item.Org.DisplayName }?</h2>
+					<p class="mb-5 text-sm text-zinc-400">You won't be able to rejoin without receiving a new invite.</p>
+					<form method="POST" action={ templ.SafeURL("/account/orgs/" + item.Org.Slug + "/leave") }>
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<div class="flex gap-2 justify-end">
+							<button
+								type="button"
+								data-dialog-hide={ "leave-" + item.Org.Slug + "-dialog" }
+								class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+							>Cancel</button>
+							<button
+								type="submit"
+								class="h-9 rounded-md bg-red-700 px-3 text-sm text-zinc-50 hover:bg-red-600 transition-colors duration-150"
+							>Leave organization</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		}
+	}
 }

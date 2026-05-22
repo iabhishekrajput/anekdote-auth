@@ -94,9 +94,57 @@ func TestAccountPage(t *testing.T) {
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
 	}
-	html := renderComp(t, "AccountPage", ui.AccountPage("csrf-xyz", user, false, "", ""))
+	html := renderComp(t, "AccountPage", ui.AccountPage("csrf-xyz", user, false, []postgres.OrgListItem{}, "", ""))
 	if !strings.Contains(html, "Jane Doe") {
 		t.Error("expected user name in output")
+	}
+}
+
+func TestAccountPage_WithOrgs_NonOwner(t *testing.T) {
+	ownerID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	user := &models.User{ID: userID, Name: "Jane Doe", Email: "jane@example.com"}
+	orgs := []postgres.OrgListItem{
+		{
+			Org:         models.Org{Slug: "acme", DisplayName: "Acme Corp", OwnerID: ownerID},
+			Role:        "member",
+			MemberCount: 2,
+		},
+	}
+	html := renderComp(t, "AccountPage with non-owner org", ui.AccountPage("csrf-xyz", user, false, orgs, "", ""))
+	if !strings.Contains(html, "Acme Corp") {
+		t.Error("expected org name in output")
+	}
+	if !strings.Contains(html, "Leave") {
+		t.Error("expected Leave button for non-owner")
+	}
+}
+
+func TestAccountPage_WithOrgs_Owner(t *testing.T) {
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	user := &models.User{ID: userID, Name: "Jane Doe", Email: "jane@example.com"}
+	orgs := []postgres.OrgListItem{
+		{
+			Org:         models.Org{Slug: "acme", DisplayName: "Acme Corp", OwnerID: userID},
+			Role:        "owner",
+			MemberCount: 1,
+		},
+	}
+	html := renderComp(t, "AccountPage with owner org", ui.AccountPage("csrf-xyz", user, false, orgs, "", ""))
+	if !strings.Contains(html, "Transfer ownership to leave") {
+		t.Error("expected ownership transfer message for owner")
+	}
+}
+
+func TestAccountPage_EmptyOrgs(t *testing.T) {
+	user := &models.User{
+		ID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		Name:  "Jane Doe",
+		Email: "jane@example.com",
+	}
+	html := renderComp(t, "AccountPage empty orgs", ui.AccountPage("csrf-xyz", user, false, []postgres.OrgListItem{}, "", ""))
+	if !strings.Contains(html, "You don&#39;t belong to any organizations") && !strings.Contains(html, "You don't belong to any organizations") {
+		t.Error("expected empty state message")
 	}
 }
 

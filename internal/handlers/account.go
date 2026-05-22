@@ -16,11 +16,13 @@ import (
 
 type AccountHandler struct {
 	userStore *postgres.UserStore
+	orgStore  *postgres.OrgStore
 }
 
-func NewAccountHandler(uStore *postgres.UserStore) *AccountHandler {
+func NewAccountHandler(uStore *postgres.UserStore, orgStore *postgres.OrgStore) *AccountHandler {
 	return &AccountHandler{
 		userStore: uStore,
+		orgStore:  orgStore,
 	}
 }
 
@@ -56,7 +58,8 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 	switch name {
 	case "account.tmpl":
 		user, _ := data["User"].(*models.User)
-		component := ui.AccountPage(csrfToken, user, isAdmin, errorMsg, successMsg)
+		orgs, _ := data["Orgs"].([]postgres.OrgListItem)
+		component := ui.AccountPage(csrfToken, user, isAdmin, orgs, errorMsg, successMsg)
 		_ = component.Render(r.Context(), w)
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
@@ -73,11 +76,17 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 		return
 	}
 
+	orgs, _ := h.orgStore.ListOrgsForUserFull(r.Context(), userID)
+	if orgs == nil {
+		orgs = []postgres.OrgListItem{}
+	}
+
 	errMsg := r.URL.Query().Get("error")
 	successMsg := r.URL.Query().Get("message")
 
 	h.render(w, r, "account.tmpl", map[string]interface{}{
 		"User":    user,
+		"Orgs":    orgs,
 		"Error":   errMsg,
 		"Success": successMsg,
 	})

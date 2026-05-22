@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,16 +17,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func setupAccountMockedHandler(t *testing.T) (*AccountHandler, sqlmock.Sqlmock) {
-	db, mock, err := sqlmock.New()
+var errSimulated = errors.New("simulated db error")
+
+func setupAccountMockedHandler(t *testing.T) (*AccountHandler, sqlmock.Sqlmock, sqlmock.Sqlmock) {
+	userDB, userMock, err := sqlmock.New()
 	if err != nil {
-		t.Fatalf("an error '%s' was not expected when opening a stub database connection", err)
+		t.Fatalf("an error '%s' was not expected when opening a stub user database connection", err)
+	}
+	orgDB, orgMock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("an error '%s' was not expected when opening a stub org database connection", err)
 	}
 
-	userStore := postgres.NewUserStore(db)
-	handler := NewAccountHandler(userStore)
+	userStore := postgres.NewUserStore(userDB)
+	orgStore := postgres.NewOrgStore(orgDB)
+	handler := NewAccountHandler(userStore, orgStore)
 
-	return handler, mock
+	return handler, userMock, orgMock
 }
 
 // helper to wrap requests with user context
@@ -35,19 +43,24 @@ func withUserContext(req *http.Request, userID uuid.UUID) *http.Request {
 }
 
 func TestViewAccount_Success(t *testing.T) {
-	handler, mock := setupAccountMockedHandler(t)
+	handler, userMock, orgMock := setupAccountMockedHandler(t)
 
 	userID := uuid.New()
 	req := httptest.NewRequest(http.MethodGet, "/account", nil)
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
 		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
 
-	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+	userMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(rows)
+		WillReturnRows(userRows)
+
+	orgRows := sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at", "role", "member_count"})
+	orgMock.ExpectQuery(`SELECT (.+) FROM org_memberships`).
+		WithArgs(userID).
+		WillReturnRows(orgRows)
 
 	handler.ViewAccount(rr, req, nil)
 
@@ -55,13 +68,43 @@ func TestViewAccount_Success(t *testing.T) {
 		t.Errorf("expected 200 OK, got %d", status)
 	}
 
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("unfulfilled expectations: %s", err)
+	if err := userMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled user expectations: %s", err)
+	}
+	if err := orgMock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled org expectations: %s", err)
+	}
+}
+
+func TestViewAccount_OrgStoreFails(t *testing.T) {
+	handler, userMock, orgMock := setupAccountMockedHandler(t)
+
+	userID := uuid.New()
+	req := httptest.NewRequest(http.MethodGet, "/account", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
+
+	userMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+		WithArgs(userID).
+		WillReturnRows(userRows)
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM org_memberships`).
+		WithArgs(userID).
+		WillReturnError(errSimulated)
+
+	handler.ViewAccount(rr, req, nil)
+
+	// Org failure must not redirect — page should still render
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("expected 200 OK despite org error, got %d", status)
 	}
 }
 
 func TestUpdateProfile_Success(t *testing.T) {
-	handler, mock := setupAccountMockedHandler(t)
+	handler, mock, _ := setupAccountMockedHandler(t)
 
 	userID := uuid.New()
 	formData := url.Values{}
@@ -89,7 +132,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 }
 
 func TestUpdatePassword_Success(t *testing.T) {
-	handler, mock := setupAccountMockedHandler(t)
+	handler, mock, _ := setupAccountMockedHandler(t)
 
 	userID := uuid.New()
 	formData := url.Values{}
