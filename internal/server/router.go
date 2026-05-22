@@ -23,6 +23,7 @@ func NewRouter(
 	orgH *handlers.OrgHandler,
 	adminH *handlers.AdminHandler,
 	probeH *handlers.ProbeHandler,
+	userInfoH *handlers.UserInfoHandler,
 	sessionStore *redisstore.SessionStore,
 	userStore *pgstore.UserStore,
 	redisClient *redis.Client,
@@ -141,9 +142,13 @@ func NewRouter(
 	router.POST("/token", secure(oauthH.Token))
 	router.POST("/revoke", secure(oauthH.Revoke))
 
-	// 3. Discovery (OIDC/JWKS)
+	// 3. Discovery (OIDC/JWKS) + UserInfo
 	router.GET("/.well-known/jwks.json", secure(discH.WellKnownJWKS))
 	router.GET("/.well-known/openid-configuration", secure(discH.OpenIDConfiguration))
+	// /userinfo: bearer-auth in handler, not RequireAuth (which uses cookie sessions).
+	// Both GET and POST required per OIDC Core §5.3.
+	router.GET("/userinfo", secure(userInfoH.UserInfo))
+	router.POST("/userinfo", secure(userInfoH.UserInfo))
 
 	// 4. Health/Readiness Probes
 	router.GET("/healthz", probeH.Health)

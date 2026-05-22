@@ -8,7 +8,7 @@ Anekdote Auth is a self-hosted **OAuth2 and OpenID Connect (OIDC)** Authorizatio
 
 ## Features
 
-- **OAuth 2.0 & OIDC** — Authorization Code flow, token exchange, consent UI, RS256 JWTs with standard OIDC claims.
+- **OAuth 2.0 & OIDC** — Authorization Code flow, consent UI, RS256 JWTs with scope-driven claims (`email`, `name`, `updated_at`), `id_token` in token response (openid scope), `/userinfo` endpoint (OIDC Core §5.3), and a complete OpenID Connect discovery document.
 - **PKCE Support** — Enforced for SPA and mobile clients.
 - **Native Identity Management** — Registration, login, email verification (OTP), forgot password, and password reset.
 - **Multi-Tenant Organizations** — Orgs with owner / admin / viewer / member roles, email invites, per-org OAuth2 client registration, and a full invite acceptance state machine.
@@ -172,6 +172,7 @@ cosign verify \
 | `/authorize` | GET, POST | Authorization Code flow. Renders consent UI if scope has not been granted. |
 | `/token` | POST | Token exchange endpoint. |
 | `/revoke` | POST | RFC 7009 token revocation. Blocklists `jti` in Redis. |
+| `/userinfo` | GET, POST | OIDC UserInfo endpoint. Bearer JWT auth (`Authorization: Bearer <token>`). Returns scope-driven claims: `sub` always; `email`/`email_verified` with `email` scope; `name`/`updated_at` with `profile` scope. Revocation-checked; fail closed on Redis error. |
 | `/.well-known/jwks.json` | GET | Public key set for RS256 JWT verification by resource servers. |
 | `/.well-known/openid-configuration` | GET | OpenID Connect Discovery metadata. |
 

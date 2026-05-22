@@ -21,14 +21,15 @@ func BuildServer(
 	orgReader OrgMembershipReader,
 	issuer string,
 	rdb *goredis.Client,
-) *server.Server {
+	userStore UserReader,
+) (*server.Server, *JWTGenerator) {
 	manager := manage.NewDefaultManager()
 
 	manager.SetAuthorizeCodeTokenCfg(manage.DefaultAuthorizeCodeTokenCfg)
 	manager.MapClientStorage(clientStore)
 	manager.MapTokenStorage(tokenStore)
 
-	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader, rdb)
+	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader, rdb, userStore)
 	manager.MapAccessGenerate(jwtGen)
 
 	srv := server.NewDefaultServer(manager)
@@ -40,5 +41,5 @@ func BuildServer(
 
 	slog.Info("OAuth2 Server Manager Initialized", "issuer", issuer)
 
-	return srv
+	return srv, jwtGen
 }

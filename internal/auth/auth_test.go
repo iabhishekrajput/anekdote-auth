@@ -18,7 +18,7 @@ import (
 
 func TestBuildServer(t *testing.T) {
 	// Initialize with nils/dummys just to ensure wiring works and doesn't panic
-	srv := BuildServer(
+	srv, gen := BuildServer(
 		&postgres.ClientStore{},
 		&oredis.TokenStore{},
 		&redis.RevocationStore{},
@@ -26,10 +26,14 @@ func TestBuildServer(t *testing.T) {
 		nil, // orgReader — nil is valid (no org membership checks)
 		"http://localhost",
 		nil, // rdb — nil disables token-index tracking
+		nil, // userStore — nil disables scope claim injection
 	)
 
 	if srv == nil {
 		t.Fatalf("expected non-nil server")
+	}
+	if gen == nil {
+		t.Fatalf("expected non-nil JWTGenerator")
 	}
 
 	// Request validation testing
@@ -48,7 +52,7 @@ func TestJWTGenerator_Token(t *testing.T) {
 		PublicKey:  &privateKey.PublicKey,
 	}
 
-	gen := NewJWTGenerator(keyStore, "http://issuer", nil, nil)
+	gen := NewJWTGenerator(keyStore, "http://issuer", nil, nil, nil)
 
 	client := &models.Client{ID: "client-id"}
 	tokenInfo := &models.Token{

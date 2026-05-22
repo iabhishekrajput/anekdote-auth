@@ -69,7 +69,7 @@ Migrations are **not** auto-applied at startup — they run via the goose CLI. `
 5. Mailer — `internal/mailer` wraps `wneessen/go-mail`.
 6. Handlers — each receives only the stores/services it needs.
 7. Router — `internal/server.NewRouter` using `julienschmidt/httprouter`.
-8. CSRF middleware — `justinas/nosurf` wraps the router (exempts `/token`, `/revoke`).
+8. CSRF middleware — `justinas/nosurf` wraps the router (exempts `/token`, `/revoke`, `/userinfo`).
 
 ### Store layer
 
@@ -84,8 +84,8 @@ Two storage backends, both under `internal/store/`:
 ### OAuth2 / OIDC
 
 `internal/auth/` contains two pieces:
-- `server.go` — configures the `go-oauth2` manager: maps Postgres client store, Redis token store, custom JWT generator, PKCE support.
-- `jwt_generator.go` — implements `oauth2.AccessGenerate`; produces RS256 JWTs with standard OIDC claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`) and opaque refresh tokens.
+- `server.go` — configures the `go-oauth2` manager: maps Postgres client store, Redis token store, custom JWT generator, PKCE support. Returns `(*server.Server, *JWTGenerator)` — the same generator is reused for both access tokens and id_tokens.
+- `jwt_generator.go` — implements `oauth2.AccessGenerate`; produces RS256 JWTs with standard OIDC claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`) plus scope-driven claims (`email`/`email_verified` for `email` scope; `name`/`updated_at` for `profile` scope) and opaque refresh tokens. Also exposes `GenerateIDToken` for id_token generation (OIDC Core §3.1.3.3; includes `at_hash`).
 
 The `kid` header in JWTs maps to the JWKS endpoint (`/.well-known/jwks.json`) for verification by resource servers.
 
@@ -93,9 +93,10 @@ The `kid` header in JWTs maps to the JWKS endpoint (`/.well-known/jwks.json`) fo
 
 Each handler in `internal/handlers/` handles one domain:
 - `IdentityHandler` — register, login, logout, email verification, forgot/reset password.
-- `OAuth2Handler` — `/authorize`, `/token`, `/revoke`; the `userAuthorizeHandler` intercepts to check for an active session and renders consent.
+- `OAuth2Handler` — `/authorize`, `/token`, `/revoke`; the `userAuthorizeHandler` intercepts to check for an active session and renders consent. `/token` injects `id_token` into the response when `openid` scope is present (user grants only; not client_credentials) via a `responseCapture` wrapper.
 - `DiscoveryHandler` — JWKS and OpenID configuration endpoints (`discovery.go` + `oidc_discovery.go`).
 - `AccountHandler` — session-protected `/account` dashboard.
+- `UserInfoHandler` — `GET /userinfo` and `POST /userinfo`; bearer JWT auth (not cookie session), kid-based RS256 verification, revocation check (fail closed), scope-driven claims per OIDC Core §5.3.
 - `AdminHandler` — `/admin/*` routes: user management (disable/enable/promote/demote), OAuth2 client management, org management, and the paginated audit log.
 
 ### UI layer

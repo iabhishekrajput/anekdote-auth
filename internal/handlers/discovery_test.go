@@ -90,6 +90,7 @@ func TestOpenIDConfiguration(t *testing.T) {
 		"issuer":                 testAppURL,
 		"authorization_endpoint": testAppURL + "/authorize",
 		"token_endpoint":         testAppURL + "/token",
+		"userinfo_endpoint":      testAppURL + "/userinfo",
 		"jwks_uri":               testAppURL + "/.well-known/jwks.json",
 		"revocation_endpoint":    testAppURL + "/revoke",
 	}
@@ -97,6 +98,7 @@ func TestOpenIDConfiguration(t *testing.T) {
 		"issuer":                 config.Issuer,
 		"authorization_endpoint": config.AuthorizationEndpoint,
 		"token_endpoint":         config.TokenEndpoint,
+		"userinfo_endpoint":      config.UserinfoEndpoint,
 		"jwks_uri":               config.JwksURI,
 		"revocation_endpoint":    config.RevocationEndpoint,
 	}
@@ -104,6 +106,25 @@ func TestOpenIDConfiguration(t *testing.T) {
 		if got[field] != expected {
 			t.Errorf("%s: expected %q, got %q", field, expected, got[field])
 		}
+	}
+
+	// response_types_supported must be ["code"] only — implicit/hybrid flows are not implemented
+	if len(config.ResponseTypesSupported) != 1 || config.ResponseTypesSupported[0] != "code" {
+		t.Errorf("response_types_supported: expected [\"code\"], got %v", config.ResponseTypesSupported)
+	}
+
+	// Required new fields must be populated
+	if len(config.ScopesSupported) == 0 {
+		t.Error("scopes_supported: must not be empty")
+	}
+	if len(config.ClaimsSupported) == 0 {
+		t.Error("claims_supported: must not be empty")
+	}
+	if len(config.GrantTypesSupported) == 0 {
+		t.Error("grant_types_supported: must not be empty")
+	}
+	if len(config.CodeChallengeMethodsSupported) == 0 {
+		t.Error("code_challenge_methods_supported: must not be empty")
 	}
 }
 

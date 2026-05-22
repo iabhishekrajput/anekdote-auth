@@ -76,7 +76,7 @@ func main() {
 
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
-	oauth2Srv := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer, rdb)
+	oauth2Srv, jwtGen := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer, rdb, userStore)
 
 	// 5. Initialize Mailer
 	mailSvc, err := mailer.NewMailer(cfg)
@@ -87,12 +87,13 @@ func main() {
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc).
 		WithOrgSupport(orgStore, rdb)
-	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore)
+	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.RedisEncryptionKey, cfg.AppURL)
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
+	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)
@@ -105,7 +106,7 @@ func main() {
 	}()
 
 	// 8. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, sessionStore, userStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{
@@ -115,9 +116,10 @@ func main() {
 		SameSite: http.SameSiteLaxMode,
 	})
 
-	// API endpoints for OAuth2 that don't use forms should be exempt from CSRF
+	// API endpoints that use bearer tokens (not form sessions) must be CSRF-exempt
 	csrfHandler.ExemptPath("/token")
 	csrfHandler.ExemptPath("/revoke")
+	csrfHandler.ExemptPath("/userinfo")
 
 	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		errStr := nosurf.Reason(r).Error()

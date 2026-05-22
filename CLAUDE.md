@@ -69,7 +69,7 @@ Migrations are **not** auto-applied at startup — they run via the goose CLI. `
 5. Mailer — `internal/mailer` wraps `wneessen/go-mail`.
 6. Handlers — each receives only the stores/services it needs.
 7. Router — `internal/server.NewRouter` using `julienschmidt/httprouter`.
-8. CSRF middleware — `justinas/nosurf` wraps the router (exempts `/token`, `/revoke`).
+8. CSRF middleware — `justinas/nosurf` wraps the router (exempts `/token`, `/revoke`, `/userinfo`).
 
 ### Store layer
 
@@ -84,8 +84,8 @@ Two storage backends, both under `internal/store/`:
 ### OAuth2 / OIDC
 
 `internal/auth/` contains two pieces:
-- `server.go` — configures the `go-oauth2` manager: maps Postgres client store, Redis token store, custom JWT generator, PKCE support.
-- `jwt_generator.go` — implements `oauth2.AccessGenerate`; produces RS256 JWTs with standard OIDC claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`) and opaque refresh tokens.
+- `server.go` — configures the `go-oauth2` manager: maps Postgres client store, Redis token store, custom JWT generator, PKCE support. Returns `(*server.Server, *JWTGenerator)` — the same generator is reused for both access tokens and id_tokens.
+- `jwt_generator.go` — implements `oauth2.AccessGenerate`; produces RS256 JWTs with standard OIDC claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `scope`) plus scope-driven claims (`email`/`email_verified` for `email` scope; `name`/`updated_at` for `profile` scope) and opaque refresh tokens. Also exposes `GenerateIDToken` for id_token generation (OIDC Core §3.1.3.3; includes `at_hash`).
 
 The `kid` header in JWTs maps to the JWKS endpoint (`/.well-known/jwks.json`) for verification by resource servers.
 
@@ -93,9 +93,10 @@ The `kid` header in JWTs maps to the JWKS endpoint (`/.well-known/jwks.json`) fo
 
 Each handler in `internal/handlers/` handles one domain:
 - `IdentityHandler` — register, login, logout, email verification, forgot/reset password.
-- `OAuth2Handler` — `/authorize`, `/token`, `/revoke`; the `userAuthorizeHandler` intercepts to check for an active session and renders consent.
+- `OAuth2Handler` — `/authorize`, `/token`, `/revoke`; the `userAuthorizeHandler` intercepts to check for an active session and renders consent. `/token` injects `id_token` into the response when `openid` scope is present (user grants only; not client_credentials) via a `responseCapture` wrapper.
 - `DiscoveryHandler` — JWKS and OpenID configuration endpoints (`discovery.go` + `oidc_discovery.go`).
 - `AccountHandler` — session-protected `/account` dashboard.
+- `UserInfoHandler` — `GET /userinfo` and `POST /userinfo`; bearer JWT auth (not cookie session), kid-based RS256 verification, revocation check (fail closed), scope-driven claims per OIDC Core §5.3.
 
 ### UI layer
 
@@ -119,6 +120,7 @@ HTML templates use [Templ](https://templ.guide): source files are `web/ui/*.temp
 - Migrations are SQL files in `migrations/` managed by [Goose](https://github.com/pressly/goose); applied separately, not at startup.
 - The `vendor/` directory is committed; use `make tidy` to update it. Builds use `-mod=vendor` implicitly.
 - Go 1.26.0 (see `go.mod`); release builds set `CGO_ENABLED=0` (see `.goreleaser.yaml`).
+- `/userinfo` does **not** use `RequireAuth` middleware (which requires a cookie session) — it does its own bearer auth from the `Authorization: Bearer` header. CSRF-exempt alongside `/token` and `/revoke`.
 
 ---
 
@@ -146,3 +148,38 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## GBrain Configuration (configured by /setup-gbrain)
+- Mode: local-stdio
+- Engine: pglite
+- Config file: ~/.gbrain/config.json (mode 0600)
+- Setup date: 2026-05-22
+- MCP registered: yes (user scope)
+- Artifacts sync: full (https://github.com/iabhishekrajput/gstack-artifacts-abhishek)
+- Current repo policy: read-write
+
+## GBrain Search Guidance (configured by /sync-gbrain)
+<!-- gstack-gbrain-search-guidance:start -->
+
+GBrain is set up and synced on this machine. The agent should prefer gbrain
+over Grep when the question is semantic or when you don't know the exact
+identifier yet. Two indexed corpora available via the `gbrain` CLI:
+- This repo's code (registered as `gstack-code-anekdote-auth` source).
+- `~/.gstack/` curated memory (registered as `gstack-artifacts-abhishek` source via
+  the existing federation pipeline).
+
+Prefer gbrain when:
+- "Where is X handled?" / semantic intent, no exact string yet:
+    `gbrain search "<terms>"` or `gbrain query "<question>"`
+- "Where is symbol Y defined?" / symbol-based code questions:
+    `gbrain code-def <symbol>` or `gbrain code-refs <symbol>`
+- "What calls Y?" / "What does Y depend on?":
+    `gbrain code-callers <symbol>` / `gbrain code-callees <symbol>`
+- "What did we decide last time?" / past plans, retros, learnings:
+    `gbrain search "<terms>" --source gstack-artifacts-abhishek`
+
+Grep is still right for known exact strings, regex, multiline patterns, and
+file globs. The brain auto-syncs incrementally on every gstack skill start.
+Run `/sync-gbrain` to force-refresh, `/sync-gbrain --full` for full reindex.
+
+<!-- gstack-gbrain-search-guidance:end -->

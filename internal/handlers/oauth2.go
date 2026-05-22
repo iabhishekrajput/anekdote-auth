@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -28,25 +30,61 @@ type oauth2OrgStore interface {
 	GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, error)
 }
 
+// IDTokenGenerator generates OIDC ID tokens for successful authorization_code exchanges.
+// Implemented by *auth.JWTGenerator.
+type IDTokenGenerator interface {
+	GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration) (string, error)
+}
+
 type OAuth2Handler struct {
 	server       *server.Server
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
-	orgStore     oauth2OrgStore // optional; enables org membership check and friendly denial page at /authorize
+	orgStore     oauth2OrgStore  // optional; enables org membership check and friendly denial page at /authorize
+	idTokenGen   IDTokenGenerator // optional; enables id_token in /token response when openid scope granted
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,
 		revocStore:   rev,
 		keyStore:     keys,
 		orgStore:     orgStore,
+		idTokenGen:   idTokenGen,
 	}
 
 	h.server.SetUserAuthorizationHandler(h.userAuthorizeHandler)
 	return h
+}
+
+// responseCapture buffers the status code and body from go-oauth2 so we can
+// inject id_token before the response reaches the client.
+type responseCapture struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+}
+
+func (rc *responseCapture) WriteHeader(code int) {
+	rc.statusCode = code
+}
+
+func (rc *responseCapture) Write(b []byte) (int, error) {
+	if rc.statusCode == 0 {
+		rc.statusCode = http.StatusOK
+	}
+	return rc.body.Write(b)
+}
+
+func (rc *responseCapture) flush() {
+	if rc.statusCode != 0 {
+		// Remove Content-Length so net/http recomputes it after body modification.
+		rc.ResponseWriter.Header().Del("Content-Length")
+		rc.ResponseWriter.WriteHeader(rc.statusCode)
+	}
+	rc.ResponseWriter.Write(rc.body.Bytes()) //nolint:errcheck
 }
 
 // Authorize handles the initial redirect from the client
@@ -152,13 +190,79 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 	return "", nil
 }
 
-// Token handles the exchange of an Authorization Code (or Refresh Token) for an Access JWT
+// Token handles the exchange of an Authorization Code (or Refresh Token) for an Access JWT.
+// When the openid scope is granted and an IDTokenGenerator is configured, an id_token is
+// injected into the response JSON.
 func (h *OAuth2Handler) Token(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	err := h.server.HandleTokenRequest(w, r)
+	rc := &responseCapture{ResponseWriter: w}
+	err := h.server.HandleTokenRequest(rc, r)
 	if err != nil {
 		slog.Error("Token Request Error", "error", err)
-		// The `go-oauth2` engine writes standard JSON error responses natively here.
 	}
+	if rc.statusCode == http.StatusOK && h.idTokenGen != nil {
+		h.tryInjectIDToken(r.Context(), rc)
+	}
+	rc.flush()
+}
+
+// tryInjectIDToken parses the buffered token response and injects an id_token when the
+// openid scope is present and the token has a user subject (not client_credentials).
+func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCapture) {
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rc.body.Bytes(), &resp); err != nil {
+		return
+	}
+	scope, _ := resp["scope"].(string)
+	scopeSet := make(map[string]bool)
+	for _, s := range strings.Fields(scope) {
+		scopeSet[s] = true
+	}
+	if !scopeSet["openid"] {
+		return
+	}
+	accessToken, _ := resp["access_token"].(string)
+	if accessToken == "" {
+		return
+	}
+	// ParseUnverified to extract sub/aud/exp from our own just-issued token without re-verifying.
+	parser := jwt.NewParser()
+	parsed, _, parseErr := parser.ParseUnverified(accessToken, jwt.MapClaims{})
+	if parseErr != nil {
+		return
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		return
+	}
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return // client_credentials token — no user to describe
+	}
+	aud, _ := claims["aud"].(string)
+
+	var expiry time.Duration
+	if exp, ok := claims["exp"].(float64); ok {
+		if remaining := time.Until(time.Unix(int64(exp), 0)); remaining > 0 {
+			expiry = remaining
+		}
+	}
+	if expiry <= 0 {
+		expiry = time.Hour
+	}
+
+	idToken, err := h.idTokenGen.GenerateIDToken(ctx, sub, aud, scope, accessToken, expiry)
+	if err != nil {
+		slog.Warn("id_token generation failed; omitting from response", "error", err)
+		return
+	}
+	resp["id_token"] = idToken
+
+	newBody, err := json.Marshal(resp)
+	if err != nil {
+		return
+	}
+	rc.body.Reset()
+	rc.body.Write(newBody) //nolint:errcheck
 }
 
 // Revoke handles invalidating a specific JWT by its JTI blocklist, or deleting a refresh token
