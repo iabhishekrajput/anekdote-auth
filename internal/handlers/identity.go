@@ -97,6 +97,9 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 		userID, _ := data["UserID"].(string)
 		component := ui.VerifyEmailPage(csrfToken, userID, errorMsg, successMsg)
 		_ = component.Render(r.Context(), w)
+	case "resend_verification.tmpl":
+		component := ui.ResendVerificationPage(csrfToken, errorMsg, successMsg)
+		_ = component.Render(r.Context(), w)
 	default:
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte("template not found"))
@@ -345,11 +348,14 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	}
 
 	if !user.IsVerified {
-		w.WriteHeader(http.StatusForbidden)
-		h.render(w, r, "login.tmpl", map[string]interface{}{
-			"Error": "Please check your email and verify your account first, then enter the verification code for your account.",
-			"Req":   oauthReq,
-		})
+		otp, _ := generateOTP()
+		_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
+		if h.mailer != nil {
+			_ = h.mailer.SendOTP(context.Background(), user.Email, otp)
+		} else {
+			fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+		}
+		http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
 		return
 	}
 
@@ -497,4 +503,65 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 	h.sessionStore.DeleteResetToken(context.Background(), token)
 
 	h.render(w, r, "login.tmpl", map[string]interface{}{"Success": "Password updated successfully! Please login."})
+}
+
+// ResendOTPFunc handles POST /verify-email/resend.
+// Generates a fresh OTP for the given user_id and emails it.
+func (h *IdentityHandler) ResendOTPFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	userIDStr := r.FormValue("user_id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		http.Redirect(w, r, "/resend-verification", http.StatusFound)
+		return
+	}
+
+	user, err := h.userStore.GetByID(userID)
+	if err != nil || user.IsVerified {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	otp, _ := generateOTP()
+	_ = h.sessionStore.CreateOTP(context.Background(), userID, otp)
+	if h.mailer != nil {
+		_ = h.mailer.SendOTP(context.Background(), user.Email, otp)
+	} else {
+		fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+	}
+
+	http.Redirect(w, r, "/verify-email?user_id="+userIDStr+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
+}
+
+// ResendVerificationFunc handles GET/POST /resend-verification.
+// GET renders a form asking for the user's email.
+// POST looks up the account, and if it exists and is unverified, sends a fresh OTP.
+func (h *IdentityHandler) ResendVerificationFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	if r.Method == http.MethodGet {
+		h.render(w, r, "resend_verification.tmpl", nil)
+		return
+	}
+
+	email := r.FormValue("email")
+	user, err := h.userStore.GetByEmail(email)
+	if err != nil || user.IsVerified {
+		// Do not reveal whether email exists or is already verified.
+		h.render(w, r, "resend_verification.tmpl", map[string]interface{}{
+			"Success": "If that email belongs to an unverified account, a new code has been sent.",
+		})
+		return
+	}
+
+	otp, _ := generateOTP()
+	_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
+	if h.mailer != nil {
+		if err := h.mailer.SendOTP(context.Background(), user.Email, otp); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			h.render(w, r, "resend_verification.tmpl", map[string]interface{}{"Error": "Failed to send email. Please try again."})
+			return
+		}
+	} else {
+		fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+	}
+
+	http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
 }

@@ -1,0 +1,36 @@
+package ui
+
+templ ResendVerificationPage(csrfToken string, errorMsg string, successMsg string) {
+	@BaseLayout("Resend Verification - anekdote", ResendVerificationPageBody(csrfToken, errorMsg, successMsg))
+}
+
+templ ResendVerificationPageBody(csrfToken string, errorMsg string, successMsg string) {
+	<div class="w-full space-y-6 rounded-lg border border-zinc-800 bg-zinc-900 p-6 shadow">
+		<div class="mb-2">
+			<a
+				href="/login"
+				class="inline-flex items-center gap-1 text-xs text-zinc-400 hover:text-brand transition-colors duration-150"
+			>
+				← Back to sign in
+			</a>
+		</div>
+
+		<div class="flex flex-col items-center gap-1.5 text-center">
+			<div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand/10">
+				<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-brand"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+			</div>
+			<h2 class="text-xl font-semibold tracking-tight">Resend verification email</h2>
+			<p class="text-sm text-zinc-400">Enter your email and we'll send a fresh verification code.</p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		if successMsg == "" {
+			<form method="POST" action="/resend-verification" class="flex flex-col gap-5">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				@FormField("Email address", "email", "", TextInput("email", "email", "email", "user@example.com", "", false))
+				@PrimaryButton("Send new code")
+			</form>
+		}
+	</div>
+}

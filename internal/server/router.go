@@ -86,6 +86,10 @@ func NewRouter(
 
 	router.GET("/verify-email", secureUnauth(identH.VerifyEmailFunc))
 	router.POST("/verify-email", secureUnauth(identH.VerifyEmailFunc))
+	router.POST("/verify-email/resend", authRateLimit(identH.ResendOTPFunc))
+
+	router.GET("/resend-verification", secureUnauth(identH.ResendVerificationFunc))
+	router.POST("/resend-verification", authRateLimit(identH.ResendVerificationFunc))
 
 	router.GET("/forgot-password", secureUnauth(identH.ForgotPasswordFunc))
 	router.POST("/forgot-password", secureUnauth(identH.ForgotPasswordFunc))

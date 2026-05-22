@@ -36,5 +36,19 @@ templ VerifyEmailPageBody(csrfToken string, userID string, errorMsg string, succ
 
 			@PrimaryButton("Verify & continue")
 		</form>
+
+		if userID != "" {
+			<form method="POST" action="/verify-email/resend" class="pt-2">
+				<input type="hidden" name="csrf_token" value={ csrfToken } />
+				<input type="hidden" name="user_id" value={ userID } />
+				<button type="submit" class="w-full text-sm text-zinc-400 hover:text-brand transition-colors duration-150">
+					Didn't receive a code? Resend it
+				</button>
+			</form>
+		}
+
+		<p class="text-xs text-zinc-500 text-center">
+			Lost the page? <a href="/resend-verification" class="text-brand hover:underline">Enter your email instead</a>
+		</p>
 	</div>
 }

@@ -60,6 +60,19 @@ func TestVerifyEmailPage(t *testing.T) {
 	if !strings.Contains(html, "Check your inbox.") {
 		t.Error("expected heading in output")
 	}
+	if !strings.Contains(html, "Resend") {
+		t.Error("expected resend button in output")
+	}
+}
+
+func TestResendVerificationPage(t *testing.T) {
+	html := renderComp(t, "ResendVerificationPage", ui.ResendVerificationPage("csrf-xyz", "", ""))
+	if !strings.Contains(html, "Resend verification email") {
+		t.Error("expected heading in output")
+	}
+	if !strings.Contains(html, "Send new code") {
+		t.Error("expected submit button in output")
+	}
 }
 
 func TestConsentPage(t *testing.T) {
