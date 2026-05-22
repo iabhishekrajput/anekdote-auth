@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -77,4 +78,102 @@ func TestLoad_EnvValues(t *testing.T) {
 	if cfg.SMTPInsecureSkipVerify != true {
 		t.Errorf("expected true insecure skip verify, got %v", cfg.SMTPInsecureSkipVerify)
 	}
+}
+
+// --- loadDotEnv tests ---
+
+func writeTempEnv(t *testing.T, contents string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".env")
+	if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadDotEnv_FileNotFound(t *testing.T) {
+	if err := loadDotEnv("/tmp/does-not-exist-anekdote.env"); err != nil {
+		t.Errorf("expected nil for missing file, got %v", err)
+	}
+}
+
+func TestLoadDotEnv_SetsValues(t *testing.T) {
+	t.Setenv("ANEKDOTE_TEST_PORT", "")
+	os.Unsetenv("ANEKDOTE_TEST_PORT")
+
+	path := writeTempEnv(t, "ANEKDOTE_TEST_PORT=9999\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_PORT"); v != "9999" {
+		t.Errorf("expected 9999, got %q", v)
+	}
+	os.Unsetenv("ANEKDOTE_TEST_PORT")
+}
+
+func TestLoadDotEnv_SkipsComments(t *testing.T) {
+	os.Unsetenv("ANEKDOTE_TEST_COMMENT")
+	path := writeTempEnv(t, "# this is a comment\n# ANEKDOTE_TEST_COMMENT=should-not-set\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_COMMENT"); v != "" {
+		t.Errorf("comment line should not set env var, got %q", v)
+	}
+}
+
+func TestLoadDotEnv_InlineComment(t *testing.T) {
+	os.Unsetenv("ANEKDOTE_TEST_INLINE")
+	path := writeTempEnv(t, "ANEKDOTE_TEST_INLINE=hello   # this is inline\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_INLINE"); v != "hello" {
+		t.Errorf("expected 'hello' without inline comment, got %q", v)
+	}
+	os.Unsetenv("ANEKDOTE_TEST_INLINE")
+}
+
+func TestLoadDotEnv_DoesNotOverride(t *testing.T) {
+	t.Setenv("ANEKDOTE_TEST_OVERRIDE", "original")
+	path := writeTempEnv(t, "ANEKDOTE_TEST_OVERRIDE=from-dotenv\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_OVERRIDE"); v != "original" {
+		t.Errorf("expected 'original' (not overridden), got %q", v)
+	}
+}
+
+func TestLoadDotEnv_MalformedLine(t *testing.T) {
+	os.Unsetenv("ANEKDOTE_TEST_MALFORMED")
+	path := writeTempEnv(t, "no-equals-sign\nANEKDOTE_TEST_MALFORMED=ok\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_MALFORMED"); v != "ok" {
+		t.Errorf("expected 'ok' after malformed line, got %q", v)
+	}
+	os.Unsetenv("ANEKDOTE_TEST_MALFORMED")
+}
+
+func TestLoad_AuditRetentionDays(t *testing.T) {
+	t.Setenv("AUDIT_RETENTION_DAYS", "30")
+	cfg := Load()
+	if cfg.AuditRetentionDays != 30 {
+		t.Errorf("expected 30, got %d", cfg.AuditRetentionDays)
+	}
+}
+
+func TestLoadDotEnv_EmptyLines(t *testing.T) {
+	os.Unsetenv("ANEKDOTE_TEST_EMPTY")
+	path := writeTempEnv(t, "\n\n\nANEKDOTE_TEST_EMPTY=set\n\n\n")
+	if err := loadDotEnv(path); err != nil {
+		t.Fatal(err)
+	}
+	if v := os.Getenv("ANEKDOTE_TEST_EMPTY"); v != "set" {
+		t.Errorf("expected 'set', got %q", v)
+	}
+	os.Unsetenv("ANEKDOTE_TEST_EMPTY")
 }
