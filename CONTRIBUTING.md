@@ -12,6 +12,7 @@ Thank you for considering contributing to Anekdote Auth!
    ```
 4. **One-time setup** — generate certs and apply migrations:
    ```bash
+   cp .env.example .env # copy and fill in local values; loaded automatically
    npm install          # Tailwind CLI
    make generate-certs  # RSA-2048 key pair
    make migrate-up

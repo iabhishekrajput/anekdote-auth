@@ -18,7 +18,7 @@ type Org struct {
 type OrgMembership struct {
 	OrgID     uuid.UUID
 	UserID    uuid.UUID
-	Role      string // "owner" | "admin" | "member"
+	Role      string // "owner" | "admin" | "viewer" | "member"
 	InvitedBy *uuid.UUID
 	JoinedAt  time.Time
 	RemovedAt *time.Time

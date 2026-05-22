@@ -221,7 +221,7 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 	}
 
 	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
-	if err != nil || role == "" {
+	if err != nil || role == "" || role == "member" {
 		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Access denied"), http.StatusFound)
 		return
 	}
@@ -233,11 +233,11 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 	}
 
 	pending := h.loadPendingInvites(r.Context(), org.ID.String())
-	isOwnerOrAdmin := role == "owner" || role == "admin"
+	canEdit := role == "owner" || role == "admin"
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), isOwnerOrAdmin, isAdmin,
+	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), canEdit, isAdmin,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
@@ -265,7 +265,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Email is required"), http.StatusFound)
 		return
 	}
-	if inviteRole != "member" && inviteRole != "admin" {
+	if inviteRole != "member" && inviteRole != "viewer" && inviteRole != "admin" {
 		inviteRole = "member"
 	}
 
@@ -444,7 +444,7 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 	}
 
 	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
-	if err != nil || role == "" {
+	if err != nil || role == "" || role == "member" {
 		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Access denied"), http.StatusFound)
 		return
 	}
@@ -456,11 +456,11 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 	}
 
 	clients, _ := h.clientStore.ListOrgClients(r.Context(), org.ID)
-	isOwnerOrAdmin := role == "owner" || role == "admin"
+	canEdit := role == "owner" || role == "admin"
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgClientsPage(csrfToken, org, isOwnerOrAdmin, isAdmin, clients, newClientID, newSecret,
+	_ = ui.OrgClientsPage(csrfToken, org, canEdit, isAdmin, clients, newClientID, newSecret,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 

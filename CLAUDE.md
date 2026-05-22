@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### One-time setup
 
 ```bash
+cp .env.example .env      # Copy and fill in local values; loaded automatically on startup
 npm install               # Required before css-build (Tailwind CLI)
 make generate-certs       # RSA-2048 key pair → certs/{private,public}.pem
 make postgres-up redis-up mailpit-up   # Datastores via docker-compose

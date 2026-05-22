@@ -28,7 +28,7 @@ CREATE TABLE org_memberships (
     org_id     UUID        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role       VARCHAR(32) NOT NULL DEFAULT 'member'
-                   CHECK (role IN ('owner', 'admin', 'member')),
+                   CHECK (role IN ('owner', 'admin', 'viewer', 'member')),
     invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
     joined_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     removed_at TIMESTAMPTZ,

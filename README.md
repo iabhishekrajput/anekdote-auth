@@ -11,7 +11,7 @@ Anekdote Auth is a self-hosted **OAuth2 and OpenID Connect (OIDC)** Authorizatio
 - **OAuth 2.0 & OIDC** — Authorization Code flow, token exchange, consent UI, RS256 JWTs with standard OIDC claims.
 - **PKCE Support** — Enforced for SPA and mobile clients.
 - **Native Identity Management** — Registration, login, email verification (OTP), forgot password, and password reset.
-- **Multi-Tenant Organizations** — Orgs with owner / admin / member roles, email invites, per-org OAuth2 client registration, and a full invite acceptance state machine.
+- **Multi-Tenant Organizations** — Orgs with owner / admin / viewer / member roles, email invites, per-org OAuth2 client registration, and a full invite acceptance state machine.
 - **Account Center Dashboard** — Session-protected dashboard for profile, password, and org management.
 - **Immediate JWT Revocation** — RFC 7009 `/revoke` endpoint; denied tokens are blocklisted in Redis by `jti`.
 - **Admin Panel** — DB-backed admin roles (`is_admin`), user management (disable/enable/promote/demote), OAuth2 client management, org management, and a tamper-evident audit log with IP and User-Agent capture.
@@ -53,7 +53,13 @@ make generate-certs   # RSA-2048 key pair → certs/private.pem + certs/public.p
 
 ### 4. Configuration
 
-Set environment variables directly or in a `.env` file:
+Copy the example env file and fill in your values — the server loads `.env` automatically on startup:
+
+```bash
+cp .env.example .env
+```
+
+Override any of the following variables (shell exports and container env always take precedence over `.env`):
 
 | Variable | Default | Notes |
 |----------|---------|-------|
@@ -153,7 +159,7 @@ cosign verify \
 | `/account/orgs/:slug` | GET | Org detail: members, roles, pending invites. Requires auth. |
 | `/account/orgs/:slug/invites` | POST | Send an email invite. Rate-limited. Requires owner or admin role. |
 | `/account/orgs/:slug/invites/:token/revoke` | POST | Revoke a pending invite. |
-| `/account/orgs/:slug/members/:userID/role` | POST | Change member role (admin or member). Owner role cannot be assigned via this form. |
+| `/account/orgs/:slug/members/:userID/role` | POST | Change member role (`admin`, `viewer`, or `member`). Owner role cannot be assigned via this form. |
 | `/account/orgs/:slug/members/:userID/remove` | POST | Remove a member. |
 | `/account/orgs/:slug/clients` | GET, POST | List / register OAuth2 clients scoped to the org. |
 | `/account/orgs/:slug/clients/:clientID/delete` | POST | Delete an OAuth2 client. |
@@ -201,7 +207,7 @@ All admin routes require `is_admin = true` in the database. The first admin acco
 
 ## Organizations
 
-Anekdote Auth supports multi-tenant organizations. Each org has a unique URL slug, a display name, an owner (the creating user), and zero or more members with roles (`owner` / `admin` / `member`). Org owners and admins can register OAuth2 clients scoped to the org.
+Anekdote Auth supports multi-tenant organizations. Each org has a unique URL slug, a display name, an owner (the creating user), and zero or more members with roles (`owner` / `admin` / `viewer` / `member`). Org owners and admins can register OAuth2 clients scoped to the org.
 
 ### Creating an org
 
@@ -209,7 +215,7 @@ POST `/account/orgs` with a slug and display name. The authenticated user become
 
 ### Inviting members
 
-Owners and admins POST `/account/orgs/:slug/invites` with an email address and a role (`admin` or `member`). An invite token (UUID) is stored in Redis with a 24-hour TTL. The invitee receives an email with a `/join?token=T` link.
+Owners and admins POST `/account/orgs/:slug/invites` with an email address and a role (`admin`, `viewer`, or `member`). An invite token (UUID) is stored in Redis with a 24-hour TTL. The invitee receives an email with a `/join?token=T` link.
 
 ### Accepting an invite
 
