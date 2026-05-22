@@ -39,6 +39,10 @@ archives:
       - goos: windows
         formats:
           - zip
+    files:
+      - web/static/app.css
+      - web/static/app.js
+      - migrations/*.sql
 
 checksum:
   name_template: 'checksums.txt'
