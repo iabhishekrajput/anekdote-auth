@@ -3,7 +3,6 @@ package mailer
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"strconv"
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
@@ -29,9 +28,16 @@ func NewMailer(cfg *config.Config) (*Mailer, error) {
 		mail.WithPassword(cfg.SMTPPassword),
 	}
 
-	if cfg.SMTPInsecureSkipVerify {
+	switch {
+	case cfg.SMTPInsecureSkipVerify:
+		// Local dev (e.g. Mailpit): plain SMTP, no TLS negotiation.
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
+	case port == 465:
+		// SMTPS: implicit SSL/TLS on port 465 (e.g. Resend, SendGrid).
+		opts = append(opts, mail.WithSSL())
+	default:
+		// STARTTLS: explicit TLS upgrade (e.g. port 587).
 		opts = append(opts, mail.WithTLSPolicy(mail.TLSMandatory))
-		opts = append(opts, mail.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}))
 	}
 
 	client, err := mail.NewClient(cfg.SMTPHost, opts...)
