@@ -3,6 +3,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
+	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +22,7 @@ const (
 	AuditActionRemoveOrgMember AuditAction = "remove_org_member"
 	AuditActionPromoteAdmin    AuditAction = "promote_admin"
 	AuditActionDemoteAdmin     AuditAction = "demote_admin"
+	AuditActionChangeAdminRole AuditAction = "change_admin_role"
 )
 
 // AuditLogEntry is a single row from admin_audit_log.
@@ -30,6 +35,14 @@ type AuditLogEntry struct {
 	IPAddress  string
 	UserAgent  string
 	CreatedAt  time.Time
+}
+
+// AuditFilter holds optional filter parameters for audit log queries.
+type AuditFilter struct {
+	AdminID *uuid.UUID
+	Action  string
+	From    *time.Time
+	To      *time.Time
 }
 
 type AuditStore struct {
@@ -54,22 +67,89 @@ func (s *AuditStore) Log(ctx context.Context, adminID uuid.UUID, action AuditAct
 	return err
 }
 
-// CountAudit returns the total number of audit log entries.
-func (s *AuditStore) CountAudit(ctx context.Context) (int, error) {
+// buildFilterWhere constructs a WHERE clause and args slice for the given filter.
+// The caller must already have consumed argN args before the returned args.
+func buildFilterWhere(filter AuditFilter, startArgN int) (string, []any) {
+	var clauses []string
+	var args []any
+	n := startArgN
+
+	if filter.AdminID != nil {
+		n++
+		clauses = append(clauses, fmt.Sprintf("admin_id = $%d", n))
+		args = append(args, filter.AdminID)
+	}
+	if filter.Action != "" {
+		n++
+		clauses = append(clauses, fmt.Sprintf("action = $%d", n))
+		args = append(args, filter.Action)
+	}
+	if filter.From != nil {
+		n++
+		clauses = append(clauses, fmt.Sprintf("created_at >= $%d", n))
+		args = append(args, filter.From)
+	}
+	if filter.To != nil {
+		n++
+		clauses = append(clauses, fmt.Sprintf("created_at <= $%d", n))
+		args = append(args, filter.To)
+	}
+
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return "WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// CountAuditFiltered returns the total number of audit log entries matching the filter.
+func (s *AuditStore) CountAuditFiltered(ctx context.Context, filter AuditFilter) (int, error) {
+	where, args := buildFilterWhere(filter, 0)
+	q := "SELECT COUNT(*) FROM admin_audit_log " + where
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM admin_audit_log`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, q, args...).Scan(&count)
 	return count, err
 }
 
-// ListAudit returns audit entries ordered by created_at DESC with limit/offset pagination.
-func (s *AuditStore) ListAudit(ctx context.Context, limit, offset int) ([]*AuditLogEntry, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, admin_id, action, target_type, target_id, ip_address, user_agent, created_at
-		 FROM admin_audit_log ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-		limit, offset,
-	)
+// ListAuditCursor returns audit entries with cursor-based pagination and optional filtering.
+// Returns items, next-page cursor (empty = last page), and total filtered count.
+func (s *AuditStore) ListAuditCursor(ctx context.Context, limit int, cursor *PageCursor, filter AuditFilter) ([]*AuditLogEntry, string, int, error) {
+	total, err := s.CountAuditFiltered(ctx, filter)
 	if err != nil {
-		return nil, err
+		return nil, "", 0, err
+	}
+
+	const selectCols = `SELECT id, admin_id, action, target_type, target_id, ip_address, user_agent, created_at
+	         FROM admin_audit_log`
+
+	var conditions []string
+	var args []any
+
+	// cursor predicate (must come first so arg numbers align)
+	if cursor != nil {
+		conditions = append(conditions,
+			fmt.Sprintf("(created_at < $%d OR (created_at = $%d AND id::text < $%d))", 1, 1, 2))
+		args = append(args, cursor.CreatedAt, cursor.ID.String())
+	}
+
+	// filter predicates
+	filterWhere, filterArgs := buildFilterWhere(filter, len(args))
+	if filterWhere != "" {
+		// strip "WHERE " prefix and split into individual clauses
+		inner := strings.TrimPrefix(filterWhere, "WHERE ")
+		conditions = append(conditions, inner)
+		args = append(args, filterArgs...)
+	}
+
+	q := selectCols
+	if len(conditions) > 0 {
+		q += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	q += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(args)+1)
+	args = append(args, limit+1)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, "", total, err
 	}
 	defer rows.Close()
 
@@ -78,11 +158,71 @@ func (s *AuditStore) ListAudit(ctx context.Context, limit, offset int) ([]*Audit
 		e := &AuditLogEntry{}
 		var ipAddr, ua sql.NullString
 		if err := rows.Scan(&e.ID, &e.AdminID, &e.Action, &e.TargetType, &e.TargetID, &ipAddr, &ua, &e.CreatedAt); err != nil {
-			return nil, err
+			return nil, "", total, err
 		}
 		e.IPAddress = ipAddr.String
 		e.UserAgent = ua.String
 		entries = append(entries, e)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", total, err
+	}
+
+	nextCursor := ""
+	if len(entries) > limit {
+		last := entries[limit-1]
+		nextCursor = EncodeCursor(last.CreatedAt, last.ID)
+		entries = entries[:limit]
+	}
+	return entries, nextCursor, total, nil
+}
+
+// ExportAuditCSV streams all audit entries matching filter as CSV rows to w.
+func (s *AuditStore) ExportAuditCSV(ctx context.Context, filter AuditFilter, w io.Writer) error {
+	where, args := buildFilterWhere(filter, 0)
+	q := `SELECT id, admin_id, action, target_type, target_id, ip_address, user_agent, created_at
+	      FROM admin_audit_log ` + where + ` ORDER BY created_at DESC`
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "admin_id", "action", "target_type", "target_id", "ip_address", "user_agent", "created_at"})
+
+	for rows.Next() {
+		e := &AuditLogEntry{}
+		var ipAddr, ua sql.NullString
+		if err := rows.Scan(&e.ID, &e.AdminID, &e.Action, &e.TargetType, &e.TargetID, &ipAddr, &ua, &e.CreatedAt); err != nil {
+			return err
+		}
+		adminIDStr := ""
+		if e.AdminID != nil {
+			adminIDStr = e.AdminID.String()
+		}
+		_ = cw.Write([]string{
+			e.ID.String(),
+			adminIDStr,
+			string(e.Action),
+			e.TargetType,
+			e.TargetID,
+			ipAddr.String,
+			ua.String,
+			e.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	cw.Flush()
+	return rows.Err()
+}
+
+// DeleteOlderThan removes audit entries created before cutoff. Returns the number deleted.
+func (s *AuditStore) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM admin_audit_log WHERE created_at < $1`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

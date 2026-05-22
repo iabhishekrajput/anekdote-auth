@@ -1,17 +1,16 @@
 package ui
 
 import (
-	"fmt"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"strings"
 )
 
-templ AdminUserList(csrfToken string, users []*postgres.UserListItem, page, total, pageSize int, errorMsg, successMsg string) {
-	@AdminLayout("Users - Admin", "/admin/users", csrfToken, adminUserListBody(csrfToken, users, page, total, pageSize, errorMsg, successMsg))
+templ AdminUserList(csrfToken string, users []*postgres.UserListItem, total int, cursor, nextCursor string, errorMsg, successMsg string) {
+	@AdminLayout("Users - Admin", "/admin/users", csrfToken, adminUserListBody(csrfToken, users, total, cursor, nextCursor, errorMsg, successMsg))
 }
 
-templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, total, pageSize int, errorMsg, successMsg string) {
+templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, total int, cursor, nextCursor string, errorMsg, successMsg string) {
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<div>
@@ -65,19 +64,7 @@ templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, page, 
 				</tbody>
 			</table>
 		</div>
-		if total > pageSize {
-			<div class="flex items-center justify-between text-sm text-zinc-400">
-				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
-				<div class="flex gap-2">
-					if page > 1 {
-						<a href={ templ.SafeURL(fmt.Sprintf("/admin/users?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
-					}
-					if page*pageSize < total {
-						<a href={ templ.SafeURL(fmt.Sprintf("/admin/users?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
-					}
-				</div>
-			</div>
-		}
+		@cursorPaginationControls("/admin/users", cursor, nextCursor)
 	</div>
 }
 
@@ -122,7 +109,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			<div class="px-4 py-3 flex justify-between text-sm">
 				<span class="text-zinc-400">Admin</span>
 				if user.IsAdmin {
-					<span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400">Admin</span>
+					<span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400">{ adminRoleLabel(user.AdminRole) }</span>
 				} else {
 					<span class="text-zinc-500">No</span>
 				}
@@ -182,6 +169,26 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 							class="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-800 px-3 text-sm text-amber-400 hover:bg-amber-500/10 transition-colors"
 						>Remove admin access</button>
 					}
+				</form>
+				<form
+					method="POST"
+					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/admin-role") }
+				>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="flex items-center gap-2">
+						<select
+							name="role"
+							class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200 focus:border-brand focus:outline-none"
+						>
+							<option value="superadmin" selected?={ user.AdminRole == "superadmin" }>Superadmin — full access</option>
+							<option value="readonly" selected?={ user.AdminRole == "readonly" }>Readonly — view only</option>
+							<option value="org_admin" selected?={ user.AdminRole == "org_admin" }>Org admin — org management</option>
+						</select>
+						<button
+							type="submit"
+							class="inline-flex h-8 items-center gap-1.5 rounded-md border border-violet-800 px-3 text-sm text-violet-400 hover:bg-violet-500/10 transition-colors"
+						>Set role</button>
+					</div>
 				</form>
 			} else {
 				<form
@@ -248,5 +255,16 @@ func adminOrgRoleBadgeClass(role string) string {
 		return "rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-400"
 	default:
 		return "rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"
+	}
+}
+
+func adminRoleLabel(role string) string {
+	switch role {
+	case "readonly":
+		return "Admin (readonly)"
+	case "org_admin":
+		return "Admin (org)"
+	default:
+		return "Admin"
 	}
 }

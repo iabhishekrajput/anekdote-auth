@@ -263,17 +263,34 @@ type AdminOrgItem struct {
 	ClientCount int
 }
 
-// ListAll returns orgs with member and client counts, newest first, with pagination.
-func (s *OrgStore) ListAll(ctx context.Context, limit, offset int) ([]AdminOrgItem, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT o.id, o.slug, o.display_name, o.owner_id, o.created_at, o.updated_at,
+// ListAllCursor returns orgs with member and client counts using cursor-based pagination.
+// Returns items, next-page cursor (empty = last page), and total count.
+func (s *OrgStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCursor) ([]AdminOrgItem, string, int, error) {
+	total, err := s.CountAll(ctx)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	const selectCols = `SELECT o.id, o.slug, o.display_name, o.owner_id, o.created_at, o.updated_at,
 		        (SELECT COUNT(*) FROM org_memberships m WHERE m.org_id = o.id AND m.removed_at IS NULL) AS member_count,
 		        (SELECT COUNT(*) FROM oauth2_clients c WHERE c.org_id = o.id) AS client_count
-		 FROM organizations o ORDER BY o.created_at DESC LIMIT $1 OFFSET $2`,
-		limit, offset,
-	)
+		 FROM organizations o`
+
+	var rows *sql.Rows
+	if cursor == nil {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+` ORDER BY o.created_at DESC, o.id DESC LIMIT $1`,
+			limit+1,
+		)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+` WHERE o.created_at < $1 OR (o.created_at = $1 AND o.id::text < $2)
+			 ORDER BY o.created_at DESC, o.id DESC LIMIT $3`,
+			cursor.CreatedAt, cursor.ID.String(), limit+1,
+		)
+	}
 	if err != nil {
-		return nil, err
+		return nil, "", total, err
 	}
 	defer rows.Close()
 
@@ -285,11 +302,21 @@ func (s *OrgStore) ListAll(ctx context.Context, limit, offset int) ([]AdminOrgIt
 			&item.Org.CreatedAt, &item.Org.UpdatedAt,
 			&item.MemberCount, &item.ClientCount,
 		); err != nil {
-			return nil, err
+			return nil, "", total, err
 		}
 		items = append(items, item)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", total, err
+	}
+
+	nextCursor := ""
+	if len(items) > limit {
+		last := items[limit-1]
+		nextCursor = EncodeCursor(last.Org.CreatedAt, last.Org.ID)
+		items = items[:limit]
+	}
+	return items, nextCursor, total, nil
 }
 
 // CountAll returns the total number of orgs.

@@ -23,7 +23,7 @@ help: ## Display this help screen
 
 .PHONY: run
 run: ## Run the application locally
-	SMTP_INSECURE_SKIP_VERIFY=true ADMIN_EMAILS=abhishek@anekdote.in go run $(MAIN_PKG)
+	SMTP_INSECURE_SKIP_VERIFY=true go run $(MAIN_PKG)
 
 .PHONY: generate
 generate: ## Run templ generation
@@ -140,9 +140,6 @@ IMAGE_NAME ?= anekdote-auth
 IMAGE_REPO ?= $(IMAGE_NAME)
 IMAGE_TAG  ?= $(VERSION)
 PLATFORMS  ?= linux/amd64,linux/arm64
-ZOT_REGISTRY ?= zot.localtest.me:8080
-ZOT_NAMESPACE ?= anekdote
-ZOT_IMAGE_REPO ?= $(ZOT_REGISTRY)/$(ZOT_NAMESPACE)/$(IMAGE_NAME)
 
 .PHONY: image
 image: ## Build runtime image for host arch and load into local docker
@@ -162,57 +159,3 @@ image-push: ## Build and push multi-arch runtime+migrate images (set IMAGE_REPO)
 		-t $(IMAGE_REPO):$(IMAGE_TAG) .
 	docker buildx build --target migrate --push --platform $(PLATFORMS) \
 		-t $(IMAGE_REPO)-migrate:$(IMAGE_TAG) .
-
-.PHONY: zot-login
-zot-login: ## Login to Zot registry (set ZOT_REGISTRY if needed)
-	docker login $(ZOT_REGISTRY)
-
-# SIGN_MODE selects the cosign signing flow used by image-push-zot:
-#   key      — sign with a local keypair (requires COSIGN_KEY + COSIGN_PASSWORD).
-#   keyless  — sign via OIDC against Sigstore Fulcio (requires a reachable OIDC issuer).
-# COSIGN_ALLOW_HTTP=true is needed for the default local zot (plain HTTP); set
-# COSIGN_ALLOW_HTTP=false when pushing to a TLS registry.
-SIGN_MODE          ?= key
-COSIGN_KEY         ?= cosign.key
-COSIGN_ALLOW_HTTP  ?= true
-
-.PHONY: install-cosign
-install-cosign: ## Install cosign CLI if missing
-	@if ! command -v cosign > /dev/null; then \
-		echo "cosign not found. Installing github.com/sigstore/cosign/v2/cmd/cosign@latest..."; \
-		go install github.com/sigstore/cosign/v2/cmd/cosign@latest; \
-	fi
-
-# Cosign v3 defaults to the new sigstore bundle format (TUF signing config +
-# OCI 1.1 referrer). Zot's UI signature badge currently keys off the legacy
-# `sha256-<digest>.sig` tag, so disable the signing-config path and the new
-# bundle format to fall back to the legacy tag-based signature.
-COSIGN_SIGN_FLAGS := --yes --allow-http-registry=$(COSIGN_ALLOW_HTTP) --use-signing-config=false --new-bundle-format=false
-
-.PHONY: cosign-sign
-cosign-sign: install-cosign ## Sign $(IMAGE) with cosign (set IMAGE=<repo>@<digest>, SIGN_MODE=key|keyless)
-	@if [ -z "$(IMAGE)" ]; then echo "IMAGE is required (e.g. IMAGE=$(ZOT_IMAGE_REPO)@sha256:...)"; exit 1; fi
-	@case "$(SIGN_MODE)" in \
-		key) \
-			if [ ! -f "$(COSIGN_KEY)" ]; then echo "COSIGN_KEY $(COSIGN_KEY) not found"; exit 1; fi; \
-			if [ -z "$$COSIGN_PASSWORD" ]; then echo "COSIGN_PASSWORD must be set for SIGN_MODE=key"; exit 1; fi; \
-			echo "Signing $(IMAGE) with key $(COSIGN_KEY)..."; \
-			cosign sign $(COSIGN_SIGN_FLAGS) -a owner=anekdote -a team=platform --key $(COSIGN_KEY) $(IMAGE) ;; \
-		keyless) \
-			echo "Signing $(IMAGE) keyless via OIDC..."; \
-			cosign sign $(COSIGN_SIGN_FLAGS) $(IMAGE) ;; \
-		*) echo "Unknown SIGN_MODE=$(SIGN_MODE) (expected: key|keyless)"; exit 1 ;; \
-	esac
-
-.PHONY: image-push-zot
-image-push-zot: install-cosign ## Build, push, and cosign-sign multi-arch runtime+migrate images to Zot
-	docker buildx build --target runtime --push --platform $(PLATFORMS) \
-		--metadata-file .buildx-runtime-meta.json \
-		--build-arg VERSION=$(VERSION) \
-		-t $(ZOT_IMAGE_REPO):$(IMAGE_TAG) .
-	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)@$$(awk -F'"' '/"containerimage\.digest"/{print $$4}' .buildx-runtime-meta.json)
-	docker buildx build --target migrate --push --platform $(PLATFORMS) \
-		--metadata-file .buildx-migrate-meta.json \
-		-t $(ZOT_IMAGE_REPO)-migrate:$(IMAGE_TAG) .
-	$(MAKE) cosign-sign IMAGE=$(ZOT_IMAGE_REPO)-migrate@$$(awk -F'"' '/"containerimage\.digest"/{print $$4}' .buildx-migrate-meta.json)
-	@rm -f .buildx-runtime-meta.json .buildx-migrate-meta.json

@@ -196,7 +196,7 @@ func TestToken_InvalidRequest(t *testing.T) {
 }
 
 // TestAuthorize_OrgClient_NonMember_RendersAccessDenied verifies that the
-// "return '', nil" contract in userAuthorizeHandler is upheld: when a user is
+// "return ”, nil" contract in userAuthorizeHandler is upheld: when a user is
 // not a member of the org that owns the client, we render OAuthAccessDeniedPage
 // and return ("", nil) so go-oauth2 does NOT overwrite the response.
 func TestAuthorize_OrgClient_NonMember_RendersAccessDenied(t *testing.T) {

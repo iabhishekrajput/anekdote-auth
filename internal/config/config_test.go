@@ -20,9 +20,17 @@ func TestValidate_ProductionEmptySecret(t *testing.T) {
 }
 
 func TestValidate_ProductionCustomSecret(t *testing.T) {
-	cfg := &Config{AppEnv: "production", SessionSecret: "a-very-secure-random-secret-value"}
+	key := make([]byte, 32)
+	cfg := &Config{AppEnv: "production", SessionSecret: "a-very-secure-random-secret-value", RedisEncryptionKey: key}
 	if err := Validate(cfg); err != nil {
-		t.Errorf("expected nil for production with custom session secret, got %v", err)
+		t.Errorf("expected nil for production with custom session secret and encryption key, got %v", err)
+	}
+}
+
+func TestValidate_ProductionMissingEncryptionKey(t *testing.T) {
+	cfg := &Config{AppEnv: "production", SessionSecret: "a-very-secure-random-secret-value"}
+	if err := Validate(cfg); err == nil {
+		t.Error("expected error for production without REDIS_ENCRYPTION_KEY, got nil")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis/redisutil"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
@@ -53,6 +55,7 @@ type OrgHandler struct {
 	revocStore   *redis.RevocationStore
 	mailer       *mailer.Mailer
 	rdb          *goredis.Client
+	encKey       []byte // AES-256 key for client secret flash encryption
 	appURL       string
 }
 
@@ -64,6 +67,7 @@ func NewOrgHandler(
 	mailSvc *mailer.Mailer,
 	rdb *goredis.Client,
 	revocStore *redis.RevocationStore,
+	encKey []byte,
 	appURL string,
 ) *OrgHandler {
 	return &OrgHandler{
@@ -74,6 +78,7 @@ func NewOrgHandler(
 		revocStore:   revocStore,
 		mailer:       mailSvc,
 		rdb:          rdb,
+		encKey:       encKey,
 		appURL:       appURL,
 	}
 }
@@ -403,18 +408,28 @@ func (h *OrgHandler) RemoveMember(w http.ResponseWriter, r *http.Request, ps htt
 	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Member removed"), http.StatusFound)
 }
 
-// storeSecretFlash saves a one-time secret in Redis for the POST→GET secret reveal flow.
+// storeSecretFlash encrypts secret with AES-256-GCM and stores it in Redis.
+// The plaintext never appears in Redis — only ciphertext with a 60-second TTL.
 func (h *OrgHandler) storeSecretFlash(ctx context.Context, clientID, secret string) error {
-	return h.rdb.Set(ctx, "oauth:client-secret-flash:"+clientID, secret, clientSecretFlashTTL).Err()
+	ct, err := redisutil.Encrypt(h.encKey, secret)
+	if err != nil {
+		return err
+	}
+	return h.rdb.Set(ctx, "oauth:client-secret-flash:"+clientID, ct, clientSecretFlashTTL).Err()
 }
 
-// popSecretFlash atomically reads and deletes the flash secret (requires Redis >= 6.2.0).
+// popSecretFlash atomically reads, deletes, and decrypts the flash secret.
 func (h *OrgHandler) popSecretFlash(ctx context.Context, clientID string) string {
-	val, err := h.rdb.GetDel(ctx, "oauth:client-secret-flash:"+clientID).Result()
+	ct, err := h.rdb.GetDel(ctx, "oauth:client-secret-flash:"+clientID).Result()
 	if err != nil {
 		return ""
 	}
-	return val
+	plain, err := redisutil.Decrypt(h.encKey, ct)
+	if err != nil {
+		slog.Warn("org: failed to decrypt client secret flash", "client_id", clientID, "err", err)
+		return ""
+	}
+	return plain
 }
 
 // OrgClients handles GET /account/orgs/:slug/clients

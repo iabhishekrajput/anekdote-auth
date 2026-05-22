@@ -16,6 +16,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	redisStore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis/redisutil"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -133,8 +134,8 @@ func TestLoginFunc_Success(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "login@example.com", "Test User", string(hash), true, false, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "login@example.com", "Test User", string(hash), true, false, nil, true, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("login@example.com").
@@ -179,8 +180,8 @@ func TestLoginFunc_DisabledUser(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
 	userID := uuid.New()
 	disabledAt := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "disabled@example.com", "Disabled User", string(hash), true, false, disabledAt, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "disabled@example.com", "Disabled User", string(hash), true, false, nil, true, disabledAt, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("disabled@example.com").
@@ -261,8 +262,8 @@ func TestForgotPasswordFunc_Success(t *testing.T) {
 	defer mr.Close()
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "forgot@example.com", "Test User", "hash", true, false, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+		AddRow(userID, "forgot@example.com", "Test User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("forgot@example.com").
@@ -292,8 +293,8 @@ func TestResetPasswordFunc_Success(t *testing.T) {
 	userID := uuid.New()
 	token := "mock-reset-token"
 
-	// Manually inject reset token into miniredis
-	mr.Set("reset_token:"+token, userID.String())
+	// Manually inject reset token into miniredis (key must be hashed, matching session.go)
+	mr.Set("reset_token:"+redisutil.HashForStorage(token), userID.String())
 
 	formData := url.Values{}
 	formData.Set("token", token)

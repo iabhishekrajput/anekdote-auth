@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 )
@@ -35,6 +36,17 @@ templ AdminLayout(title string, currentPath string, csrfToken string, body templ
 							<a href="/admin/audit" class={ adminNavClass(currentPath, "/admin/audit") }>Audit</a>
 						</nav>
 						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
+						<a
+							href="/account"
+							title="My account"
+							aria-label="My account"
+							class="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900 transition-colors duration-150"
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+								<circle cx="12" cy="7" r="4"></circle>
+							</svg>
+						</a>
 						<form method="POST" action="/logout">
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>
 							<button
@@ -109,16 +121,59 @@ templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 	</div>
 }
 
-templ AdminAuditLog(csrfToken string, entries []*postgres.AuditLogEntry, page, total, pageSize int, errorMsg, successMsg string) {
-	@AdminLayout("Audit Log - Admin", "/admin/audit", csrfToken, adminAuditLogBody(entries, page, total, pageSize, errorMsg, successMsg))
+templ AdminAuditLog(csrfToken string, entries []*postgres.AuditLogEntry, total int, cursor, nextCursor string, filter postgres.AuditFilter, errorMsg, successMsg string) {
+	@AdminLayout("Audit Log - Admin", "/admin/audit", csrfToken, adminAuditLogBody(entries, total, cursor, nextCursor, filter, errorMsg, successMsg))
 }
 
-templ adminAuditLogBody(entries []*postgres.AuditLogEntry, page, total, pageSize int, errorMsg, successMsg string) {
+templ adminAuditLogBody(entries []*postgres.AuditLogEntry, total int, cursor, nextCursor string, filter postgres.AuditFilter, errorMsg, successMsg string) {
 	<div class="space-y-4">
-		<div>
-			<h1 class="text-xl font-semibold tracking-tight">Audit Log</h1>
-			<p class="text-sm text-zinc-400">{ intToStr(total) } total entries</p>
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Audit Log</h1>
+				<p class="text-sm text-zinc-400">{ intToStr(total) } matching entries</p>
+			</div>
+			<a
+				href={ templ.SafeURL(auditExportURL(filter)) }
+				class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors"
+			>Export CSV</a>
 		</div>
+		<form method="GET" action="/admin/audit" class="flex flex-wrap gap-2 items-end">
+			<div class="flex flex-col gap-1">
+				<label class="text-xs text-zinc-500">Action</label>
+				<select name="action" class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200 focus:border-brand focus:outline-none">
+					<option value="">All actions</option>
+					<option value="disable_user" selected?={ filter.Action == "disable_user" }>disable_user</option>
+					<option value="enable_user" selected?={ filter.Action == "enable_user" }>enable_user</option>
+					<option value="promote_admin" selected?={ filter.Action == "promote_admin" }>promote_admin</option>
+					<option value="demote_admin" selected?={ filter.Action == "demote_admin" }>demote_admin</option>
+					<option value="change_admin_role" selected?={ filter.Action == "change_admin_role" }>change_admin_role</option>
+					<option value="delete_client" selected?={ filter.Action == "delete_client" }>delete_client</option>
+					<option value="remove_org_member" selected?={ filter.Action == "remove_org_member" }>remove_org_member</option>
+				</select>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-xs text-zinc-500">From (YYYY-MM-DD)</label>
+				<input
+					type="date"
+					name="from"
+					value={ auditFilterDate(filter.From) }
+					class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200 focus:border-brand focus:outline-none"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label class="text-xs text-zinc-500">To (YYYY-MM-DD)</label>
+				<input
+					type="date"
+					name="to"
+					value={ auditFilterDate(filter.To) }
+					class="rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1 text-sm text-zinc-200 focus:border-brand focus:outline-none"
+				/>
+			</div>
+			<button type="submit" class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800">Filter</button>
+			if auditFilterActive(filter) {
+				<a href="/admin/audit" class="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-500 hover:bg-zinc-800">Clear</a>
+			}
+		</form>
 		@AlertContainer(errorMsg, successMsg)
 		<div class="rounded-lg border border-zinc-800 overflow-hidden">
 			<table class="w-full text-sm">
@@ -134,7 +189,7 @@ templ adminAuditLogBody(entries []*postgres.AuditLogEntry, page, total, pageSize
 				<tbody>
 					if len(entries) == 0 {
 						<tr>
-							<td colspan="5" class="px-4 py-8 text-center text-zinc-500">No audit entries yet.</td>
+							<td colspan="5" class="px-4 py-8 text-center text-zinc-500">No audit entries match your filter.</td>
 						</tr>
 					}
 					for _, e := range entries {
@@ -159,20 +214,26 @@ templ adminAuditLogBody(entries []*postgres.AuditLogEntry, page, total, pageSize
 				</tbody>
 			</table>
 		</div>
-		if total > pageSize {
-			<div class="flex items-center justify-between text-sm text-zinc-400">
-				<span>Page { intToStr(page) } of { intToStr((total+pageSize-1)/pageSize) }</span>
-				<div class="flex gap-2">
-					if page > 1 {
-						<a href={ templ.SafeURL(fmt.Sprintf("/admin/audit?page=%d", page-1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Previous</a>
-					}
-					if page*pageSize < total {
-						<a href={ templ.SafeURL(fmt.Sprintf("/admin/audit?page=%d", page+1)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next</a>
-					}
-				</div>
-			</div>
-		}
+		@cursorPaginationControls("/admin/audit", cursor, nextCursor)
 	</div>
+}
+
+// cursorPaginationControls renders the shared cursor-based "First page / Next" controls.
+templ cursorPaginationControls(basePath, cursor, nextCursor string) {
+	if cursor != "" || nextCursor != "" {
+		<div class="flex items-center justify-between text-sm text-zinc-400">
+			<div>
+				if cursor != "" {
+					<a href={ templ.SafeURL(basePath) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">← First page</a>
+				}
+			</div>
+			<div>
+				if nextCursor != "" {
+					<a href={ templ.SafeURL(fmt.Sprintf("%s?cursor=%s", basePath, nextCursor)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next →</a>
+				}
+			</div>
+		</div>
+	}
 }
 
 func auditActionBadgeClass(action string) string {
@@ -183,7 +244,7 @@ func auditActionBadgeClass(action string) string {
 		return "rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400"
 	case "remove_org_member", "demote_admin":
 		return "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400"
-	case "promote_admin":
+	case "promote_admin", "change_admin_role":
 		return "rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400"
 	default:
 		return "rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"
@@ -202,4 +263,36 @@ func auditTargetLink(targetType, targetID string) string {
 
 func intToStr(n int) string {
 	return strconv.Itoa(n)
+}
+
+func auditFilterDate(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.Format("2006-01-02")
+}
+
+func auditFilterActive(f postgres.AuditFilter) bool {
+	return f.AdminID != nil || f.Action != "" || f.From != nil || f.To != nil
+}
+
+func auditExportURL(f postgres.AuditFilter) string {
+	u := "/admin/audit/export.csv"
+	params := ""
+	if f.Action != "" {
+		params += "&action=" + f.Action
+	}
+	if f.AdminID != nil {
+		params += "&admin_id=" + f.AdminID.String()
+	}
+	if f.From != nil {
+		params += "&from=" + f.From.Format("2006-01-02")
+	}
+	if f.To != nil {
+		params += "&to=" + f.To.Format("2006-01-02")
+	}
+	if params != "" {
+		u += "?" + params[1:]
+	}
+	return u
 }

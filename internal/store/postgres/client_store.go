@@ -219,18 +219,34 @@ type AdminClientItem struct {
 	CreatedAt time.Time
 }
 
-// ListAll returns OAuth2 clients across all orgs, newest first, with pagination.
-func (s *ClientStore) ListAll(ctx context.Context, limit, offset int) ([]*AdminClientItem, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT c.id, c.name, c.domain, c.public, c.created_at,
+// ListAllCursor returns OAuth2 clients using cursor-based pagination.
+// Returns items, next-page cursor (empty = last page), and total count.
+func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCursor) ([]*AdminClientItem, string, int, error) {
+	total, err := s.CountAll(ctx)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	const selectCols = `SELECT c.id, c.name, c.domain, c.public, c.created_at,
 		        COALESCE(o.slug, '') AS org_slug, COALESCE(o.display_name, '') AS org_name
 		 FROM oauth2_clients c
-		 LEFT JOIN organizations o ON o.id = c.org_id
-		 ORDER BY c.created_at DESC LIMIT $1 OFFSET $2`,
-		limit, offset,
-	)
+		 LEFT JOIN organizations o ON o.id = c.org_id`
+
+	var rows *sql.Rows
+	if cursor == nil {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+` ORDER BY c.created_at DESC, c.id DESC LIMIT $1`,
+			limit+1,
+		)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+` WHERE c.created_at < $1 OR (c.created_at = $1 AND c.id < $2)
+			 ORDER BY c.created_at DESC, c.id DESC LIMIT $3`,
+			cursor.CreatedAt, cursor.ID.String(), limit+1,
+		)
+	}
 	if err != nil {
-		return nil, err
+		return nil, "", total, err
 	}
 	defer rows.Close()
 
@@ -238,11 +254,24 @@ func (s *ClientStore) ListAll(ctx context.Context, limit, offset int) ([]*AdminC
 	for rows.Next() {
 		c := &AdminClientItem{}
 		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.CreatedAt, &c.OrgSlug, &c.OrgName); err != nil {
-			return nil, err
+			return nil, "", total, err
 		}
 		clients = append(clients, c)
 	}
-	return clients, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", total, err
+	}
+
+	nextCursor := ""
+	if len(clients) > limit {
+		last := clients[limit-1]
+		// client ID is a string UUID — parse for cursor encoding
+		if id, parseErr := uuid.Parse(last.ID); parseErr == nil {
+			nextCursor = EncodeCursor(last.CreatedAt, id)
+		}
+		clients = clients[:limit]
+	}
+	return clients, nextCursor, total, nil
 }
 
 // CountAll returns the total number of OAuth2 clients.

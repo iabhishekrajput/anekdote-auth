@@ -66,6 +66,8 @@ Set environment variables directly or in a `.env` file:
 | `RSA_PRIVATE_KEY_PATH` | `certs/private.pem` | |
 | `RSA_PUBLIC_KEY_PATH` | `certs/public.pem` | |
 | `SESSION_SECRET` | *(insecure placeholder)* | ⚠️ Defaults to a well-known placeholder. In production (`APP_ENV=production`) the server **refuses to start** if this is not overridden — set it to a random 32+ byte secret. |
+| `REDIS_ENCRYPTION_KEY` | *(dev insecure key)* | ⚠️ 64-character hex string (32 bytes). Used for AES-256-GCM encryption of sensitive Redis values (OAuth2 client secret flash). In production the server **refuses to start** if not set. Generate with `openssl rand -hex 32`. |
+| `AUDIT_RETENTION_DAYS` | `90` | Audit log entries older than this many days are automatically deleted on startup and every 24 hours. |
 | `SMTP_HOST` | `localhost` | |
 | `SMTP_PORT` | `1025` | |
 | `SMTP_USERNAME` | `test` | |

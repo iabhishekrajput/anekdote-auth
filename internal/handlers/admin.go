@@ -3,12 +3,13 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -62,25 +63,26 @@ func (h *AdminHandler) Dashboard(w http.ResponseWriter, r *http.Request, _ httpr
 
 func (h *AdminHandler) UserList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	page := 1
-	if p, _ := strconv.Atoi(r.URL.Query().Get("page")); p > 0 {
-		page = p
-	}
 	const pageSize = 50
-	users, listErr := h.userStore.ListAll(ctx, pageSize, (page-1)*pageSize)
+
+	cursor, err := postgres.DecodeCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid pagination cursor"), http.StatusFound)
+		return
+	}
+
+	users, nextCursor, total, listErr := h.userStore.ListAllCursor(ctx, pageSize, cursor)
 	if listErr != nil {
 		slog.Error("admin: list users", "err", listErr)
 	}
-	total, countErr := h.userStore.CountAll(ctx)
-	if countErr != nil {
-		slog.Error("admin: count users", "err", countErr)
-	}
 	errMsg := r.URL.Query().Get("error")
-	if (listErr != nil || countErr != nil) && errMsg == "" {
+	if listErr != nil && errMsg == "" {
 		errMsg = "Database error — data may be incomplete"
 	}
+
+	cursorParam := r.URL.Query().Get("cursor")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminUserList(nosurf.Token(r), users, page, total, pageSize,
+	_ = ui.AdminUserList(nosurf.Token(r), users, total, cursorParam, nextCursor,
 		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
@@ -205,27 +207,54 @@ func (h *AdminHandler) DemoteAdmin(w http.ResponseWriter, r *http.Request, ps ht
 	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("Admin access removed"), http.StatusFound)
 }
 
+// ChangeAdminRole updates a user's admin_role (superadmin / readonly / org_admin).
+// Only meaningful when the target user is already an admin (is_admin = true).
+func (h *AdminHandler) ChangeAdminRole(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	ctx := r.Context()
+	id, err := uuid.Parse(ps.ByName("id"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
+		return
+	}
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	role := r.FormValue("role")
+	if err := h.userStore.SetAdminRole(ctx, id, role); err != nil {
+		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Invalid role: "+err.Error()), http.StatusFound)
+		return
+	}
+	go func() {
+		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionChangeAdminRole,
+			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+	}()
+	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("Admin role updated to "+role), http.StatusFound)
+}
+
 func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	page := 1
-	if p, _ := strconv.Atoi(r.URL.Query().Get("page")); p > 0 {
-		page = p
-	}
 	const pageSize = 50
-	clients, listErr := h.clientStore.ListAll(ctx, pageSize, (page-1)*pageSize)
+
+	cursor, err := postgres.DecodeCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/clients?error="+url.QueryEscape("Invalid pagination cursor"), http.StatusFound)
+		return
+	}
+
+	clients, nextCursor, total, listErr := h.clientStore.ListAllCursor(ctx, pageSize, cursor)
 	if listErr != nil {
 		slog.Error("admin: list clients", "err", listErr)
 	}
-	total, countErr := h.clientStore.CountAll(ctx)
-	if countErr != nil {
-		slog.Error("admin: count clients", "err", countErr)
-	}
 	errMsg := r.URL.Query().Get("error")
-	if (listErr != nil || countErr != nil) && errMsg == "" {
+	if listErr != nil && errMsg == "" {
 		errMsg = "Database error — data may be incomplete"
 	}
+
+	cursorParam := r.URL.Query().Get("cursor")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminClientList(nosurf.Token(r), clients, page, total, pageSize,
+	_ = ui.AdminClientList(nosurf.Token(r), clients, total, cursorParam, nextCursor,
 		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
@@ -254,25 +283,26 @@ func (h *AdminHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps h
 
 func (h *AdminHandler) OrgList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	page := 1
-	if p, _ := strconv.Atoi(r.URL.Query().Get("page")); p > 0 {
-		page = p
-	}
 	const pageSize = 50
-	orgs, listErr := h.orgStore.ListAll(ctx, pageSize, (page-1)*pageSize)
+
+	cursor, err := postgres.DecodeCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/orgs?error="+url.QueryEscape("Invalid pagination cursor"), http.StatusFound)
+		return
+	}
+
+	orgs, nextCursor, total, listErr := h.orgStore.ListAllCursor(ctx, pageSize, cursor)
 	if listErr != nil {
 		slog.Error("admin: list orgs", "err", listErr)
 	}
-	total, countErr := h.orgStore.CountAll(ctx)
-	if countErr != nil {
-		slog.Error("admin: count orgs", "err", countErr)
-	}
 	errMsg := r.URL.Query().Get("error")
-	if (listErr != nil || countErr != nil) && errMsg == "" {
+	if listErr != nil && errMsg == "" {
 		errMsg = "Database error — data may be incomplete"
 	}
+
+	cursorParam := r.URL.Query().Get("cursor")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminOrgList(nosurf.Token(r), orgs, page, total, pageSize,
+	_ = ui.AdminOrgList(nosurf.Token(r), orgs, total, cursorParam, nextCursor,
 		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
@@ -328,28 +358,68 @@ func (h *AdminHandler) RemoveOrgMember(w http.ResponseWriter, r *http.Request, p
 	http.Redirect(w, r, "/admin/orgs/"+slug+"?message="+url.QueryEscape("Member removed"), http.StatusFound)
 }
 
+// AuditLog renders the paginated, filtered admin audit log.
 func (h *AdminHandler) AuditLog(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	ctx := r.Context()
-	page := 1
-	if p, _ := strconv.Atoi(r.URL.Query().Get("page")); p > 0 {
-		page = p
-	}
 	const pageSize = 50
-	entries, listErr := h.auditStore.ListAudit(ctx, pageSize, (page-1)*pageSize)
+
+	cursor, err := postgres.DecodeCursor(r.URL.Query().Get("cursor"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/audit?error="+url.QueryEscape("Invalid pagination cursor"), http.StatusFound)
+		return
+	}
+
+	filter := parseAuditFilter(r)
+
+	entries, nextCursor, total, listErr := h.auditStore.ListAuditCursor(ctx, pageSize, cursor, filter)
 	if listErr != nil {
 		slog.Error("admin: list audit log", "err", listErr)
 	}
-	total, countErr := h.auditStore.CountAudit(ctx)
-	if countErr != nil {
-		slog.Error("admin: count audit log", "err", countErr)
-	}
 	errMsg := r.URL.Query().Get("error")
-	if (listErr != nil || countErr != nil) && errMsg == "" {
+	if listErr != nil && errMsg == "" {
 		errMsg = "Could not load audit log — data may be incomplete"
 	}
+
+	cursorParam := r.URL.Query().Get("cursor")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminAuditLog(nosurf.Token(r), entries, page, total, pageSize,
+	_ = ui.AdminAuditLog(nosurf.Token(r), entries, total, cursorParam, nextCursor, filter,
 		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
+}
+
+// ExportAuditCSV streams the filtered audit log as a CSV download.
+func (h *AdminHandler) ExportAuditCSV(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	filter := parseAuditFilter(r)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="audit-%s.csv"`, time.Now().UTC().Format("20060102-150405")))
+	if err := h.auditStore.ExportAuditCSV(r.Context(), filter, w); err != nil {
+		slog.Error("admin: export audit CSV", "err", err)
+	}
+}
+
+// parseAuditFilter reads filter query params from the request.
+func parseAuditFilter(r *http.Request) postgres.AuditFilter {
+	var f postgres.AuditFilter
+	if adminIDStr := r.URL.Query().Get("admin_id"); adminIDStr != "" {
+		if id, err := uuid.Parse(adminIDStr); err == nil {
+			f.AdminID = &id
+		}
+	}
+	if action := r.URL.Query().Get("action"); action != "" {
+		f.Action = action
+	}
+	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+		if t, err := time.Parse("2006-01-02", fromStr); err == nil {
+			f.From = &t
+		}
+	}
+	if toStr := r.URL.Query().Get("to"); toStr != "" {
+		if t, err := time.Parse("2006-01-02", toStr); err == nil {
+			// end of the day
+			eod := t.Add(24*time.Hour - time.Second)
+			f.To = &eod
+		}
+	}
+	return f
 }
 
 // extractIP returns the client IP from the request, checking proxy headers first.

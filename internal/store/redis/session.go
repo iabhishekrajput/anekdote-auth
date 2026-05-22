@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis/redisutil"
 )
 
 const (
@@ -69,26 +70,27 @@ func (s *SessionStore) GetUserFromSession(r *http.Request) (uuid.UUID, error) {
 	return s.Get(context.Background(), cookie.Value)
 }
 
-// CreateOTP generates and stores a 6-digit OTP for the specified userID in Redis
+// CreateOTP stores a SHA-256 hash of the 6-digit OTP in Redis.
+// The raw OTP is sent to the user via email; only the hash lives in Redis
+// so a Redis read compromise cannot be used to bypass email verification.
 func (s *SessionStore) CreateOTP(ctx context.Context, userID uuid.UUID, otp string) error {
 	key := "otp:" + userID.String()
-	return s.client.Set(ctx, key, otp, otpTTL).Err()
+	return s.client.Set(ctx, key, redisutil.HashForStorage(otp), otpTTL).Err()
 }
 
-// VerifyOTP checks if the provided OTP matches what is stored in Redis
-// Returns a bool indicating success.
+// VerifyOTP checks if the SHA-256 hash of submittedOTP matches what is stored in Redis.
+// Consumes the OTP on success to prevent reuse.
 func (s *SessionStore) VerifyOTP(ctx context.Context, userID uuid.UUID, submittedOTP string) (bool, error) {
 	key := "otp:" + userID.String()
-	val, err := s.client.Get(ctx, key).Result()
+	stored, err := s.client.Get(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return false, nil // Code doesn't exist or expired
+			return false, nil // code doesn't exist or expired
 		}
-		return false, err // Redis connection error
+		return false, err
 	}
 
-	if val == submittedOTP {
-		// Valid OTP, immediately consume it to prevent reuse
+	if stored == redisutil.HashForStorage(submittedOTP) {
 		s.client.Del(ctx, key)
 		return true, nil
 	}
@@ -128,12 +130,13 @@ func (s *SessionStore) GetFailedLogin(ctx context.Context, email string) (int, e
 	return val, nil
 }
 
-// CreateResetToken generates a short-lived token for password recovery
+// CreateResetToken generates a short-lived password-reset token.
+// The key stored in Redis is sha256(token) so that a SCAN of reset_token:* does not
+// expose usable reset links — only the raw token, sent in the email, can look up the entry.
 func (s *SessionStore) CreateResetToken(ctx context.Context, userID uuid.UUID) (string, error) {
 	resetToken := uuid.New().String()
-	key := "reset_token:" + resetToken
+	key := "reset_token:" + redisutil.HashForStorage(resetToken)
 
-	// Reset tokens expire in 15 minutes for security
 	err := s.client.Set(ctx, key, userID.String(), 15*time.Minute).Err()
 	if err != nil {
 		return "", err
@@ -142,20 +145,21 @@ func (s *SessionStore) CreateResetToken(ctx context.Context, userID uuid.UUID) (
 	return resetToken, nil
 }
 
-// GetUserByResetToken retrieves the user ID from a valid reset token
+// GetUserByResetToken retrieves the user ID from a valid reset token.
+// The token parameter is the raw value from the email link; it is hashed before lookup.
 func (s *SessionStore) GetUserByResetToken(ctx context.Context, resetToken string) (uuid.UUID, error) {
-	key := "reset_token:" + resetToken
+	key := "reset_token:" + redisutil.HashForStorage(resetToken)
 	val, err := s.client.Get(ctx, key).Result()
 	if err != nil {
-		return uuid.Nil, err // Could be redis.Nil if expired
+		return uuid.Nil, err // redis.Nil means expired or not found
 	}
 
 	return uuid.Parse(val)
 }
 
-// DeleteResetToken invalidates a reset token after use
+// DeleteResetToken invalidates a reset token after use.
 func (s *SessionStore) DeleteResetToken(ctx context.Context, resetToken string) error {
-	key := "reset_token:" + resetToken
+	key := "reset_token:" + redisutil.HashForStorage(resetToken)
 	return s.client.Del(ctx, key).Err()
 }
 

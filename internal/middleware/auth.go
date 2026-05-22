@@ -32,6 +32,7 @@ func RequireAuth(sessionStore *redis.SessionStore, next httprouter.Handle) httpr
 
 // RequireAdmin enforces that the requester is both authenticated and an admin.
 // Admin status is determined solely by user.IsAdmin in the database.
+// Injects userID and adminRole into context for downstream handlers.
 func RequireAdmin(sessionStore *redis.SessionStore, userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		userID, err := sessionStore.GetUserFromSession(r)
@@ -47,7 +48,26 @@ func RequireAdmin(sessionStore *redis.SessionStore, userStore *postgres.UserStor
 		}
 
 		ctx := context.WithValue(r.Context(), types.UserContextKey, userID)
+		ctx = context.WithValue(ctx, types.AdminRoleContextKey, user.AdminRole)
 		r = r.WithContext(ctx)
+		next(w, r, ps)
+	}
+}
+
+// RequireRole wraps a handler that is already behind RequireAdmin and enforces
+// that the admin's role is one of the allowed roles. Must be applied after
+// RequireAdmin so that AdminRoleContextKey is already set.
+func RequireRole(next httprouter.Handle, roles ...string) httprouter.Handle {
+	allowed := make(map[string]bool, len(roles))
+	for _, role := range roles {
+		allowed[role] = true
+	}
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		adminRole, _ := r.Context().Value(types.AdminRoleContextKey).(string)
+		if !allowed[adminRole] {
+			http.Error(w, "403 Forbidden — insufficient admin role", http.StatusForbidden)
+			return
+		}
 		next(w, r, ps)
 	}
 }

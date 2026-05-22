@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	redisStore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis/redisutil"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -43,6 +44,7 @@ func setupOrgHandler(t *testing.T) (*OrgHandler, sqlmock.Sqlmock, sqlmock.Sqlmoc
 	sess := redisStore.NewSessionStore(rdb)
 	revoc := redisStore.NewRevocationStore(rdb)
 
+	encKey := make([]byte, 32)
 	h := NewOrgHandler(
 		postgres.NewOrgStore(orgDB),
 		postgres.NewUserStore(orgDB),
@@ -51,6 +53,7 @@ func setupOrgHandler(t *testing.T) (*OrgHandler, sqlmock.Sqlmock, sqlmock.Sqlmoc
 		nil,
 		rdb,
 		revoc,
+		encKey,
 		"http://localhost:8080",
 	)
 	return h, orgMock, clientMock, mr
@@ -119,8 +122,13 @@ func TestOrgClients_WithFlash(t *testing.T) {
 	clientIDStr := uuid.New().String()
 	const secret = "key_abc123"
 
-	// Pre-seed the flash key in miniredis.
-	mr.Set("oauth:client-secret-flash:"+clientIDStr, secret)
+	// Pre-seed the flash key in miniredis (must be encrypted, matching OrgHandler.storeSecretFlash).
+	encKey := make([]byte, 32)
+	encrypted, err := redisutil.Encrypt(encKey, secret)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	mr.Set("oauth:client-secret-flash:"+clientIDStr, encrypted)
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -665,8 +673,8 @@ func TestAcceptInvite_Success(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "user@example.com", "User", "hash", true, false, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+			AddRow(userID, "user@example.com", "User", "hash", true, false, nil, false, nil, time.Now(), time.Now()))
 	orgMock.ExpectExec(`INSERT INTO org_memberships`).
 		WithArgs(orgID, userID, "member", nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -702,8 +710,8 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, false, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, false, nil, true, nil, time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/join?token="+token, nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})

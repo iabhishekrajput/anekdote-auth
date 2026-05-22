@@ -13,6 +13,17 @@ templ AccountPageBody(csrfToken string, user *models.User, errorMsg string, succ
 			<p class="mt-0.5 text-sm text-zinc-400">Manage your profile and security</p>
 		</div>
 
+		if !user.PasswordChanged {
+			<div class="mb-4 rounded-lg border border-amber-800 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 flex items-center justify-between gap-4">
+				<span>You are using the default password. Change it now to secure your account.</span>
+				<button
+					type="button"
+					data-dialog-show="change-password-dialog"
+					class="shrink-0 rounded-md border border-amber-700 px-3 py-1 text-xs text-amber-200 hover:bg-amber-900/40 transition-colors duration-150"
+				>Change password →</button>
+			</div>
+		}
+
 		@AlertContainer(errorMsg, successMsg)
 
 		<!-- Profile section -->

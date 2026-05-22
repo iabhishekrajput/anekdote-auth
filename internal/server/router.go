@@ -53,6 +53,17 @@ func NewRouter(
 		return secure(middleware.RequireAdmin(sessionStore, userStore, h))
 	}
 
+	// requireSuperAdmin wraps requireAdmin with an additional role check.
+	// Use for all mutation routes that a readonly or org_admin should not access.
+	requireSuperAdmin := func(h httprouter.Handle) httprouter.Handle {
+		return requireAdmin(middleware.RequireRole(h, "superadmin"))
+	}
+
+	// requireSuperOrOrgAdmin allows both superadmin and org_admin roles.
+	requireSuperOrOrgAdmin := func(h httprouter.Handle) httprouter.Handle {
+		return requireAdmin(middleware.RequireRole(h, "superadmin", "org_admin"))
+	}
+
 	// withAuth chains RequireAuth then InjectAdminStatus so account/org handlers
 	// always have both userID and isAdmin available in context.
 	withAuth := func(h httprouter.Handle) httprouter.Handle {
@@ -102,20 +113,22 @@ func NewRouter(
 	router.POST("/account/orgs/:slug/clients/:clientID/delete", withAuthRateLimit(orgH.DeleteClient))
 	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", withAuthRateLimit(orgH.RotateClientSecret))
 
-	// Admin routes — all behind RequireAdmin
+	// Admin routes — GET routes: any admin; mutations: role-scoped
 	router.GET("/admin", requireAdmin(adminH.Dashboard))
 	router.GET("/admin/users", requireAdmin(adminH.UserList))
 	router.GET("/admin/users/:id", requireAdmin(adminH.UserDetail))
-	router.POST("/admin/users/:id/disable", requireAdmin(adminH.DisableUser))
-	router.POST("/admin/users/:id/enable", requireAdmin(adminH.EnableUser))
-	router.POST("/admin/users/:id/promote", requireAdmin(adminH.PromoteAdmin))
-	router.POST("/admin/users/:id/demote", requireAdmin(adminH.DemoteAdmin))
+	router.POST("/admin/users/:id/disable", requireSuperAdmin(adminH.DisableUser))
+	router.POST("/admin/users/:id/enable", requireSuperAdmin(adminH.EnableUser))
+	router.POST("/admin/users/:id/promote", requireSuperAdmin(adminH.PromoteAdmin))
+	router.POST("/admin/users/:id/demote", requireSuperAdmin(adminH.DemoteAdmin))
+	router.POST("/admin/users/:id/admin-role", requireSuperAdmin(adminH.ChangeAdminRole))
 	router.GET("/admin/clients", requireAdmin(adminH.ClientList))
-	router.POST("/admin/clients/:id/delete", requireAdmin(adminH.DeleteClient))
+	router.POST("/admin/clients/:id/delete", requireSuperAdmin(adminH.DeleteClient))
 	router.GET("/admin/orgs", requireAdmin(adminH.OrgList))
 	router.GET("/admin/orgs/:slug", requireAdmin(adminH.OrgDetail))
-	router.POST("/admin/orgs/:slug/members/:user_id/remove", requireAdmin(adminH.RemoveOrgMember))
+	router.POST("/admin/orgs/:slug/members/:user_id/remove", requireSuperOrOrgAdmin(adminH.RemoveOrgMember))
 	router.GET("/admin/audit", requireAdmin(adminH.AuditLog))
+	router.GET("/admin/audit/export.csv", requireAdmin(adminH.ExportAuditCSV))
 
 	// 2. OAuth2 Endpoints
 	router.GET("/authorize", secure(oauthH.Authorize))

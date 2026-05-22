@@ -21,6 +21,16 @@ import (
 	"github.com/justinas/nosurf"
 )
 
+func runAuditRetention(auditStore *postgres.AuditStore, days int) {
+	cutoff := time.Now().AddDate(0, 0, -days)
+	n, err := auditStore.DeleteOlderThan(context.Background(), cutoff)
+	if err != nil {
+		slog.Error("audit: retention cleanup failed", "err", err)
+	} else if n > 0 {
+		slog.Info("audit: retention cleanup", "deleted", n, "older_than_days", days)
+	}
+}
+
 func main() {
 	// Initialize structured logger
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -80,11 +90,21 @@ func main() {
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore)
-	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.AppURL)
+	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.RedisEncryptionKey, cfg.AppURL)
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
 
-	// 7. Init Router
+	// 7. Audit log retention — run once on startup, then every 24 hours
+	runAuditRetention(auditStore, cfg.AuditRetentionDays)
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			runAuditRetention(auditStore, cfg.AuditRetentionDays)
+		}
+	}()
+
+	// 8. Init Router
 	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)

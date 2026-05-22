@@ -16,13 +16,14 @@
 --        make migrate-down    (rolls back this file only)
 --      or via the admin panel: /admin/users → disable/delete
 -- ============================================================
-INSERT INTO users (name, email, password_hash, is_verified, is_admin)
+INSERT INTO users (name, email, password_hash, is_verified, is_admin, admin_role)
 VALUES (
     'Bootstrap Admin',
     'admin@localhost',
     '$2a$10$D3I1bda1qzOdR0NSxJLXHu.tM1tDQyLna5szEEs0Dx.LMcCfAObOS',
     TRUE,
-    TRUE
+    TRUE,
+    'superadmin'
 ) ON CONFLICT (email) DO NOTHING;
 
 -- +goose StatementEnd

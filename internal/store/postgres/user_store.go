@@ -15,6 +15,12 @@ var (
 	ErrLastAdmin    = errors.New("cannot remove the last admin")
 )
 
+var validAdminRoles = map[string]bool{
+	"superadmin": true,
+	"readonly":   true,
+	"org_admin":  true,
+}
+
 type UserStore struct {
 	db *sql.DB
 }
@@ -25,33 +31,35 @@ func NewUserStore(db *sql.DB) *UserStore {
 
 func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 	u := &models.User{}
+	var adminRole sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, disabled_at, created_at, updated_at
+		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, created_at, updated_at
 		FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
-
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
+	u.AdminRole = adminRole.String
 	return u, nil
 }
 
 func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
 	u := &models.User{}
+	var adminRole sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, disabled_at, created_at, updated_at
+		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, created_at, updated_at
 		FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
-
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
+	u.AdminRole = adminRole.String
 	return u, nil
 }
 
@@ -75,11 +83,25 @@ func (s *UserStore) SetAdmin(ctx context.Context, id uuid.UUID, admin bool) erro
 		}
 	}
 
+	var adminRole interface{}
+	if admin {
+		adminRole = "superadmin"
+	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE users SET is_admin = $1, updated_at = NOW() WHERE id = $2`, admin, id); err != nil {
+		`UPDATE users SET is_admin = $1, admin_role = $2, updated_at = NOW() WHERE id = $3`, admin, adminRole, id); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// SetAdminRole updates the admin_role column. Only valid roles are accepted.
+func (s *UserStore) SetAdminRole(ctx context.Context, id uuid.UUID, role string) error {
+	if !validAdminRoles[role] {
+		return errors.New("invalid admin role: must be superadmin, readonly, or org_admin")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET admin_role = $1, updated_at = NOW() WHERE id = $2`, role, id)
+	return err
 }
 
 // CountAdmins returns the number of admin users.
@@ -99,15 +121,33 @@ type UserListItem struct {
 	CreatedAt  time.Time
 }
 
-// ListAll returns all users ordered by creation date, newest first.
-func (s *UserStore) ListAll(ctx context.Context, limit, offset int) ([]*UserListItem, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, email, name, is_verified, disabled_at, created_at
-		 FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-		limit, offset,
-	)
+// ListAllCursor returns up to limit users using cursor-based pagination.
+// cursor may be nil for the first page. Returns the items, a next-page cursor
+// (empty string if no more pages), and the total count.
+func (s *UserStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCursor) ([]*UserListItem, string, int, error) {
+	total, err := s.CountAll(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", 0, err
+	}
+
+	var rows *sql.Rows
+	if cursor == nil {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, email, name, is_verified, disabled_at, created_at
+			 FROM users ORDER BY created_at DESC, id DESC LIMIT $1`,
+			limit+1,
+		)
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT id, email, name, is_verified, disabled_at, created_at
+			 FROM users
+			 WHERE created_at < $1 OR (created_at = $1 AND id::text < $2)
+			 ORDER BY created_at DESC, id DESC LIMIT $3`,
+			cursor.CreatedAt, cursor.ID.String(), limit+1,
+		)
+	}
+	if err != nil {
+		return nil, "", total, err
 	}
 	defer rows.Close()
 
@@ -115,11 +155,21 @@ func (s *UserStore) ListAll(ctx context.Context, limit, offset int) ([]*UserList
 	for rows.Next() {
 		u := &UserListItem{}
 		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.IsVerified, &u.DisabledAt, &u.CreatedAt); err != nil {
-			return nil, err
+			return nil, "", total, err
 		}
 		users = append(users, u)
 	}
-	return users, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", total, err
+	}
+
+	nextCursor := ""
+	if len(users) > limit {
+		last := users[limit-1]
+		nextCursor = EncodeCursor(last.CreatedAt, last.ID)
+		users = users[:limit]
+	}
+	return users, nextCursor, total, nil
 }
 
 // CountAll returns the total number of users.
@@ -145,8 +195,8 @@ func (s *UserStore) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool
 func (s *UserStore) Create(email, name, passwordHash string) (*models.User, error) {
 	u := &models.User{}
 	err := s.db.QueryRow(`
-		INSERT INTO users (email, name, password_hash) 
-		VALUES ($1, $2, $3) 
+		INSERT INTO users (email, name, password_hash, password_changed)
+		VALUES ($1, $2, $3, TRUE)
 		RETURNING id, email, name, password_hash, is_verified, created_at, updated_at`,
 		email, name, passwordHash).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
@@ -154,6 +204,7 @@ func (s *UserStore) Create(email, name, passwordHash string) (*models.User, erro
 	if err != nil {
 		return nil, err
 	}
+	u.PasswordChanged = true
 	return u, nil
 }
 
@@ -163,7 +214,7 @@ func (s *UserStore) UpdateName(id uuid.UUID, newName string) error {
 }
 
 func (s *UserStore) UpdatePassword(id uuid.UUID, newHash string) error {
-	_, err := s.db.Exec(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, newHash, id)
+	_, err := s.db.Exec(`UPDATE users SET password_hash = $1, password_changed = TRUE, updated_at = NOW() WHERE id = $2`, newHash, id)
 	return err
 }
 
