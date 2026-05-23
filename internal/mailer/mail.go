@@ -90,6 +90,25 @@ func (m *Mailer) SendOrgInvite(ctx context.Context, toEmail, orgName, inviterEma
 	return m.client.DialAndSendWithContext(ctx, msg)
 }
 
+func (m *Mailer) SendOwnershipTransfer(ctx context.Context, toEmail, orgName, orgSlug, appURL string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmail); err != nil {
+		return err
+	}
+	msg.Subject("You are now the owner of " + orgName + " - anekdote")
+
+	orgURL := appURL + "/account/orgs/" + orgSlug
+	var body bytes.Buffer
+	if err := uiemail.OwnershipTransferEmail(orgName, orgURL).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
 func (m *Mailer) SendOTP(ctx context.Context, toEmail, otp string) error {
 	msg := mail.NewMsg()
 	if err := msg.From(m.config.SMTPFrom); err != nil {
