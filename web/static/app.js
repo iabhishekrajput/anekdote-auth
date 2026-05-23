@@ -57,11 +57,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Auto-submit select elements (replaces inline onchange blocked by CSP).
   // form.submit() bypasses the submit event, so loading state is set manually here.
+  // NOTE: do NOT set disabled — disabled fields are excluded from the POST body.
   document.addEventListener('change', function (e) {
     var sel = e.target.closest('[data-autosubmit]');
     if (sel) {
-      sel.disabled = true;
-      sel.setAttribute('data-loading-select', '');
+      sel.style.opacity = '0.6';
+      sel.style.pointerEvents = 'none';
       sel.closest('form').submit();
     }
   });
@@ -78,11 +79,18 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  // Form submit loading state — sets data-loading on the submit button.
+  // Form submit loading state — shows spinner, hides button text.
+  // Toggled via JS class manipulation so it works without a CSS rebuild.
   document.querySelectorAll('form').forEach(function (form) {
     form.addEventListener('submit', function () {
       var btn = form.querySelector('[type=submit]');
-      if (btn) btn.setAttribute('data-loading', '');
+      if (!btn) return;
+      btn.setAttribute('data-loading', '');
+      btn.style.pointerEvents = 'none';
+      var spinner = btn.querySelector('.btn-spinner');
+      var text = btn.querySelector('.btn-text');
+      if (spinner) spinner.classList.remove('hidden');
+      if (text) text.classList.add('hidden');
     });
   });
 
