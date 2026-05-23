@@ -53,6 +53,7 @@ type OrgHandler struct {
 	clientStore  *postgres.ClientStore
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
+	auditStore   *postgres.AuditStore
 	mailer       *mailer.Mailer
 	rdb          *goredis.Client
 	encKey       []byte // AES-256 key for client secret flash encryption
@@ -67,6 +68,7 @@ func NewOrgHandler(
 	mailSvc *mailer.Mailer,
 	rdb *goredis.Client,
 	revocStore *redis.RevocationStore,
+	auditStore *postgres.AuditStore,
 	encKey []byte,
 	appURL string,
 ) *OrgHandler {
@@ -76,6 +78,7 @@ func NewOrgHandler(
 		clientStore:  clientStore,
 		sessionStore: sessionStore,
 		revocStore:   revocStore,
+		auditStore:   auditStore,
 		mailer:       mailSvc,
 		rdb:          rdb,
 		encKey:       encKey,
@@ -234,10 +237,11 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 
 	pending := h.loadPendingInvites(r.Context(), org.ID.String())
 	canEdit := role == "owner" || role == "admin"
+	isOwner := role == "owner"
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), canEdit, isAdmin,
+	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), canEdit, isOwner, isAdmin,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
@@ -583,6 +587,79 @@ func (h *OrgHandler) RotateClientSecret(w http.ResponseWriter, r *http.Request, 
 	}
 
 	http.Redirect(w, r, redirectBase+"?newClientID="+url.QueryEscape(clientID), http.StatusFound)
+}
+
+// TransferOwnershipAndLeave handles POST /account/orgs/:slug/transfer-ownership
+func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+	redirectBase := "/account/orgs/" + slug
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+
+	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if err != nil || role != "owner" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	newOwnerIDStr := r.FormValue("new_owner_id")
+	newOwnerID, err := uuid.Parse(newOwnerIDStr)
+	if err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
+		return
+	}
+
+	if newOwnerID == userID {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Cannot transfer to yourself"), http.StatusFound)
+		return
+	}
+
+	if err := h.orgStore.TransferOwnershipAndLeave(r.Context(), org.ID, userID, newOwnerID); err != nil {
+		if errors.Is(err, postgres.ErrTransferTargetNotMember) {
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("User is not a member of this org"), http.StatusFound)
+			return
+		}
+		slog.Error("transfer ownership failed", "org", slug, "err", err)
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to transfer ownership"), http.StatusFound)
+		return
+	}
+
+	// Best-effort: revoke org-scoped tokens for the departing owner.
+	if h.revocStore != nil && h.rdb != nil {
+		indexKey := "oauth:user-org-tokens:" + userID.String() + ":" + org.ID.String()
+		if jtis, err := h.rdb.SMembers(r.Context(), indexKey).Result(); err == nil && len(jtis) > 0 {
+			for _, jti := range jtis {
+				h.revocStore.RevokeJTI(r.Context(), jti, time.Hour)
+			}
+			h.rdb.Del(r.Context(), indexKey)
+		}
+	}
+
+	// Audit log.
+	if h.auditStore != nil {
+		_ = h.auditStore.Log(r.Context(), userID, postgres.AuditActionTransferOrgOwnership,
+			"org", org.ID.String(), r.RemoteAddr, r.UserAgent())
+	}
+
+	// Best-effort: notify new owner by email in a goroutine so email failure
+	// does not block or reverse the already-committed transfer.
+	if h.mailer != nil {
+		newOwner, err := h.userStore.GetByID(newOwnerID)
+		if err == nil && newOwner != nil {
+			go func() {
+				if err := h.mailer.SendOwnershipTransfer(context.Background(), newOwner.Email, org.DisplayName, org.Slug, h.appURL); err != nil {
+					slog.Error("failed to send ownership transfer email", "to", newOwner.Email, "org", slug, "err", err)
+				}
+			}()
+		}
+	}
+
+	http.Redirect(w, r, "/account?message="+url.QueryEscape("Ownership of "+org.DisplayName+" transferred. You've been removed from the org."), http.StatusFound)
 }
 
 // LeaveOrg handles POST /account/orgs/:slug/leave
