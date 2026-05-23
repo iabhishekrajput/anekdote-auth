@@ -12,6 +12,7 @@ import (
 
 var ErrInvalidRole = errors.New("role 'owner' cannot be set via UpdateMemberRole; use ownership transfer")
 var ErrOwnerCannotBeRemoved = errors.New("org owner cannot be removed; transfer ownership first")
+var ErrTransferTargetNotMember = errors.New("transfer target is not an active member of this org")
 
 type OrgStore struct {
 	db *sql.DB
@@ -245,6 +246,69 @@ func (s *OrgStore) UpdateMemberRole(ctx context.Context, orgID, userID uuid.UUID
 		orgID, userID, role,
 	)
 	return err
+}
+
+// TransferOwnershipAndLeave atomically transfers org ownership from fromOwnerID to toUserID
+// and removes fromOwnerID's membership. Two sources of truth are updated in one TX:
+// organizations.owner_id and org_memberships.role — they must always stay in sync.
+func (s *OrgStore) TransferOwnershipAndLeave(ctx context.Context, orgID, fromOwnerID, toUserID uuid.UUID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Lock target membership row and verify target is an active member.
+	var targetRole string
+	err = tx.QueryRowContext(ctx,
+		`SELECT role FROM org_memberships
+		 WHERE org_id = $1 AND user_id = $2 AND removed_at IS NULL
+		 FOR UPDATE`,
+		orgID, toUserID,
+	).Scan(&targetRole)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrTransferTargetNotMember
+		}
+		return fmt.Errorf("lock target membership: %w", err)
+	}
+
+	// Transfer ownership on organizations table.
+	res, err := tx.ExecContext(ctx,
+		`UPDATE organizations SET owner_id = $1 WHERE id = $2 AND owner_id = $3`,
+		toUserID, orgID, fromOwnerID,
+	)
+	if err != nil {
+		return fmt.Errorf("update organizations owner_id: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("ownership already changed or org not found (race condition)")
+	}
+
+	// Update new owner's membership role.
+	res, err = tx.ExecContext(ctx,
+		`UPDATE org_memberships SET role = 'owner'
+		 WHERE org_id = $1 AND user_id = $2 AND removed_at IS NULL`,
+		orgID, toUserID,
+	)
+	if err != nil {
+		return fmt.Errorf("update new owner membership role: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("new owner membership update affected unexpected rows (race condition)")
+	}
+
+	// Soft-delete former owner's membership.
+	_, err = tx.ExecContext(ctx,
+		`UPDATE org_memberships SET removed_at = NOW()
+		 WHERE org_id = $1 AND user_id = $2 AND removed_at IS NULL`,
+		orgID, fromOwnerID,
+	)
+	if err != nil {
+		return fmt.Errorf("remove former owner membership: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 // CountClients returns the number of OAuth2 clients registered to an org.

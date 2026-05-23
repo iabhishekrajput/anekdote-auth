@@ -22,7 +22,8 @@ const (
 	AuditActionRemoveOrgMember AuditAction = "remove_org_member"
 	AuditActionPromoteAdmin    AuditAction = "promote_admin"
 	AuditActionDemoteAdmin     AuditAction = "demote_admin"
-	AuditActionChangeAdminRole AuditAction = "change_admin_role"
+	AuditActionChangeAdminRole        AuditAction = "change_admin_role"
+	AuditActionTransferOrgOwnership   AuditAction = "transfer_org_ownership"
 )
 
 // AuditLogEntry is a single row from admin_audit_log.
