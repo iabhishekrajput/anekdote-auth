@@ -80,7 +80,10 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 								<p class="text-xs text-zinc-500 capitalize">{ item.Role }</p>
 							</div>
 							if item.Role == "owner" {
-								<span class="text-xs text-zinc-600 italic">Transfer ownership to leave</span>
+								<a
+									href={ templ.SafeURL("/account/orgs/" + item.Org.Slug + "#transfer-ownership") }
+									class="shrink-0 text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2 transition-colors duration-150"
+								>Transfer ownership to leave</a>
 							} else {
 								<button
 									type="button"

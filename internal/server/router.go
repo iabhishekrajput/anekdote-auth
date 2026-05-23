@@ -115,6 +115,7 @@ func NewRouter(
 	router.POST("/account/orgs/:slug/members/:userID/role", withAuthRateLimit(orgH.ChangeMemberRole))
 	router.POST("/account/orgs/:slug/members/:userID/remove", withAuthRateLimit(orgH.RemoveMember))
 	router.POST("/account/orgs/:slug/leave", withAuthRateLimit(orgH.LeaveOrg))
+	router.POST("/account/orgs/:slug/transfer-ownership", withAuthRateLimit(orgH.TransferOwnershipAndLeave))
 	router.POST("/account/orgs/:slug/clients", withAuthRateLimit(orgH.RegisterClient))
 	router.POST("/account/orgs/:slug/clients/:clientID/delete", withAuthRateLimit(orgH.DeleteClient))
 	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", withAuthRateLimit(orgH.RotateClientSecret))

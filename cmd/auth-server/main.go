@@ -90,7 +90,7 @@ func main() {
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore)
-	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, cfg.RedisEncryptionKey, cfg.AppURL)
+	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore)
 	probeH := handlers.NewProbeHandler(db, rdb)
 	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore)

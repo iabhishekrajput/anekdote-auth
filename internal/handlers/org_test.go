@@ -54,6 +54,7 @@ func setupOrgHandler(t *testing.T) (*OrgHandler, sqlmock.Sqlmock, sqlmock.Sqlmoc
 		nil,
 		rdb,
 		revoc,
+		nil, // auditStore: nil is safe — handler guards with != nil check
 		encKey,
 		"http://localhost:8080",
 	)
@@ -931,5 +932,253 @@ func TestLeaveOrg_StoreError(t *testing.T) {
 	loc := rr.Header().Get("Location")
 	if !strings.Contains(loc, "/account?error=") {
 		t.Errorf("expected error redirect, got %s", loc)
+	}
+}
+
+// --- TransferOwnershipAndLeave POST ---
+
+func transferOwnershipRequest(t *testing.T, userID uuid.UUID, newOwnerID string) (*http.Request, *httptest.ResponseRecorder) {
+	t.Helper()
+	form := url.Values{}
+	form.Set("new_owner_id", newOwnerID)
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/transfer-ownership",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	return req, httptest.NewRecorder()
+}
+
+func TestTransferOwnership_OrgNotFound(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	userID := uuid.New()
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}))
+
+	req, rr := transferOwnershipRequest(t, userID, uuid.New().String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Header().Get("Location"), "/account/orgs?error=") {
+		t.Errorf("expected org-list error redirect, got %s", rr.Header().Get("Location"))
+	}
+}
+
+func TestTransferOwnership_NotMember(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"role"})) // no rows → role=""
+
+	req, rr := transferOwnershipRequest(t, userID, uuid.New().String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") {
+		t.Errorf("expected org detail error redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_NotOwner(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("admin"))
+
+	req, rr := transferOwnershipRequest(t, userID, uuid.New().String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") || !strings.Contains(loc, "Access+denied") {
+		t.Errorf("expected access denied redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_SelfTransfer(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	req, rr := transferOwnershipRequest(t, userID, userID.String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") || !strings.Contains(loc, "yourself") {
+		t.Errorf("expected self-transfer error redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_InvalidUUID(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	req, rr := transferOwnershipRequest(t, userID, "not-a-uuid")
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") || !strings.Contains(loc, "Invalid+user+ID") {
+		t.Errorf("expected invalid UUID error redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_TargetNotMember(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	newOwnerID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+	// TransferOwnershipAndLeave TX: BEGIN → SELECT FOR UPDATE (no rows) → ROLLBACK
+	orgMock.ExpectBegin()
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, newOwnerID).
+		WillReturnRows(sqlmock.NewRows([]string{"role"}))
+	orgMock.ExpectRollback()
+
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") || !strings.Contains(loc, "not+a+member") {
+		t.Errorf("expected target-not-member error redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_StoreError(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	newOwnerID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+	orgMock.ExpectBegin()
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, newOwnerID).
+		WillReturnError(errors.New("db failure"))
+	orgMock.ExpectRollback()
+
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account/orgs/acme?error=") {
+		t.Errorf("expected error redirect, got %s", loc)
+	}
+}
+
+func TestTransferOwnership_Success(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	userID := uuid.New()
+	newOwnerID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// TransferOwnershipAndLeave TX
+	orgMock.ExpectBegin()
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, newOwnerID).
+		WillReturnRows(sqlmock.NewRows([]string{"role"}).AddRow("admin"))
+	orgMock.ExpectExec(`UPDATE organizations SET owner_id`).
+		WithArgs(newOwnerID, orgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	orgMock.ExpectExec(`UPDATE org_memberships SET role = 'owner'`).
+		WithArgs(orgID, newOwnerID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	orgMock.ExpectExec(`UPDATE org_memberships SET removed_at`).
+		WithArgs(orgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	orgMock.ExpectCommit()
+
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "/account?message=") {
+		t.Errorf("expected success redirect to /account, got %s", loc)
+	}
+	if !strings.Contains(loc, "Acme") {
+		t.Errorf("expected org name in success message, got %s", loc)
 	}
 }
