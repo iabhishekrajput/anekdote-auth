@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', function () {
+  // Inject @keyframes spin once so injected CSS spinners animate without a CSS rebuild.
+  var styleEl = document.createElement('style');
+  styleEl.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+  document.head.appendChild(styleEl);
+
   // Navigation guard flag — set when a data-guard form is submitted.
   // Invariant: never put data-autosubmit and data-confirm on the same form;
   // form.submit() bypasses submit events so data-confirm would be skipped.
@@ -80,7 +85,9 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   // Form submit loading state — shows spinner, hides button text.
-  // Toggled via JS class manipulation so it works without a CSS rebuild.
+  // Buttons using PrimaryButton component already have .btn-spinner/.btn-text.
+  // Raw <button type="submit"> elements get an injected CSS spinner so all
+  // buttons animate consistently without template changes.
   document.querySelectorAll('form').forEach(function (form) {
     form.addEventListener('submit', function () {
       var btn = form.querySelector('[type=submit]');
@@ -89,8 +96,16 @@ document.addEventListener('DOMContentLoaded', function () {
       btn.style.pointerEvents = 'none';
       var spinner = btn.querySelector('.btn-spinner');
       var text = btn.querySelector('.btn-text');
-      if (spinner) spinner.classList.remove('hidden');
-      if (text) text.classList.add('hidden');
+      if (spinner) {
+        spinner.classList.remove('hidden');
+        if (text) text.classList.add('hidden');
+      } else {
+        // Inject a border-based CSS spinner for plain submit buttons
+        var ring = document.createElement('span');
+        ring.className = 'btn-injected-spinner';
+        ring.style.cssText = 'display:inline-block;width:0.85em;height:0.85em;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.75s linear infinite;vertical-align:middle;margin-right:0.35em;flex-shrink:0';
+        btn.prepend(ring);
+      }
     });
   });
 
