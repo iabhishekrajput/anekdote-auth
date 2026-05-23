@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -168,7 +169,9 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 
 	if h.mailer != nil {
 		_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
-		_ = h.mailer.SendOTP(context.Background(), user.Email, otp)
+		if err := h.mailer.SendOTP(context.Background(), user.Email, otp); err != nil {
+			slog.Error("failed to send OTP email on register", "email", user.Email, "err", err)
+		}
 	} else {
 		// Log the OTP if no mailer is configured for dev
 		fmt.Printf("[DEV] OTP for %s: %s\n", email, otp)
@@ -351,7 +354,9 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 		otp, _ := generateOTP()
 		_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
 		if h.mailer != nil {
-			_ = h.mailer.SendOTP(context.Background(), user.Email, otp)
+			if err := h.mailer.SendOTP(context.Background(), user.Email, otp); err != nil {
+				slog.Error("failed to send OTP email on login", "email", user.Email, "err", err)
+			}
 		} else {
 			fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
 		}
@@ -524,7 +529,9 @@ func (h *IdentityHandler) ResendOTPFunc(w http.ResponseWriter, r *http.Request, 
 	otp, _ := generateOTP()
 	_ = h.sessionStore.CreateOTP(context.Background(), userID, otp)
 	if h.mailer != nil {
-		_ = h.mailer.SendOTP(context.Background(), user.Email, otp)
+		if err := h.mailer.SendOTP(context.Background(), user.Email, otp); err != nil {
+			slog.Error("failed to send OTP email on verify-email resend", "email", user.Email, "err", err)
+		}
 	} else {
 		fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
 	}
