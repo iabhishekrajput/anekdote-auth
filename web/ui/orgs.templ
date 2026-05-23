@@ -209,16 +209,15 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 									<div class="inline-flex items-center gap-2">
 										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/role") } class="inline-flex items-center gap-1">
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
-											<select name="role" class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
+											<select name="role" onchange="this.form.submit()" class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
 												<option value="member" selected?={ m.Role == "member" }>member</option>
 												<option value="viewer" selected?={ m.Role == "viewer" }>viewer</option>
 												<option value="admin" selected?={ m.Role == "admin" }>admin</option>
 											</select>
-											<button type="submit" class="text-xs text-zinc-400 hover:text-zinc-50">Save</button>
 										</form>
 										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline">
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
-											<button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+											<button type="submit" data-email={ m.UserEmail } onclick="return confirm('Remove ' + this.dataset.email + ' from this org?')" class="text-xs text-red-400 hover:text-red-300">Remove</button>
 										</form>
 									</div>
 								}
@@ -229,7 +228,8 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 						<tr class="border-b border-zinc-800/50 last:border-0">
 							<td class="px-4 py-3 text-zinc-400 italic">{ p.Email }</td>
 							<td class="px-4 py-3">
-								<span class="rounded-full border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400">invited</span>
+								<span class={ orgRoleBadgeClass(p.Role) }>{ p.Role }</span>
+								<span class="ml-1 rounded-full border border-zinc-700 px-1.5 py-0.5 text-xs text-zinc-500">invited</span>
 							</td>
 							<td class="px-4 py-3 text-zinc-500 text-xs">pending</td>
 							<td class="px-4 py-3 text-right">

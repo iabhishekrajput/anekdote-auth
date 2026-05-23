@@ -1182,3 +1182,208 @@ func TestTransferOwnership_Success(t *testing.T) {
 		t.Errorf("expected org name in success message, got %s", loc)
 	}
 }
+
+// --- SendInvite ---
+
+func sendInviteRequest(t *testing.T, userID uuid.UUID, email, role string) (*http.Request, *httptest.ResponseRecorder) {
+	t.Helper()
+	form := url.Values{}
+	form.Set("email", email)
+	form.Set("role", role)
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/invites",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	return req, httptest.NewRecorder()
+}
+
+func userEmailRow(id uuid.UUID, email string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
+		AddRow(id, email, "User", "hash", true, false, nil, false, nil, time.Now(), time.Now())
+}
+
+func TestSendInvite_ExistingActiveMember(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	actorID := uuid.New()
+	targetID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, actorID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("alice@example.com").
+		WillReturnRows(userEmailRow(targetID, "alice@example.com"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, targetID).
+		WillReturnRows(membershipRow("member"))
+
+	req, rr := sendInviteRequest(t, actorID, "alice@example.com", "admin")
+	h.SendInvite(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "already+a+member") && !strings.Contains(loc, "already%20a%20member") {
+		t.Errorf("expected 'already a member' error in redirect, got %s", loc)
+	}
+	if keys := mr.Keys(); len(keys) > 0 {
+		t.Errorf("expected no Redis keys created, got %v", keys)
+	}
+}
+
+func TestSendInvite_AlreadyPendingInvite(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	actorID := uuid.New()
+
+	const existingToken = "existing-pending-token"
+	seedInvite(mr, existingToken, orgID.String(), "acme", "Acme Corp", "bob@example.com", "admin@example.com", "member")
+	h.rdb.SAdd(context.Background(), "org:invites:"+orgID.String(), existingToken)
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, actorID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("bob@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+
+	req, rr := sendInviteRequest(t, actorID, "bob@example.com", "viewer")
+	h.SendInvite(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "already+pending") && !strings.Contains(loc, "already%20pending") {
+		t.Errorf("expected 'already pending' error in redirect, got %s", loc)
+	}
+	if _, err := mr.Get("org:invite:" + existingToken); err != nil {
+		t.Error("original invite token should still exist in Redis")
+	}
+}
+
+func TestSendInvite_GetByEmailError(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	actorID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, actorID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("error@example.com").
+		WillReturnError(errors.New("connection refused"))
+
+	req, rr := sendInviteRequest(t, actorID, "error@example.com", "member")
+	h.SendInvite(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "Server+error") && !strings.Contains(loc, "Server%20error") {
+		t.Errorf("expected 'Server error' in redirect, got %s", loc)
+	}
+	if keys := mr.Keys(); len(keys) > 0 {
+		t.Errorf("expected no Redis keys created, got %v", keys)
+	}
+}
+
+func TestSendInvite_EmailNormalization(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	actorID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, actorID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("alice@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+		WithArgs(actorID).
+		WillReturnRows(userEmailRow(actorID, "admin@example.com"))
+
+	req, rr := sendInviteRequest(t, actorID, "  Alice@Example.com  ", "member")
+	h.SendInvite(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "Invite+sent") && !strings.Contains(loc, "Invite%20sent") {
+		t.Errorf("expected success redirect, got %s", loc)
+	}
+	members, err := mr.SMembers("org:invites:" + orgID.String())
+	if err != nil || len(members) == 0 {
+		t.Fatal("expected invite token in Redis SET")
+	}
+	raw, err := mr.Get("org:invite:" + members[0])
+	if err != nil {
+		t.Fatalf("expected invite payload in Redis: %v", err)
+	}
+	if !strings.Contains(raw, `"alice@example.com"`) {
+		t.Errorf("expected normalized lowercase email in invite payload, got %s", raw)
+	}
+}
+
+func TestSendInvite_NewUnregisteredUser(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New()
+	actorID := uuid.New()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, actorID).
+		WillReturnRows(membershipRow("admin"))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("new@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
+		WithArgs(actorID).
+		WillReturnRows(userEmailRow(actorID, "admin@example.com"))
+
+	req, rr := sendInviteRequest(t, actorID, "new@example.com", "member")
+	h.SendInvite(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "Invite+sent") && !strings.Contains(loc, "Invite%20sent") {
+		t.Errorf("expected success redirect, got %s", loc)
+	}
+	members, err := mr.SMembers("org:invites:" + orgID.String())
+	if err != nil || len(members) == 0 {
+		t.Fatal("expected invite token in org:invites SET")
+	}
+	if _, err := mr.Get("org:invite:" + members[0]); err != nil {
+		t.Errorf("expected org:invite payload in Redis: %v", err)
+	}
+}

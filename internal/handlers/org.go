@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -263,7 +264,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 		return
 	}
 
-	email := r.FormValue("email")
+	email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
 	inviteRole := r.FormValue("role")
 	if email == "" {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Email is required"), http.StatusFound)
@@ -271,6 +272,26 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 	}
 	if inviteRole != "member" && inviteRole != "viewer" && inviteRole != "admin" {
 		inviteRole = "member"
+	}
+
+	targetUser, err := h.userStore.GetByEmail(email)
+	if err != nil && !errors.Is(err, postgres.ErrUserNotFound) {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Server error, please try again"), http.StatusFound)
+		return
+	}
+	if targetUser != nil {
+		memberRole, _ := h.orgStore.GetMembership(r.Context(), org.ID, targetUser.ID)
+		if memberRole != "" {
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("user is already a member of this organization"), http.StatusFound)
+			return
+		}
+	}
+
+	for _, p := range h.loadPendingInvites(r.Context(), org.ID.String()) {
+		if p.Email == email {
+			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("an invitation is already pending for this email"), http.StatusFound)
+			return
+		}
 	}
 
 	inviter, _ := h.userStore.GetByID(userID)
@@ -372,7 +393,11 @@ func (h *OrgHandler) ChangeMemberRole(w http.ResponseWriter, r *http.Request, ps
 		return
 	}
 
-	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Role updated"), http.StatusFound)
+	msg := "Role updated"
+	if target, err := h.userStore.GetByID(targetID); err == nil {
+		msg = "Changed " + target.Email + " to " + newRole
+	}
+	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape(msg), http.StatusFound)
 }
 
 // RemoveMember handles POST /account/orgs/:slug/members/:userID/remove
@@ -732,6 +757,7 @@ func (h *OrgHandler) loadPendingInvites(ctx context.Context, orgID string) []ui.
 			Token: token,
 		})
 	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].Email < pending[j].Email })
 	return pending
 }
 

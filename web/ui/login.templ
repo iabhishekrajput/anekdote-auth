@@ -23,20 +23,19 @@ templ LoginPageBody(csrfToken, req, email, errorMsg, successMsg string) {
 				@FormField("Email", "email", "", TextInput("email", "email", "email", "user@example.com", email, false))
 
 				<div class="flex flex-col gap-1.5">
-					<div class="flex items-center justify-between">
-						<label for="password" class="text-sm font-medium text-zinc-50">Password</label>
-						<a
-							href="/forgot-password"
-							class="text-xs text-zinc-400 hover:text-brand transition-colors duration-150"
-						>
-							Forgot your password?
-						</a>
-					</div>
+					<label for="password" class="text-sm font-medium text-zinc-50">Password</label>
 					@PasswordInput("password", "password", false)
 				</div>
 			</div>
 
 			@PrimaryButton("Sign in", "submit-login")
+
+			<a
+				href="/forgot-password"
+				class="block text-center text-xs text-zinc-400 hover:text-brand transition-colors duration-150"
+			>
+				Forgot your password?
+			</a>
 		</form>
 
 		<p class="text-center text-xs text-zinc-400">

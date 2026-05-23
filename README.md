@@ -21,7 +21,7 @@ The server is written in Go, stores durable identity data in PostgreSQL, uses Re
 - Redis-backed browser sessions with a 24-hour TTL.
 - Hashed OTP and password-reset token storage so raw one-time secrets are not persisted in Redis.
 - Multi-tenant organizations with owner, admin, viewer, and member roles.
-- Organization invitations, invite acceptance, member role changes, ownership transfer, leave organization, and member removal.
+- Organization invitations with duplicate-member and pending-invite guards, invite acceptance, inline auto-submit role changes, ownership transfer, leave organization, and member removal.
 - Organization-scoped OAuth2 client registration, client deletion, and client secret rotation.
 - One-time OAuth2 client secret reveal using AES-256-GCM encrypted Redis flash values.
 - OAuth2 token revocation with JWT `jti` blocklisting.
