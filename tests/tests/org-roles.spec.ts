@@ -54,7 +54,8 @@ test.describe('org role management', () => {
 
     await removeBtn.click();
 
-    // Member should still be in the table
-    await expect(page.getByText(MEMBER_EMAIL)).toBeVisible();
+    // Member should still be in the table. Use exact:true to avoid matching
+    // the transfer-ownership <option> which contains the email as a substring.
+    await expect(page.getByText(MEMBER_EMAIL, { exact: true })).toBeVisible();
   });
 });
