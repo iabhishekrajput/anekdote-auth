@@ -66,11 +66,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install Node dependencies
+      - name: Install Node dependencies (root — Tailwind)
         run: npm ci
 
+      - name: Install Node dependencies (tests — Playwright)
+        run: cd tests && npm ci
+
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: cd tests && npx playwright install --with-deps chromium
 
       - name: Generate templ
         run: go tool templ generate ./...
@@ -93,10 +96,10 @@ jobs:
           DATABASE_URL: postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable
 
       - name: Seed E2E data
-        run: psql postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable -f e2e/seed.sql
+        run: psql postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable -f tests/seed.sql
 
       - name: Run Playwright tests
-        run: npx playwright test --config=e2e/playwright.config.ts
+        run: cd tests && npx playwright test --config=playwright.config.ts
         env:
           E2E_BASE_URL: http://localhost:8080
           MAILPIT_URL: http://localhost:8025
@@ -119,5 +122,5 @@ jobs:
         if: failure()
         with:
           name: playwright-report
-          path: playwright-report/
+          path: tests/playwright-report/
           retention-days: 7

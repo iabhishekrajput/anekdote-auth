@@ -28,7 +28,9 @@ go.work.sum
 
 # env file
 .env
-.env.e2e
+.env.*
+!.env.example
+!.env.*.example
 
 # Editor/IDE
 .idea/
@@ -115,11 +117,6 @@ web_modules/
 
 # Yarn Integrity file
 .yarn-integrity
-
-# dotenv environment variable files
-.env
-.env.*
-!.env.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

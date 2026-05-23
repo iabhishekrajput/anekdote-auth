@@ -140,23 +140,23 @@ E2E_DB_URL ?= $(DATABASE_URL)
 
 .PHONY: e2e-install
 e2e-install: ## Install Playwright browsers (run once)
-	npx playwright install --with-deps chromium
+	cd tests && npx playwright install --with-deps chromium
 
 .PHONY: e2e-seed
 e2e-seed: ## Seed E2E test data into the database
 	@if command -v psql > /dev/null 2>&1; then \
-		psql $(E2E_DB_URL) -f e2e/seed.sql; \
+		psql $(E2E_DB_URL) -f tests/seed.sql; \
 	else \
-		docker exec -i auth_postgres psql -U authuser -d authdb < e2e/seed.sql; \
+		docker exec -i auth_postgres psql -U authuser -d authdb < tests/seed.sql; \
 	fi
 
 .PHONY: e2e
 e2e: build generate-certs migrate-up e2e-seed ## Build server then run Playwright E2E tests
-	@if [ ! -f ".env.e2e" ]; then \
-		echo "No .env.e2e found — copy .env.e2e.example and fill in values."; \
+	@if [ ! -f ".env.test" ]; then \
+		echo "No .env.test found — copy .env.test.example and fill in values."; \
 		exit 1; \
 	fi
-	@set -a; . ./.env.e2e; set +a; npx playwright test --config=e2e/playwright.config.ts
+	@set -a; . ./.env.test; set +a; cd tests && npx playwright test --config=playwright.config.ts
 
 # ==============================================================================
 # Container Images
