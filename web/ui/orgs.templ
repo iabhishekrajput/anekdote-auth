@@ -206,10 +206,21 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 							<td class="px-4 py-3 text-zinc-400 text-xs">{ m.JoinedAt.Format("2006-01-02") }</td>
 							<td class="px-4 py-3 text-right">
 								if canEdit && m.UserID.String() != currentUserID && m.Role != "owner" {
-									<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline">
-										<input type="hidden" name="csrf_token" value={ csrfToken }/>
-										<button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-									</form>
+									<div class="inline-flex items-center gap-2">
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/role") } class="inline-flex items-center gap-1">
+											<input type="hidden" name="csrf_token" value={ csrfToken }/>
+											<select name="role" class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
+												<option value="member" selected?={ m.Role == "member" }>member</option>
+												<option value="viewer" selected?={ m.Role == "viewer" }>viewer</option>
+												<option value="admin" selected?={ m.Role == "admin" }>admin</option>
+											</select>
+											<button type="submit" class="text-xs text-zinc-400 hover:text-zinc-50">Save</button>
+										</form>
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline">
+											<input type="hidden" name="csrf_token" value={ csrfToken }/>
+											<button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+										</form>
+									</div>
 								}
 							</td>
 						</tr>
