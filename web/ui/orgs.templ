@@ -209,15 +209,15 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 									<div class="inline-flex items-center gap-2">
 										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/role") } class="inline-flex items-center gap-1">
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
-											<select name="role" onchange="this.form.submit()" class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
+											<select name="role" data-autosubmit class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
 												<option value="member" selected?={ m.Role == "member" }>member</option>
 												<option value="viewer" selected?={ m.Role == "viewer" }>viewer</option>
 												<option value="admin" selected?={ m.Role == "admin" }>admin</option>
 											</select>
 										</form>
-										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline">
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline" data-guard>
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
-											<button type="submit" data-email={ m.UserEmail } onclick="return confirm('Remove ' + this.dataset.email + ' from this org?')" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+											<button type="submit" data-confirm-email={ m.UserEmail } class="text-xs text-red-400 hover:text-red-300">Remove</button>
 										</form>
 									</div>
 								}
@@ -299,7 +299,7 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 					<div class="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
 						<h2 class="text-base font-semibold">Transfer ownership of { org.DisplayName }?</h2>
 						<p class="text-sm text-zinc-400">You will immediately lose access to this organization. This cannot be undone.</p>
-						<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/transfer-ownership") } class="space-y-4">
+						<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/transfer-ownership") } class="space-y-4" data-guard>
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>
 							<div class="flex flex-col gap-1.5">
 								<label class="text-sm font-medium" for="new_owner_id">New owner</label>

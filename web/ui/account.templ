@@ -166,7 +166,7 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 				<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl">
 					<h2 class="mb-2 text-base font-semibold">Leave { item.Org.DisplayName }?</h2>
 					<p class="mb-5 text-sm text-zinc-400">You won't be able to rejoin without receiving a new invite.</p>
-					<form method="POST" action={ templ.SafeURL("/account/orgs/" + item.Org.Slug + "/leave") }>
+					<form method="POST" action={ templ.SafeURL("/account/orgs/" + item.Org.Slug + "/leave") } data-guard>
 						<input type="hidden" name="csrf_token" value={ csrfToken }/>
 						<div class="flex gap-2 justify-end">
 							<button

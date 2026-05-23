@@ -6,9 +6,32 @@
 }
 
 button[data-loading] {
-  opacity: 0.6;
+  opacity: 0.75;
   pointer-events: none;
   cursor: wait;
+}
+
+button[data-loading] .btn-spinner {
+  display: inline-block !important;
+}
+
+button[data-loading] .btn-text {
+  display: none !important;
+}
+
+select[data-loading-select] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.btn-spinner {
+  display: none;
+  animation: spin 0.75s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

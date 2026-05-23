@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', function () {
+  // Navigation guard flag — set when a data-guard form is submitted.
+  // Invariant: never put data-autosubmit and data-confirm on the same form;
+  // form.submit() bypasses submit events so data-confirm would be skipped.
+  var pendingGuard = false;
+
   document.addEventListener('click', function (e) {
     var showTarget = e.target.closest('[data-dialog-show]');
     if (showTarget) {
@@ -37,6 +42,28 @@ document.addEventListener('DOMContentLoaded', function () {
       });
       return;
     }
+
+    // Confirm dialog for destructive remove actions (replaces inline onclick).
+    // Uses data-confirm-email to avoid inline JS blocked by CSP.
+    var confirmEmailBtn = e.target.closest('[data-confirm-email]');
+    if (confirmEmailBtn) {
+      var email = confirmEmailBtn.getAttribute('data-confirm-email');
+      if (!window.confirm('Remove ' + email + ' from this org?')) {
+        e.preventDefault();
+      }
+      return;
+    }
+  });
+
+  // Auto-submit select elements (replaces inline onchange blocked by CSP).
+  // form.submit() bypasses the submit event, so loading state is set manually here.
+  document.addEventListener('change', function (e) {
+    var sel = e.target.closest('[data-autosubmit]');
+    if (sel) {
+      sel.disabled = true;
+      sel.setAttribute('data-loading-select', '');
+      sel.closest('form').submit();
+    }
   });
 
   // Password visibility toggle
@@ -51,12 +78,24 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
-  // Form submit loading state
+  // Form submit loading state — sets data-loading on the submit button.
   document.querySelectorAll('form').forEach(function (form) {
     form.addEventListener('submit', function () {
       var btn = form.querySelector('[type=submit]');
       if (btn) btn.setAttribute('data-loading', '');
     });
+  });
+
+  // Navigation guard — warn before navigating away from destructive in-flight forms.
+  // Only forms marked data-guard opt in; keeps false alarms out of low-stakes flows.
+  document.querySelectorAll('form[data-guard]').forEach(function (form) {
+    form.addEventListener('submit', function () { pendingGuard = true; });
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (pendingGuard) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
   });
 
   // Password strength bar
@@ -70,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
-  // Destructive action confirmation
+  // Destructive action confirmation via data-confirm attribute on the form.
   document.querySelectorAll('form[data-confirm]').forEach(function(form) {
     form.addEventListener('submit', function(e) {
       if (!window.confirm(form.getAttribute('data-confirm'))) {

@@ -29,6 +29,24 @@ VALUES (
   'owner'
 ) ON CONFLICT DO NOTHING;
 
+-- Second seeded user — member of e2e-test-org (for role change / remove tests)
+INSERT INTO users (id, name, email, password_hash, is_verified)
+VALUES (
+  '00000000-0000-0000-0000-000000000003',
+  'E2E Member User',
+  'e2e-member@example.com',
+  '$2a$10$xdqIDPmqso2V.LJ8gAfzvuiHbNRcJMyES6FjyIv/nIJmmKWXgCAPS',
+  TRUE
+) ON CONFLICT (id) DO NOTHING;
+
+-- Membership: second user is a member of the test org
+INSERT INTO org_memberships (org_id, user_id, role)
+VALUES (
+  '00000000-0000-0000-0000-000000000002',
+  '00000000-0000-0000-0000-000000000003',
+  'member'
+) ON CONFLICT DO NOTHING;
+
 -- OAuth2 client for consent flow tests
 -- client_id: e2e-test-client  |  secret: e2e-test-client-secret  |  redirect: http://localhost:9999/callback
 INSERT INTO oauth2_clients (id, secret, domain, public, name, user_id, org_id)

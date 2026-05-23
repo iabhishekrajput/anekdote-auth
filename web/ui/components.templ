@@ -121,16 +121,24 @@ templ PrimaryButton(text string, testID string) {
 		<button
 			type="submit"
 			data-testid={ testID }
-			class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
+			class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:pointer-events-none data-[loading]:cursor-wait"
 		>
-			{ text }
+			<svg class="btn-spinner h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+			</svg>
+			<span class="btn-text">{ text }</span>
 		</button>
 	} else {
 		<button
 			type="submit"
-			class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
+			class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:pointer-events-none data-[loading]:cursor-wait"
 		>
-			{ text }
+			<svg class="btn-spinner h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+				<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+			</svg>
+			<span class="btn-text">{ text }</span>
 		</button>
 	}
 }
