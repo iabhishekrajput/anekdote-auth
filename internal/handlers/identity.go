@@ -173,9 +173,8 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 			slog.Error("failed to send OTP email on register", "email", user.Email, "err", err)
 		}
 	} else {
-		// Log the OTP if no mailer is configured for dev
-		fmt.Printf("[DEV] OTP for %s: %s\n", email, otp)
 		_ = h.sessionStore.CreateOTP(context.Background(), user.ID, otp)
+		slog.Debug("OTP generated (no mailer configured)", "email", email, "otp", otp)
 	}
 
 	// If this registration came from an invite link, store the token so
@@ -185,6 +184,7 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		_ = h.sessionStore.SetPendingInvite(context.Background(), user.ID, inviteToken)
 	}
 
+	slog.Info("register success", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
 	http.Redirect(w, r, fmt.Sprintf("/verify-email?user_id=%s", user.ID.String()), http.StatusFound)
 }
 
@@ -289,7 +289,7 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 						if addErr := h.orgStore.AddMember(context.Background(), orgID, userID, inv.Role, nil); addErr == nil {
 							h.rdb.Del(context.Background(), "org:invite:"+inviteToken)
 							h.rdb.SRem(context.Background(), "org:invites:"+inv.OrgID, inviteToken)
-							// Redirect to the org detail page instead of /account
+							slog.Info("email verified", "user_id", userID, "remote", r.RemoteAddr)
 							http.Redirect(w, r, "/account/orgs?message=You+joined+the+organization", http.StatusFound)
 							return
 						}
@@ -300,6 +300,7 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	slog.Info("email verified", "user_id", userID, "remote", r.RemoteAddr)
 	http.Redirect(w, r, "/account", http.StatusFound)
 }
 
@@ -318,6 +319,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 
 	fails, _ := h.sessionStore.GetFailedLogin(context.Background(), email)
 	if fails >= 5 {
+		slog.Warn("login blocked: too many failed attempts", "email", email, "remote", r.RemoteAddr)
 		w.WriteHeader(http.StatusTooManyRequests)
 		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Account locked due to too many failed attempts. Try again in 15 minutes.", "Req": oauthReq})
 		return
@@ -326,6 +328,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	user, err := h.userStore.GetByEmail(email)
 	if err != nil {
 		h.sessionStore.IncrementFailedLogin(context.Background(), email)
+		slog.Warn("login failed: user not found", "email", email, "remote", r.RemoteAddr)
 		w.WriteHeader(http.StatusUnauthorized)
 		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Invalid credentials", "Req": oauthReq})
 		return
@@ -334,6 +337,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
 		h.sessionStore.IncrementFailedLogin(context.Background(), email)
+		slog.Warn("login failed: invalid password", "email", email, "remote", r.RemoteAddr)
 		w.WriteHeader(http.StatusUnauthorized)
 		h.render(w, r, "login.tmpl", map[string]interface{}{"Error": "Invalid credentials", "Req": oauthReq})
 		return
@@ -342,6 +346,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	h.sessionStore.ResetFailedLogin(context.Background(), email)
 
 	if user.DisabledAt != nil {
+		slog.Warn("login blocked: account disabled", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
 		w.WriteHeader(http.StatusForbidden)
 		h.render(w, r, "login.tmpl", map[string]interface{}{
 			"Error": "Your account has been disabled. Contact your administrator.",
@@ -358,7 +363,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 				slog.Error("failed to send OTP email on login", "email", user.Email, "err", err)
 			}
 		} else {
-			fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+			slog.Debug("OTP generated (no mailer configured)", "email", user.Email, "otp", otp)
 		}
 		http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
 		return
@@ -383,6 +388,8 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	slog.Info("login success", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
+
 	// Redirect back to Authorization flow if it exists
 	if oauthReq != "" {
 		http.Redirect(w, r, oauthReq, http.StatusFound)
@@ -395,9 +402,10 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	cookie, err := r.Cookie("auth_session")
 	if err == nil && cookie.Value != "" {
-		// Invalidate session in Redis
 		_ = h.sessionStore.Delete(context.Background(), cookie.Value)
 	}
+
+	slog.Info("logout", "remote", r.RemoteAddr)
 
 	// Clear the cookie in the browser
 	http.SetCookie(w, &http.Cookie{
@@ -441,19 +449,20 @@ func (h *IdentityHandler) ForgotPasswordFunc(w http.ResponseWriter, r *http.Requ
 	if h.mailer != nil {
 		err = h.mailer.SendPasswordReset(context.Background(), user.Email, resetLink)
 		if err != nil {
-			// Do not log the specific email out to the client
+			slog.Error("failed to send password reset email", "email", user.Email, "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Error": "Failed to dispatch email"})
 			return
 		}
 	} else {
-		// Fallback logging for local testing if SMTP config is missing
+		slog.Debug("password reset link generated (no mailer configured)", "email", user.Email, "link", resetLink)
 		h.render(w, r, "forgot_password.tmpl", map[string]interface{}{
 			"Success": "Reset link generated (check logs/console).",
 		})
 		return
 	}
 
+	slog.Info("password reset email sent", "email", user.Email, "remote", r.RemoteAddr)
 	h.render(w, r, "forgot_password.tmpl", map[string]interface{}{"Success": "Reset link dispatched! Please check your email inbox."})
 }
 
@@ -507,6 +516,7 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 	// Invalidate the token so it can't be reused
 	h.sessionStore.DeleteResetToken(context.Background(), token)
 
+	slog.Info("password reset success", "user_id", userID, "remote", r.RemoteAddr)
 	h.render(w, r, "login.tmpl", map[string]interface{}{"Success": "Password updated successfully! Please login."})
 }
 
@@ -533,7 +543,7 @@ func (h *IdentityHandler) ResendOTPFunc(w http.ResponseWriter, r *http.Request, 
 			slog.Error("failed to send OTP email on verify-email resend", "email", user.Email, "err", err)
 		}
 	} else {
-		fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+		slog.Debug("OTP generated (no mailer configured)", "email", user.Email, "otp", otp)
 	}
 
 	http.Redirect(w, r, "/verify-email?user_id="+userIDStr+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
@@ -567,7 +577,7 @@ func (h *IdentityHandler) ResendVerificationFunc(w http.ResponseWriter, r *http.
 			return
 		}
 	} else {
-		fmt.Printf("[DEV] OTP for %s: %s\n", user.Email, otp)
+		slog.Debug("OTP generated (no mailer configured)", "email", user.Email, "otp", otp)
 	}
 
 	http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
