@@ -15,6 +15,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/handlers"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
+	"github.com/iabhishekrajput/anekdote-auth/internal/middleware"
 	"github.com/iabhishekrajput/anekdote-auth/internal/server"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -32,8 +33,15 @@ func runAuditRetention(auditStore *postgres.AuditStore, days int) {
 }
 
 func main() {
-	// Initialize structured logger
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	// Initialize structured logger. Level is configurable via LOG_LEVEL env var
+	// (debug, info, warn, error). Defaults to info.
+	logLevel := slog.LevelInfo
+	if raw := os.Getenv("LOG_LEVEL"); raw != "" {
+		if err := logLevel.UnmarshalText([]byte(raw)); err != nil {
+			slog.Warn("invalid LOG_LEVEL, defaulting to info", "value", raw)
+		}
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
 
 	slog.Info("Starting anekdote auth server...")
 
@@ -139,7 +147,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: csrfHandler,
+		Handler: middleware.RequestLogger(csrfHandler),
 	}
 
 	// 8. Start Server with Graceful Shutdown

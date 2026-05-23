@@ -41,7 +41,7 @@ type OAuth2Handler struct {
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
-	orgStore     oauth2OrgStore  // optional; enables org membership check and friendly denial page at /authorize
+	orgStore     oauth2OrgStore   // optional; enables org membership check and friendly denial page at /authorize
 	idTokenGen   IDTokenGenerator // optional; enables id_token in /token response when openid scope granted
 }
 
