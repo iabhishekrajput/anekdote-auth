@@ -157,8 +157,8 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 }
 
 // OrgDetailPage renders /account/orgs/:slug
-templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isAdmin bool, errorMsg, successMsg string) {
-	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, errorMsg, successMsg))
+templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, isOwner, errorMsg, successMsg))
 }
 
 type OrgPendingMember struct {
@@ -167,7 +167,7 @@ type OrgPendingMember struct {
 	Token string
 }
 
-templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, errorMsg, successMsg string) {
+templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, errorMsg, successMsg string) {
 	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
@@ -264,6 +264,63 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 				</form>
 				<p class="text-xs text-zinc-500">They'll receive an email with a 24-hour invite link. No account required — they can register on accept.</p>
 			</div>
+		}
+
+		if isOwner {
+			<!-- Transfer ownership section — owner-only destructive action -->
+			<div id="transfer-ownership" class="rounded-lg border border-red-900/40 p-4 space-y-3">
+				<h2 class="text-sm font-semibold text-red-400">Transfer ownership</h2>
+				if len(members) <= 1 {
+					<p class="text-sm text-zinc-500">You are the only member. Invite someone before transferring ownership.</p>
+				} else {
+					<p class="text-sm text-zinc-400">Select a member to become the new owner. You will be immediately removed from this organization.</p>
+					<button
+						type="button"
+						data-dialog-show="transfer-ownership-dialog"
+						class="h-9 rounded-md border border-red-900/60 px-3 text-sm text-red-400 hover:bg-red-900/20 transition-colors duration-150"
+					>Transfer &amp; Leave</button>
+				}
+			</div>
+
+			<!-- Transfer ownership modal -->
+			if len(members) > 1 {
+				<div id="transfer-ownership-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+					<div class="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
+						<h2 class="text-base font-semibold">Transfer ownership of { org.DisplayName }?</h2>
+						<p class="text-sm text-zinc-400">You will immediately lose access to this organization. This cannot be undone.</p>
+						<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/transfer-ownership") } class="space-y-4">
+							<input type="hidden" name="csrf_token" value={ csrfToken }/>
+							<div class="flex flex-col gap-1.5">
+								<label class="text-sm font-medium" for="new_owner_id">New owner</label>
+								<select
+									id="new_owner_id"
+									name="new_owner_id"
+									required
+									class="h-9 w-full rounded-md border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+								>
+									<option value="">— select a member —</option>
+									for _, m := range members {
+										if m.UserID.String() != currentUserID {
+											<option value={ m.UserID.String() }>{ m.UserEmail } ({ m.Role })</option>
+										}
+									}
+								</select>
+							</div>
+							<div class="flex gap-2 justify-end">
+								<button
+									type="button"
+									data-dialog-hide="transfer-ownership-dialog"
+									class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+								>Cancel</button>
+								<button
+									type="submit"
+									class="h-9 rounded-md bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-500 transition-colors duration-150"
+								>Transfer ownership &amp; Leave</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			}
 		}
 	</div>
 }
