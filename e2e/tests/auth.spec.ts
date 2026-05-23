@@ -70,12 +70,18 @@ test('login is rate-limited after 5 failed attempts', async ({ page }) => {
   const email = uniqueEmail();
   const login = new LoginPage(page);
 
+  // Navigate once — submitting multiple times reuses the same page/session and
+  // avoids burning the 10 req/min per-IP middleware limit with repeated GETs.
+  await login.goto();
   for (let i = 0; i < 5; i++) {
-    await login.login(email, 'WrongPassword99!');
+    await login.fill(email, 'WrongPassword99!');
+    await login.submit();
+    await expect(page.locator('[data-testid="alert-error"]')).toBeVisible();
   }
 
-  // 6th attempt: server returns 429 and shows rate-limit message
-  await login.login(email, 'WrongPassword99!');
+  // 6th attempt: per-email lockout (5 failed logins) kicks in
+  await login.fill(email, 'WrongPassword99!');
+  await login.submit();
   await expect(page.locator('[data-testid="alert-error"]')).toContainText('locked');
 });
 

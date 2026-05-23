@@ -53,17 +53,20 @@ test('OAuth consent approve completes authorization_code + PKCE flow', async ({ 
   // Navigate to /authorize — server renders the consent page
   await page.goto(authorizeURL);
   await expect(page).toHaveURL(/\/authorize/);
-  await expect(page.locator('h2')).toContainText(/authorize|allow|E2E Test Client/i);
+  // Consent page has no h2 — verify the Authorize button is visible
+  await expect(page.locator('button:has-text("Authorize")')).toBeVisible();
 
-  // Intercept the redirect to our callback before clicking approve
-  const callbackPromise = page.waitForURL(`${REDIRECT_URI}**`).catch(() => null);
+  // Route intercept: abort the redirect to localhost:9999 (nothing runs there).
+  // Register before the click so waitForRequest doesn't race.
+  await page.route(`${REDIRECT_URI}**`, route => route.abort());
 
-  // Click the approve / Allow button
-  await page.click('button[name="action"][value="approve"], button:has-text("Allow"), input[value="approve"]');
+  // Click approve and wait for the browser to attempt the callback redirect.
+  const [request] = await Promise.all([
+    page.waitForRequest(`${REDIRECT_URI}**`),
+    page.click('button[name="accept"][value="true"], button:has-text("Authorize")'),
+  ]);
 
-  // Wait for redirect to the callback URI with the code
-  await callbackPromise;
-  const redirectedURL = new URL(page.url());
+  const redirectedURL = new URL(request.url());
 
   expect(redirectedURL.searchParams.get('state')).toBe(state);
   const code = redirectedURL.searchParams.get('code');
@@ -97,13 +100,18 @@ test('OAuth consent deny redirects with error', async ({ page, baseURL }) => {
   const nonce = crypto.randomBytes(16).toString('hex');
 
   await page.goto(buildAuthorizeURL(baseURL!, challenge, state, nonce));
-  await expect(page).toHaveURL(/\/authorize/);
+  await expect(page.locator('button:has-text("Cancel")')).toBeVisible();
 
-  // Click the deny / Cancel button
-  await page.click('button[name="action"][value="deny"], button:has-text("Deny"), button:has-text("Cancel"), a:has-text("Cancel")');
+  // Route intercept: server redirects to localhost:9999?error=access_denied but nothing
+  // runs there. Abort the navigation and capture the URL to assert on the error param.
+  await page.route(`${REDIRECT_URI}**`, route => route.abort());
 
-  // Server should redirect back with error=access_denied or to the access-denied page
-  await page.waitForURL(/(access.?denied|error=access_denied)/i);
-  // Just verify we are not on /account (not logged in or consent not granted)
+  const [request] = await Promise.all([
+    page.waitForRequest(`${REDIRECT_URI}**`),
+    page.click('button[name="reject"][value="true"], button:has-text("Cancel")'),
+  ]);
+
+  const callbackURL = request.url();
+  expect(callbackURL).toContain('error=access_denied');
   expect(page.url()).not.toContain('/account');
 });

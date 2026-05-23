@@ -144,7 +144,11 @@ e2e-install: ## Install Playwright browsers (run once)
 
 .PHONY: e2e-seed
 e2e-seed: ## Seed E2E test data into the database
-	@psql $(E2E_DB_URL) -f e2e/seed.sql
+	@if command -v psql > /dev/null 2>&1; then \
+		psql $(E2E_DB_URL) -f e2e/seed.sql; \
+	else \
+		docker exec -i auth_postgres psql -U authuser -d authdb < e2e/seed.sql; \
+	fi
 
 .PHONY: e2e
 e2e: build generate-certs migrate-up e2e-seed ## Build server then run Playwright E2E tests

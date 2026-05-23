@@ -28,7 +28,7 @@ export default defineConfig({
 
   // Start the auth server before tests, wait for /readyz (checks DB + Redis)
   webServer: {
-    command: 'E2E=true ./bin/auth-server',
+    command: 'cd .. && E2E=true ./bin/auth-server',
     url: `${BASE_URL}/readyz`,
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,
