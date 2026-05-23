@@ -15,25 +15,25 @@ templ Alert(kind string, message string) {
 	if message != "" {
 		switch kind {
 		case "error":
-			<div class="flex w-full items-start gap-2.5 rounded-md border border-red-900 bg-red-950/50 px-3 py-2.5 text-sm text-red-400">
+			<div role="alert" data-testid="alert-error" class="flex w-full items-start gap-2.5 rounded-md border border-red-900 bg-red-950/50 px-3 py-2.5 text-sm text-red-400">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
 				<div class="flex-1">{ message }</div>
 				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
 			</div>
 		case "success":
-			<div class="flex w-full items-start gap-2.5 rounded-md border border-emerald-900 bg-emerald-950/50 px-3 py-2.5 text-sm text-emerald-400">
+			<div role="status" data-testid="alert-success" class="flex w-full items-start gap-2.5 rounded-md border border-emerald-900 bg-emerald-950/50 px-3 py-2.5 text-sm text-emerald-400">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
 				<div class="flex-1">{ message }</div>
 				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
 			</div>
 		case "info":
-			<div class="flex w-full items-start gap-2.5 rounded-md border border-sky-900 bg-sky-950/50 px-3 py-2.5 text-sm text-sky-400">
+			<div role="status" data-testid="alert-info" class="flex w-full items-start gap-2.5 rounded-md border border-sky-900 bg-sky-950/50 px-3 py-2.5 text-sm text-sky-400">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
 				<div class="flex-1">{ message }</div>
 				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
 			</div>
 		default:
-			<div class="flex w-full items-start gap-2.5 rounded-md border border-amber-900 bg-amber-950/50 px-3 py-2.5 text-sm text-amber-400">
+			<div role="alert" data-testid="alert-warning" class="flex w-full items-start gap-2.5 rounded-md border border-amber-900 bg-amber-950/50 px-3 py-2.5 text-sm text-amber-400">
 				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
 				<div class="flex-1">{ message }</div>
 				<button type="button" class="ml-1 opacity-60 hover:opacity-100 transition-opacity" data-dismiss-parent aria-label="Dismiss">&times;</button>
@@ -116,13 +116,23 @@ templ PasswordInput(id string, name string, hasError bool) {
 	</div>
 }
 
-templ PrimaryButton(text string) {
-	<button
-		type="submit"
-		class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
-	>
-		{ text }
-	</button>
+templ PrimaryButton(text string, testID string) {
+	if testID != "" {
+		<button
+			type="submit"
+			data-testid={ testID }
+			class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
+		>
+			{ text }
+		</button>
+	} else {
+		<button
+			type="submit"
+			class="inline-flex h-9 w-full items-center justify-center rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98] data-[loading]:opacity-60 data-[loading]:pointer-events-none data-[loading]:cursor-wait"
+		>
+			{ text }
+		</button>
+	}
 }
 
 templ OutlineButton(text string) {

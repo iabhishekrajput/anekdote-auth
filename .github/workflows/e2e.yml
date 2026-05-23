@@ -1,0 +1,129 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: authuser
+          POSTGRES_PASSWORD: authpassword
+          POSTGRES_DB: authdb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - "1025:1025"   # SMTP
+          - "8025:8025"   # HTTP API
+        env:
+          MP_SMTP_AUTH_ACCEPT_ANY: 1
+          MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: "npm"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Node dependencies (root — Tailwind)
+        run: npm ci
+
+      - name: Install Node dependencies (tests — Playwright)
+        run: cd tests && npm ci
+
+      - name: Install Playwright browsers
+        run: cd tests && npx playwright install --with-deps chromium
+
+      - name: Generate templ
+        run: go tool templ generate ./...
+
+      - name: Install Go dependencies
+        run: go mod tidy && go mod vendor
+
+      - name: Build CSS
+        run: npx @tailwindcss/cli -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --minify
+
+      - name: Generate RSA certs
+        run: make generate-certs
+
+      - name: Build server
+        run: go build -o ./bin/auth-server ./cmd/auth-server
+
+      - name: Run migrations
+        run: make migrate-up
+        env:
+          DATABASE_URL: postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable
+
+      - name: Seed E2E data
+        run: psql postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable -f tests/seed.sql
+
+      - name: Run Playwright tests
+        run: cd tests && npx playwright test --config=playwright.config.ts
+        env:
+          E2E_BASE_URL: http://localhost:8080
+          MAILPIT_URL: http://localhost:8025
+          PORT: "8080"
+          APP_URL: http://localhost:8080
+          APP_ENV: test
+          DB_DSN: postgres://authuser:authpassword@localhost:5432/authdb?sslmode=disable
+          REDIS_URL: redis://localhost:6379/0
+          RSA_PRIVATE_KEY_PATH: certs/private.pem
+          RSA_PUBLIC_KEY_PATH: certs/public.pem
+          SMTP_HOST: localhost
+          SMTP_PORT: "1025"
+          SMTP_USERNAME: test
+          SMTP_PASSWORD: test
+          SMTP_FROM: noreply@anekdoteauth.local
+          SMTP_INSECURE_SKIP_VERIFY: "true"
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: tests/playwright-report/
+          retention-days: 7

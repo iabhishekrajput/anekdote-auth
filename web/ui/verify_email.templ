@@ -34,7 +34,7 @@ templ VerifyEmailPageBody(csrfToken string, userID string, errorMsg string, succ
 				class="h-11 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-center text-lg tracking-[0.4em] text-zinc-50 placeholder:text-zinc-600 outline-none transition-colors duration-150 focus:border-brand focus:ring-1 focus:ring-brand/50"
 			/>
 
-			@PrimaryButton("Verify & continue")
+			@PrimaryButton("Verify & continue", "submit-verify")
 		</form>
 
 		if userID != "" {
