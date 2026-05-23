@@ -134,6 +134,27 @@ build: ## Build the cmd/auth-server application binaries
 	GOOS=linux GOARCH=amd64 go build -ldflags='-s -X main.version=${VERSION}' -o=./bin/linux_amd64/auth-server ./cmd/auth-server
 
 # ==============================================================================
+# E2E Tests (Playwright)
+
+E2E_DB_URL ?= $(DATABASE_URL)
+
+.PHONY: e2e-install
+e2e-install: ## Install Playwright browsers (run once)
+	npx playwright install --with-deps chromium
+
+.PHONY: e2e-seed
+e2e-seed: ## Seed E2E test data into the database
+	@psql $(E2E_DB_URL) -f e2e/seed.sql
+
+.PHONY: e2e
+e2e: build generate-certs migrate-up e2e-seed ## Build server then run Playwright E2E tests
+	@if [ ! -f ".env.e2e" ]; then \
+		echo "No .env.e2e found — copy .env.e2e.example and fill in values."; \
+		exit 1; \
+	fi
+	@set -a; . ./.env.e2e; set +a; npx playwright test --config=e2e/playwright.config.ts
+
+# ==============================================================================
 # Container Images
 
 IMAGE_NAME ?= anekdote-auth

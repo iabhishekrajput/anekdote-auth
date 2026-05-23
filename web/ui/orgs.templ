@@ -149,7 +149,7 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 						data-dialog-hide="create-org-dialog"
 						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
 					>Cancel</button>
-					@PrimaryButton("Create")
+					@PrimaryButton("Create", "")
 				</div>
 			</form>
 		</div>
@@ -532,7 +532,7 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 					</label>
 					<div class="flex gap-2 justify-end">
 						<button type="button" data-dialog-hide="register-client-dialog" class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
-						@PrimaryButton("Register client")
+						@PrimaryButton("Register client", "")
 					</div>
 				</form>
 			</div>

@@ -29,7 +29,7 @@ templ ResendVerificationPageBody(csrfToken string, errorMsg string, successMsg s
 			<form method="POST" action="/resend-verification" class="flex flex-col gap-5">
 				<input type="hidden" name="csrf_token" value={ csrfToken }/>
 				@FormField("Email address", "email", "", TextInput("email", "email", "email", "user@example.com", "", false))
-				@PrimaryButton("Send new code")
+				@PrimaryButton("Send new code", "submit-resend")
 			</form>
 		}
 	</div>

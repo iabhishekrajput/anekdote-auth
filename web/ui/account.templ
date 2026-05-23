@@ -133,7 +133,7 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 						data-dialog-hide="edit-profile-dialog"
 						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
 					>Cancel</button>
-					@PrimaryButton("Save changes")
+					@PrimaryButton("Save changes", "")
 				</div>
 			</form>
 		</div>
@@ -153,7 +153,7 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 						data-dialog-hide="change-password-dialog"
 						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
 					>Cancel</button>
-					@PrimaryButton("Update password")
+					@PrimaryButton("Update password", "")
 				</div>
 			</form>
 		</div>
