@@ -239,11 +239,17 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 	pending := h.loadPendingInvites(r.Context(), org.ID.String())
 	canEdit := role == "owner" || role == "admin"
 	isOwner := role == "owner"
+
+	var grantedClients []*postgres.OrgGrantItem
+	if isOwner {
+		grantedClients, _ = h.clientStore.ListOrgGrantedClients(r.Context(), org.ID)
+	}
+
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), canEdit, isOwner, isAdmin,
-		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+		grantedClients, r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
 // SendInvite handles POST /account/orgs/:slug/invites
@@ -824,6 +830,88 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
+}
+
+// GrantClientAccess handles POST /account/orgs/:slug/grants — owner adds a client grant.
+func (h *OrgHandler) GrantClientAccess(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs", http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	clientID := strings.TrimSpace(r.FormValue("client_id"))
+	if clientID == "" {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error=Client+ID+is+required", http.StatusFound)
+		return
+	}
+
+	if err := h.clientStore.GrantOrgAccess(r.Context(), clientID, org.ID, userID); err != nil {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error=Failed+to+grant+access", http.StatusFound)
+		return
+	}
+
+	if h.auditStore != nil {
+		_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionGrantOrgClient,
+			"client", clientID, r.RemoteAddr, r.UserAgent())
+	}
+
+	http.Redirect(w, r, "/account/orgs/"+slug+"?message="+url.QueryEscape("Client access granted"), http.StatusFound)
+}
+
+// RevokeClientAccess handles POST /account/orgs/:slug/grants/:clientID/revoke — owner removes a client grant.
+func (h *OrgHandler) RevokeClientAccess(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs", http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.clientStore.RevokeOrgAccess(r.Context(), clientID, org.ID); err != nil {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error=Failed+to+revoke+access", http.StatusFound)
+		return
+	}
+
+	// Blocklist all outstanding JTIs for users of this org issued for this client's grants.
+	if h.rdb != nil && h.revocStore != nil {
+		pattern := "oauth:user-org-tokens:*:" + org.ID.String()
+		keys, scanErr := h.rdb.Keys(r.Context(), pattern).Result()
+		if scanErr == nil {
+			for _, key := range keys {
+				jtis, err := h.rdb.SMembers(r.Context(), key).Result()
+				if err != nil {
+					continue
+				}
+				for _, jti := range jtis {
+					_ = h.revocStore.RevokeJTI(r.Context(), jti, 2*time.Hour)
+				}
+			}
+		}
+	}
+
+	if h.auditStore != nil {
+		_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionRevokeOrgClient,
+			"client", clientID, r.RemoteAddr, r.UserAgent())
+	}
+
+	http.Redirect(w, r, "/account/orgs/"+slug+"?message="+url.QueryEscape("Client access revoked"), http.StatusFound)
 }
 
 func validateRedirectURI(rawURI string) error {

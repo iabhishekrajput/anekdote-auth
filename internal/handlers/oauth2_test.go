@@ -62,7 +62,7 @@ func setupOAuth2HandlerWithOrgStore(t *testing.T, orgStore oauth2OrgStore) (*OAu
 	}
 	keyStore := &crypto.KeyStore{PrivateKey: privateKey, PublicKey: &privateKey.PublicKey}
 	srv, _ := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, nil, "http://localhost:8080", rdb, nil)
-	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, orgStore, nil)
+	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, orgStore, nil, nil)
 	return handler, mock, mr
 }
 
@@ -103,7 +103,7 @@ func setupOAuth2MockedHandler(t *testing.T) (*OAuth2Handler, sqlmock.Sqlmock, *m
 	srv, _ := auth.BuildServer(clientStore, tokenStore, revocStore, keyStore, nil, "http://localhost:8080", rdb, nil)
 
 	// 5. Build Handler
-	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, nil, nil)
+	handler := NewOAuth2Handler(srv, sessionStore, revocStore, keyStore, nil, nil, nil)
 
 	return handler, mock, mr
 }

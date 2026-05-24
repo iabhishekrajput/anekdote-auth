@@ -58,9 +58,19 @@ func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembe
 func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, isGenRefresh bool) (access, refresh string, err error) {
 	jti := uuid.New().String()
 
+	// data.UserID may be encoded as "{userUUID}|{orgID}" when the user selected a specific
+	// org during multi-org consent. Split here so sub is always a plain UUID.
+	rawUserID := data.UserID
+	subUserID := rawUserID
+	var encodedOrgID string
+	if idx := strings.Index(rawUserID, "|"); idx >= 0 {
+		subUserID = rawUserID[:idx]
+		encodedOrgID = rawUserID[idx+1:]
+	}
+
 	claims := jwt.MapClaims{
 		"iss":   g.issuer,
-		"sub":   data.UserID,
+		"sub":   subUserID,
 		"aud":   data.Client.GetID(),
 		"exp":   time.Now().Add(data.TokenInfo.GetAccessExpiresIn()).Unix(),
 		"iat":   time.Now().Unix(),
@@ -68,31 +78,45 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		"scope": data.TokenInfo.GetScope(),
 	}
 
-	// Inject org claims only for org-scoped clients with a user context.
+	// Inject org claims when:
+	//   (a) legacy single-org client: OrgClientInfo.OrgID != nil, or
+	//   (b) multi-org consent: encodedOrgID is set in the UserID field.
 	// Skip for client_credentials grants (data.UserID is empty).
-	if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil && data.UserID != "" {
-		userID, parseErr := uuid.Parse(data.UserID)
-		if parseErr != nil {
-			return "", "", fmt.Errorf("invalid user_id in token data: %w", parseErr)
+	if subUserID != "" {
+		var resolvedOrgID *uuid.UUID
+		if encodedOrgID != "" {
+			if id, parseErr := uuid.Parse(encodedOrgID); parseErr == nil {
+				resolvedOrgID = &id
+			}
+		} else if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
+			resolvedOrgID = oci.OrgID
 		}
-		role, lookupErr := g.orgStore.GetMembership(ctx, *oci.OrgID, userID)
-		if lookupErr != nil {
-			return "", "", fmt.Errorf("org membership lookup failed: %w", lookupErr)
-		}
-		if role == "" {
-			return "", "", oauth2errors.ErrAccessDenied
-		}
-		claims["org_id"] = oci.OrgID.String()
-		claims["org_role"] = role
 
-		if g.rdb != nil {
-			g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+data.UserID+":"+oci.OrgID.String(), jti)
+		if resolvedOrgID != nil {
+			userID, parseErr := uuid.Parse(subUserID)
+			if parseErr != nil {
+				return "", "", fmt.Errorf("invalid user_id in token data: %w", parseErr)
+			}
+			// Re-validate membership at token time (defends against tampering + membership removal between consent and exchange).
+			role, lookupErr := g.orgStore.GetMembership(ctx, *resolvedOrgID, userID)
+			if lookupErr != nil {
+				return "", "", fmt.Errorf("org membership lookup failed: %w", lookupErr)
+			}
+			if role == "" {
+				return "", "", oauth2errors.ErrAccessDenied
+			}
+			claims["org_id"] = resolvedOrgID.String()
+			claims["org_role"] = role
+
+			if g.rdb != nil {
+				g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+subUserID+":"+resolvedOrgID.String(), jti)
+			}
 		}
 	}
 
 	// Inject profile/email claims when scopes are granted (user-context tokens only).
-	if data.UserID != "" && g.userStore != nil {
-		g.injectScopeClaims(ctx, claims, data.UserID, data.TokenInfo.GetScope())
+	if subUserID != "" && g.userStore != nil {
+		g.injectScopeClaims(ctx, claims, subUserID, data.TokenInfo.GetScope())
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)

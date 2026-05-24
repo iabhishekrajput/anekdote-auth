@@ -19,6 +19,7 @@ templ BaseLayout(title string, body templ.Component) {
 			<main class="w-full max-w-md md:max-w-lg">
 				@body
 			</main>
+			@Footer()
 			<script src="/static/app.js"></script>
 		</body>
 	</html>
@@ -77,6 +78,7 @@ templ AccountLayout(title string, currentPath string, csrfToken string, isAdmin 
 			<main class="mx-auto max-w-4xl px-6 py-8">
 				@body
 			</main>
+			@Footer()
 			<script src="/static/app.js"></script>
 		</body>
 	</html>

@@ -76,7 +76,7 @@ func TestResendVerificationPage(t *testing.T) {
 }
 
 func TestConsentPage(t *testing.T) {
-	html := renderComp(t, "ConsentPage", ui.ConsentPage("TestApp", "testapp.example.com", []string{"openid", "email"}, "csrf-xyz", "", "", ""))
+	html := renderComp(t, "ConsentPage", ui.ConsentPage("TestApp", "testapp.example.com", []string{"openid", "email"}, "csrf-xyz", "", "", "", nil, ""))
 	if !strings.Contains(html, "TestApp") {
 		t.Error("expected client name in output")
 	}
@@ -170,7 +170,7 @@ func TestOrgListPageWithOrgs(t *testing.T) {
 
 func TestOrgDetailPage(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, false, false, "", ""))
+	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, false, false, nil, "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
 	}

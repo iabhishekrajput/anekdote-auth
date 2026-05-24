@@ -17,6 +17,25 @@ import (
 // ErrClientNotFound is returned when a client does not exist or does not belong to the given org.
 var ErrClientNotFound = errors.New("client not found or not in org")
 
+// ErrGrantNotFound is returned when a client_org_grant row does not exist.
+var ErrGrantNotFound = errors.New("grant not found")
+
+// OrgGrantItem is a row from client_org_grants joined with client name info.
+type OrgGrantItem struct {
+	ClientID      string
+	ClientName    string
+	GrantedAt     time.Time
+	GrantedByEmail string
+}
+
+// ClientGrantItem is a row from client_org_grants joined with org info.
+type ClientGrantItem struct {
+	OrgID       uuid.UUID
+	OrgSlug     string
+	OrgName     string
+	GrantedAt   time.Time
+}
+
 // OrgClientInfo wraps the library's ClientInfo and adds OrgID.
 // GetByID wraps ALL clients — existing clients with no org_id get OrgID=nil,
 // so the type assertion in JWTGenerator always succeeds; nil is the safe fallback.
@@ -295,6 +314,120 @@ func (s *ClientStore) DeleteAny(ctx context.Context, clientID string) error {
 		return ErrClientNotFound
 	}
 	return nil
+}
+
+// GrantOrgAccess adds a grant allowing clientID to be used by users of orgID.
+// Idempotent — if the grant already exists it is a no-op.
+func (s *ClientStore) GrantOrgAccess(ctx context.Context, clientID string, orgID, grantedBy uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO client_org_grants (client_id, org_id, granted_by, granted_at)
+		 VALUES ($1, $2, $3, NOW())
+		 ON CONFLICT (client_id, org_id) DO NOTHING`,
+		clientID, orgID, grantedBy,
+	)
+	return err
+}
+
+// RevokeOrgAccess removes a grant row. The caller is responsible for blocklisting
+// outstanding JTIs via the redis token index (oauth:user-org-tokens:{userID}:{orgID}).
+func (s *ClientStore) RevokeOrgAccess(ctx context.Context, clientID string, orgID uuid.UUID) error {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM client_org_grants WHERE client_id = $1 AND org_id = $2`,
+		clientID, orgID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrGrantNotFound
+	}
+	return nil
+}
+
+// ListOrgsGrantedClient returns all orgs that have granted access to clientID.
+func (s *ClientStore) ListOrgsGrantedClient(ctx context.Context, clientID string) ([]*ClientGrantItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT g.org_id, o.slug, o.display_name, g.granted_at
+		 FROM client_org_grants g
+		 JOIN organizations o ON o.id = g.org_id AND o.deleted_at IS NULL
+		 WHERE g.client_id = $1
+		 ORDER BY g.granted_at DESC`,
+		clientID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*ClientGrantItem
+	for rows.Next() {
+		item := &ClientGrantItem{}
+		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ListOrgGrantedClients returns all clients that have been granted access to orgID.
+func (s *ClientStore) ListOrgGrantedClients(ctx context.Context, orgID uuid.UUID) ([]*OrgGrantItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT g.client_id, c.name, g.granted_at, COALESCE(u.email, '')
+		 FROM client_org_grants g
+		 JOIN oauth2_clients c ON c.id = g.client_id
+		 LEFT JOIN users u ON u.id = g.granted_by AND u.deleted_at IS NULL
+		 WHERE g.org_id = $1
+		 ORDER BY g.granted_at DESC`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*OrgGrantItem
+	for rows.Next() {
+		item := &OrgGrantItem{}
+		if err := rows.Scan(&item.ClientID, &item.ClientName, &item.GrantedAt, &item.GrantedByEmail); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// ListUserEligibleOrgsForClient returns orgs where:
+//  1. The client has a grant for the org (client_org_grants)
+//  2. The user is an active member of the org
+func (s *ClientStore) ListUserEligibleOrgsForClient(ctx context.Context, clientID string, userID uuid.UUID) ([]*ClientGrantItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT g.org_id, o.slug, o.display_name, g.granted_at
+		 FROM client_org_grants g
+		 JOIN organizations o ON o.id = g.org_id AND o.deleted_at IS NULL
+		 JOIN org_memberships m ON m.org_id = g.org_id AND m.user_id = $2 AND m.removed_at IS NULL
+		 WHERE g.client_id = $1
+		 ORDER BY o.display_name ASC`,
+		clientID, userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*ClientGrantItem
+	for rows.Next() {
+		item := &ClientGrantItem{}
+		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func generateClientSecret() string {

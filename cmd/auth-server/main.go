@@ -95,7 +95,7 @@ func main() {
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc).
 		WithOrgSupport(orgStore, rdb)
-	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, jwtGen)
+	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, clientStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)

@@ -30,6 +30,11 @@ type oauth2OrgStore interface {
 	GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, error)
 }
 
+// oauth2ClientGrantStore fetches multi-org grants for a client.
+type oauth2ClientGrantStore interface {
+	ListUserEligibleOrgsForClient(ctx context.Context, clientID string, userID uuid.UUID) ([]*postgres.ClientGrantItem, error)
+}
+
 // IDTokenGenerator generates OIDC ID tokens for successful authorization_code exchanges.
 // Implemented by *auth.JWTGenerator.
 type IDTokenGenerator interface {
@@ -41,17 +46,19 @@ type OAuth2Handler struct {
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
-	orgStore     oauth2OrgStore   // optional; enables org membership check and friendly denial page at /authorize
-	idTokenGen   IDTokenGenerator // optional; enables id_token in /token response when openid scope granted
+	orgStore     oauth2OrgStore        // optional; enables org membership check and friendly denial page at /authorize
+	grantStore   oauth2ClientGrantStore // optional; enables multi-org client grants
+	idTokenGen   IDTokenGenerator      // optional; enables id_token in /token response when openid scope granted
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,
 		revocStore:   rev,
 		keyStore:     keys,
 		orgStore:     orgStore,
+		grantStore:   grantStore,
 		idTokenGen:   idTokenGen,
 	}
 
@@ -119,20 +126,27 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		return "", nil // returning empty userID stops go-oauth2 processing
 	}
 
-	// 2. Handle Consent Form Submission
-	if r.Method == http.MethodPost {
-		if r.FormValue("accept") == "true" {
-			return uid.String(), nil
-		}
-		return "", oautherrors.ErrAccessDenied
-	}
-
 	clientID := r.FormValue("client_id")
 	if clientID == "" {
 		clientID = "Unknown Application"
 	}
 
-	// 3. Fetch client once — used for both org membership gate and domain display.
+	// 2. Handle Consent Form Submission (POST with accept/reject).
+	if r.Method == http.MethodPost {
+		if r.FormValue("accept") != "true" {
+			return "", oautherrors.ErrAccessDenied
+		}
+		// If a specific org was selected from the picker, encode it in the returned userID.
+		// The JWT generator will split on "|" and validate membership at token time.
+		if selectedOrg := r.FormValue("selected_org_id"); selectedOrg != "" {
+			if _, parseErr := uuid.Parse(selectedOrg); parseErr == nil {
+				return uid.String() + "|" + selectedOrg, nil
+			}
+		}
+		return uid.String(), nil
+	}
+
+	// 3. Fetch client once — used for org gate + domain display.
 	type clientInfoIface interface{ GetDomain() string }
 	var fetchedClient clientInfoIface
 	if clientID != "Unknown Application" {
@@ -141,26 +155,67 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// 4. For org-scoped clients: verify membership BEFORE rendering consent.
+	userUUID, parseErr := uuid.Parse(uid.String())
+	if parseErr != nil {
+		slog.Error("authorize: session user ID is not a valid UUID", "uid", uid.String())
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return "", nil
+	}
+
+	// 4. Determine eligible orgs:
+	//    - Legacy single-org client (OrgID set): use existing single-org membership check.
+	//    - Multi-org client (OrgID nil, grantStore set): query client_org_grants.
+	returnURL := r.URL.Query().Get("redirect_uri")
+	var eligibleOrgs []ui.OrgOption
+	var singleOrgID *uuid.UUID // set when exactly 1 org matches
+
 	if h.orgStore != nil && fetchedClient != nil {
-		if oci, ok := fetchedClient.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
-			userUUID, parseErr := uuid.Parse(uid.String())
-			if parseErr != nil {
-				slog.Error("authorize: session user ID is not a valid UUID", "uid", uid.String())
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-				return "", nil
-			}
-			role, memberErr := h.orgStore.GetMembership(r.Context(), *oci.OrgID, userUUID)
-			if memberErr != nil || role == "" {
-				orgName := ""
-				if org, lookupErr := h.orgStore.GetOrgByID(r.Context(), *oci.OrgID); lookupErr == nil && org != nil {
-					orgName = org.DisplayName
+		if oci, ok := fetchedClient.(*postgres.OrgClientInfo); ok {
+			if oci.OrgID != nil {
+				// Legacy path: single-org client.
+				role, memberErr := h.orgStore.GetMembership(r.Context(), *oci.OrgID, userUUID)
+				if memberErr != nil || role == "" {
+					orgName := ""
+					if org, lookupErr := h.orgStore.GetOrgByID(r.Context(), *oci.OrgID); lookupErr == nil && org != nil {
+						orgName = org.DisplayName
+					}
+					_ = ui.OAuthAccessDeniedPage(clientID, orgName, returnURL).Render(r.Context(), w)
+					return "", nil
 				}
-				returnURL := r.URL.Query().Get("redirect_uri")
-				_ = ui.OAuthAccessDeniedPage(clientID, orgName, returnURL).Render(r.Context(), w)
-				return "", nil
+				// Single-org: proceed without picker, encode the org.
+				singleOrgID = oci.OrgID
+			} else if h.grantStore != nil {
+				// Multi-org path: find all orgs this client is granted to that the user belongs to.
+				grants, grantErr := h.grantStore.ListUserEligibleOrgsForClient(r.Context(), clientID, userUUID)
+				if grantErr != nil {
+					slog.Error("authorize: failed to list eligible orgs", "client_id", clientID, "error", grantErr)
+					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					return "", nil
+				}
+				if len(grants) == 0 {
+					_ = ui.OAuthAccessDeniedNoGrant(clientID, returnURL).Render(r.Context(), w)
+					return "", nil
+				}
+				if len(grants) == 1 {
+					singleOrgID = &grants[0].OrgID
+				} else {
+					for _, g := range grants {
+						eligibleOrgs = append(eligibleOrgs, ui.OrgOption{
+							ID:   g.OrgID.String(),
+							Name: g.OrgName,
+							Slug: g.OrgSlug,
+						})
+					}
+				}
 			}
 		}
+	}
+
+	// If exactly one org matched (legacy or single-grant), no picker needed.
+	// Encode the org so the JWT generator uses it; no user interaction required.
+	if singleOrgID != nil && len(eligibleOrgs) == 0 {
+		// We need to show consent but auto-select the org. Pass it as a hidden field.
+		eligibleOrgs = nil // no picker shown; selectedOrgID will be set as hidden
 	}
 
 	// Parse requested scopes
@@ -171,7 +226,7 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		requestedScopes = []string{"openid", "profile"}
 	}
 
-	// Extract domain from registered redirect URI for trust badge display
+	// Extract domain from registered redirect URI for trust badge display.
 	clientDomain := ""
 	if fetchedClient != nil {
 		if rawDomain := fetchedClient.GetDomain(); rawDomain != "" {
@@ -181,12 +236,15 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	selectedOrgID := ""
+	if singleOrgID != nil {
+		selectedOrgID = singleOrgID.String()
+	}
+
 	csrfToken := nosurf.Token(r)
+	ui.ConsentPage(clientID, clientDomain, requestedScopes, csrfToken, "", "", "", eligibleOrgs, selectedOrgID).Render(r.Context(), w)
 
-	ui.ConsentPage(clientID, clientDomain, requestedScopes, csrfToken, "", "", "").Render(r.Context(), w)
-
-	// Since we rendered the HTML response, we return empty userID and NO error
-	// to tell go-oauth2 to halt and not overwrite the response.
+	// Return empty userID to halt go-oauth2 — we rendered the page ourselves.
 	return "", nil
 }
 

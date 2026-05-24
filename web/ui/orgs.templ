@@ -157,8 +157,8 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 }
 
 // OrgDetailPage renders /account/orgs/:slug
-templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, isAdmin bool, errorMsg, successMsg string) {
-	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, isOwner, errorMsg, successMsg))
+templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, isAdmin bool, grantedClients []*postgres.OrgGrantItem, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, isOwner, grantedClients, errorMsg, successMsg))
 }
 
 type OrgPendingMember struct {
@@ -167,7 +167,7 @@ type OrgPendingMember struct {
 	Token string
 }
 
-templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, errorMsg, successMsg string) {
+templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, grantedClients []*postgres.OrgGrantItem, errorMsg, successMsg string) {
 	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
@@ -278,6 +278,63 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 		}
 
 		if isOwner {
+			<!-- External Access section -->
+			<div class="rounded-lg border border-zinc-800">
+				<div class="border-b border-zinc-800 px-4 py-3">
+					<h2 class="text-sm font-semibold">External Access</h2>
+					<p class="text-xs text-zinc-500 mt-0.5">OAuth2 clients from outside this org that can request tokens scoped to it.</p>
+				</div>
+				if len(grantedClients) == 0 {
+					<div class="px-4 py-6 text-center text-sm text-zinc-500">No external clients have been granted access.</div>
+				} else {
+					<table class="w-full text-sm">
+						<thead>
+							<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+								<th class="px-4 py-2 text-left">Client</th>
+								<th class="px-4 py-2 text-left">Granted by</th>
+								<th class="px-4 py-2 text-left">Date</th>
+								<th class="px-4 py-2"></th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, gc := range grantedClients {
+								<tr class="border-b border-zinc-800/50 last:border-0">
+									<td class="px-4 py-3">
+										<span class="font-medium">{ gc.ClientName }</span>
+										<span class="ml-2 font-mono text-xs text-zinc-500">{ gc.ClientID }</span>
+									</td>
+									<td class="px-4 py-3 text-zinc-400 text-xs">{ gc.GrantedByEmail }</td>
+									<td class="px-4 py-3 text-xs text-zinc-500">{ gc.GrantedAt.Format("2006-01-02") }</td>
+									<td class="px-4 py-3 text-right">
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/grants/" + gc.ClientID + "/revoke") }>
+											<input type="hidden" name="csrf_token" value={ csrfToken }/>
+											<button type="submit" class="text-xs text-red-400 hover:text-red-300">Revoke</button>
+										</form>
+									</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+				<div class="border-t border-zinc-800 px-4 py-3 space-y-2">
+					<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/grants") } class="flex gap-2 items-center">
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<input
+							type="text"
+							name="client_id"
+							required
+							placeholder="client-id"
+							class="flex-1 h-8 rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+						/>
+						<button
+							type="submit"
+							class="h-8 rounded-md bg-brand px-3 text-xs font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
+						>Grant access</button>
+					</form>
+					<p class="text-xs text-zinc-600">Paste the client ID of an OAuth2 application you want to allow access to this org. Org owners can revoke access at any time.</p>
+				</div>
+			</div>
+
 			<!-- Delete org section -->
 			<div class="rounded-lg border border-red-900/40 bg-red-950/20 px-4 py-3 flex items-center justify-between gap-4">
 				<div>
