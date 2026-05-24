@@ -109,6 +109,92 @@ func (m *Mailer) SendOwnershipTransfer(ctx context.Context, toEmail, orgName, or
 	return m.client.DialAndSendWithContext(ctx, msg)
 }
 
+func (m *Mailer) SendClientGrantRequest(ctx context.Context, toEmails []string, clientName, requesterOrgName, approveURL, denyURL string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmails...); err != nil {
+		return err
+	}
+	msg.Subject(requesterOrgName + " is requesting access to " + clientName + " - anekdote")
+
+	var body bytes.Buffer
+	if err := uiemail.ClientGrantRequestEmail(clientName, requesterOrgName, approveURL, denyURL).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
+func (m *Mailer) SendGrantApproved(ctx context.Context, toEmails []string, clientName, requesterOrgName, clientsURL string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmails...); err != nil {
+		return err
+	}
+	msg.Subject("Access to " + clientName + " approved - anekdote")
+	var body bytes.Buffer
+	if err := uiemail.GrantApprovedEmail(clientName, requesterOrgName, clientsURL).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
+func (m *Mailer) SendGrantDenied(ctx context.Context, toEmails []string, clientName, requesterOrgName string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmails...); err != nil {
+		return err
+	}
+	msg.Subject("Access request for " + clientName + " denied - anekdote")
+	var body bytes.Buffer
+	if err := uiemail.GrantDeniedEmail(clientName, requesterOrgName).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
+func (m *Mailer) SendGrantRevoked(ctx context.Context, toEmails []string, clientName, orgName string, adminRevoke bool, reason string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmails...); err != nil {
+		return err
+	}
+	msg.Subject(orgName + "'s access to " + clientName + " removed - anekdote")
+	var body bytes.Buffer
+	if err := uiemail.GrantRevokedEmail(clientName, orgName, adminRevoke, reason).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
+func (m *Mailer) SendSecretRotated(ctx context.Context, toEmails []string, clientName, orgName string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.config.SMTPFrom); err != nil {
+		return err
+	}
+	if err := msg.To(toEmails...); err != nil {
+		return err
+	}
+	msg.Subject("Client secret rotated for " + clientName + " - anekdote")
+	var body bytes.Buffer
+	if err := uiemail.SecretRotatedEmail(clientName, orgName).Render(ctx, &body); err != nil {
+		return err
+	}
+	msg.SetBodyString(mail.TypeTextHTML, body.String())
+	return m.client.DialAndSendWithContext(ctx, msg)
+}
+
 func (m *Mailer) SendOTP(ctx context.Context, toEmail, otp string) error {
 	msg := mail.NewMsg()
 	if err := msg.From(m.config.SMTPFrom); err != nil {

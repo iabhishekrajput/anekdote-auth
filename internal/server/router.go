@@ -122,6 +122,11 @@ func NewRouter(
 	router.POST("/account/orgs/:slug/delete", withAuthRateLimit(orgH.DeleteOrg))
 	router.POST("/account/orgs/:slug/grants", withAuthRateLimit(orgH.GrantClientAccess))
 	router.POST("/account/orgs/:slug/grants/:clientID/revoke", withAuthRateLimit(orgH.RevokeClientAccess))
+	router.POST("/account/orgs/:slug/clients/:clientID/requests/:requestID/approve", withAuthRateLimit(orgH.ApproveGrantRequest))
+	router.POST("/account/orgs/:slug/clients/:clientID/requests/:requestID/deny", withAuthRateLimit(orgH.DenyGrantRequest))
+	router.GET("/account/orgs/:slug/clients/:clientID/edit", withAuth(orgH.EditClient))
+	router.POST("/account/orgs/:slug/clients/:clientID/edit", withAuthRateLimit(orgH.EditClientPost))
+	router.GET("/account/orgs/:slug/clients/:clientID/requests", withAuth(orgH.ClientRequestHistory))
 	router.POST("/account/delete", withAuthRateLimit(accountH.DeleteSelf))
 
 	// Admin routes — GET routes: any admin; mutations: role-scoped
@@ -142,6 +147,8 @@ func NewRouter(
 	router.POST("/admin/orgs/:slug/delete", requireSuperAdmin(adminH.DeleteOrg))
 	router.GET("/admin/audit", requireAdmin(adminH.AuditLog))
 	router.GET("/admin/audit/export.csv", requireAdmin(adminH.ExportAuditCSV))
+	router.GET("/admin/grants", requireSuperAdmin(adminH.GrantList))
+	router.POST("/admin/grants/:clientID/:orgID/revoke", requireSuperAdmin(adminH.RevokeGrant))
 
 	// 2. OAuth2 Endpoints
 	router.GET("/authorize", secure(oauthH.Authorize))

@@ -204,9 +204,14 @@ func TestRegisterClient_Success_Confidential(t *testing.T) {
 	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
 		WithArgs(orgID, userID).
 		WillReturnRows(membershipRow("owner"))
+	clientMock.ExpectBegin()
 	clientMock.ExpectExec(`INSERT INTO oauth2_clients`).
-		WithArgs(sqlmock.AnyArg(), "My App", sqlmock.AnyArg(), "https://example.com/cb", false, orgID).
+		WithArgs(sqlmock.AnyArg(), "My App", sqlmock.AnyArg(), "https://example.com/cb", false, sqlmock.AnyArg(), orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectCommit()
 
 	form := url.Values{}
 	form.Set("name", "My App")
@@ -242,9 +247,14 @@ func TestRegisterClient_Success_Public(t *testing.T) {
 		WithArgs(orgID, userID).
 		WillReturnRows(membershipRow("admin"))
 	// Public clients have empty secret
+	clientMock.ExpectBegin()
 	clientMock.ExpectExec(`INSERT INTO oauth2_clients`).
-		WithArgs(sqlmock.AnyArg(), "SPA Client", "", "https://app.example.com/cb", true, orgID).
+		WithArgs(sqlmock.AnyArg(), "SPA Client", "", "https://app.example.com/cb", true, sqlmock.AnyArg(), orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectCommit()
 
 	form := url.Values{}
 	form.Set("name", "SPA Client")
@@ -479,7 +489,7 @@ func TestRotateClientSecret_Success(t *testing.T) {
 		WillReturnRows(membershipRow("owner"))
 
 	clientMock.ExpectBegin()
-	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients`).
 		WithArgs(clientIDStr, orgID).
 		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(false))
 	clientMock.ExpectExec(`UPDATE oauth2_clients SET secret`).
@@ -522,7 +532,7 @@ func TestRotateClientSecret_ClientNotFound(t *testing.T) {
 		WillReturnRows(membershipRow("owner"))
 
 	clientMock.ExpectBegin()
-	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients`).
 		WithArgs(clientIDStr, orgID).
 		WillReturnError(sqlmock.ErrCancelled) // causes ErrClientNotFound via sql.ErrNoRows path
 	clientMock.ExpectRollback()
@@ -557,7 +567,7 @@ func TestRotateClientSecret_FlashFailure(t *testing.T) {
 		WillReturnRows(membershipRow("owner"))
 
 	clientMock.ExpectBegin()
-	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+	clientMock.ExpectQuery(`SELECT public FROM oauth2_clients`).
 		WithArgs(clientIDStr, orgID).
 		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(false))
 	clientMock.ExpectExec(`UPDATE oauth2_clients SET secret`).

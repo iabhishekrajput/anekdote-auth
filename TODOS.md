@@ -2,8 +2,14 @@
 
 ## Deferred from multi-org OAuth2 grant plan (2026-05-24)
 
-- [ ] **Client-initiated org access requests (phase 2)** — Allow a third-party app to request access to an org; org owner approves/rejects. This is the "product" that makes the grant table useful for external SaaS devs. Requires: request table, email notification, approval UI in org settings.
-- [ ] **Superadmin grant management UI** — Admin panel view of all `client_org_grants` rows with search/filter.
-- [ ] **Notification emails on grant/revoke** — Email org owner when a client is added/removed.
-- [ ] **Per-org scopes** — Allow different allowed scopes per `(client_id, org_id)` pair. Currently all granted orgs share the same scopes.
-- [ ] **Client registration self-service** — Allow developers to register OAuth2 clients without admin involvement. Currently requires admin panel.
+- [x] **Client-initiated org access requests (phase 2)** — Implemented in previous session (CreateGrantRequest, ApproveGrantRequest, DenyGrantRequest, email template, routes).
+- [x] **Superadmin grant management UI** — Admin panel `/admin/grants` view with revoke action and optional reason field. Implemented 2026-05-25.
+- [x] **Notification emails on grant/revoke** — Emails sent on approve, deny, revoke (user + admin), and secret rotation. Implemented 2026-05-25.
+- [ ] **Per-org scopes** — Allow different allowed scopes per `(client_id, org_id)` pair. Requires schema changes.
+- [ ] **Client registration self-service** — Allow developers to register OAuth2 clients without admin involvement.
+
+## Added 2026-05-24
+
+- [x] **Edit OAuth2 client details** — `GET/POST /account/orgs/:slug/clients/:clientID/edit` allows updating name and redirect URI. Implemented 2026-05-25.
+- [x] **Email notifications for all key events** — Grant approved/denied, grant revoked (user + admin with reason), secret rotated. Implemented 2026-05-25.
+- [x] **Pending grant requests UI screen** — `/account/orgs/:slug/clients/:clientID/requests` shows full history (all statuses, limit 50) with approve/deny for pending items. Implemented 2026-05-25.

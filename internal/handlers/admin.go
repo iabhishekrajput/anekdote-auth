@@ -13,6 +13,7 @@ import (
 
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
@@ -27,16 +28,20 @@ type AdminHandler struct {
 	clientStore  *postgres.ClientStore
 	sessionStore *redis.SessionStore
 	auditStore   *postgres.AuditStore
+	revocStore   *redis.RevocationStore
+	mailer       *mailer.Mailer
 	rdb          *goredis.Client
 }
 
-func NewAdminHandler(uStore *postgres.UserStore, oStore *postgres.OrgStore, cStore *postgres.ClientStore, sStore *redis.SessionStore, aStore *postgres.AuditStore, rdb *goredis.Client) *AdminHandler {
+func NewAdminHandler(uStore *postgres.UserStore, oStore *postgres.OrgStore, cStore *postgres.ClientStore, sStore *redis.SessionStore, aStore *postgres.AuditStore, revocStore *redis.RevocationStore, mailSvc *mailer.Mailer, rdb *goredis.Client) *AdminHandler {
 	return &AdminHandler{
 		userStore:    uStore,
 		orgStore:     oStore,
 		clientStore:  cStore,
 		sessionStore: sStore,
 		auditStore:   aStore,
+		revocStore:   revocStore,
+		mailer:       mailSvc,
 		rdb:          rdb,
 	}
 }
@@ -504,6 +509,104 @@ func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps http
 			"org", orgID.String(), extractIP(r), r.Header.Get("User-Agent"))
 	}()
 	http.Redirect(w, r, "/admin/orgs?message="+url.QueryEscape("Organization deleted"), http.StatusFound)
+}
+
+// GrantList handles GET /admin/grants — shows all client_org_grants with revoke actions.
+func (h *AdminHandler) GrantList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	ctx := r.Context()
+	const pageSize = 50
+
+	offset := 0
+	if p := r.URL.Query().Get("page"); p != "" {
+		var pg int
+		if _, err := fmt.Sscanf(p, "%d", &pg); err == nil && pg > 1 {
+			offset = (pg - 1) * pageSize
+		}
+	}
+
+	grants, total, listErr := h.clientStore.ListAllClientOrgGrants(ctx, pageSize, offset)
+	if listErr != nil {
+		slog.Error("admin: list grants", "err", listErr)
+	}
+	errMsg := r.URL.Query().Get("error")
+	if listErr != nil && errMsg == "" {
+		errMsg = "Database error — data may be incomplete"
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ui.AdminGrantList(nosurf.Token(r), grants, total, offset/pageSize+1, pageSize,
+		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
+}
+
+// RevokeGrant handles POST /admin/grants/:clientID/:orgID/revoke — superadmin removes a grant.
+func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	ctx := r.Context()
+	clientID := ps.ByName("clientID")
+	orgIDStr := ps.ByName("orgID")
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	orgID, err := uuid.Parse(orgIDStr)
+	if err != nil {
+		http.Redirect(w, r, "/admin/grants?error="+url.QueryEscape("Invalid org ID"), http.StatusFound)
+		return
+	}
+
+	reason := strings.TrimSpace(r.FormValue("reason"))
+
+	if err := h.clientStore.RevokeOrgAccess(ctx, clientID, orgID); err != nil {
+		if errors.Is(err, postgres.ErrGrantNotFound) {
+			http.Redirect(w, r, "/admin/grants?error="+url.QueryEscape("Grant not found"), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/admin/grants?error="+url.QueryEscape("Failed to revoke grant"), http.StatusFound)
+		return
+	}
+
+	// Blocklist all outstanding JTIs for users of this org.
+	if h.rdb != nil && h.revocStore != nil {
+		pattern := "oauth:user-org-tokens:*:" + orgID.String()
+		if keys, scanErr := h.rdb.Keys(ctx, pattern).Result(); scanErr == nil {
+			for _, key := range keys {
+				if jtis, err := h.rdb.SMembers(ctx, key).Result(); err == nil {
+					for _, jti := range jtis {
+						_ = h.revocStore.RevokeJTI(ctx, jti, 2*time.Hour)
+					}
+				}
+			}
+		}
+	}
+
+	go func() {
+		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionRevokeOrgClient,
+			"grant", clientID+"/"+orgID.String(), extractIP(r), r.Header.Get("User-Agent"))
+	}()
+
+	// Notify grantedOrg's admins that access was removed.
+	if h.mailer != nil {
+		go func() {
+			emails, err := h.userStore.ListOrgAdmins(context.Background(), orgID)
+			if err != nil || len(emails) == 0 {
+				return
+			}
+			clientName, _ := h.clientStore.GetClientName(context.Background(), clientID)
+			if clientName == "" {
+				clientName = clientID
+			}
+			var orgName string
+			if org, err := h.orgStore.GetOrgByID(context.Background(), orgID); err == nil && org != nil {
+				orgName = org.DisplayName
+			}
+			if err := h.mailer.SendGrantRevoked(context.Background(), emails, clientName, orgName, true, reason); err != nil {
+				slog.Error("admin grant revoked email failed", "client", clientID, "org", orgID, "err", err)
+			}
+		}()
+	}
+
+	http.Redirect(w, r, "/admin/grants?message="+url.QueryEscape("Grant revoked"), http.StatusFound)
 }
 
 // extractIP returns the client IP from the request, checking proxy headers first.

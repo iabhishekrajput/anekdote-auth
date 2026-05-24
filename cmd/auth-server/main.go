@@ -99,7 +99,7 @@ func main() {
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)
-	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, rdb)
+	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, revocStore, mailSvc, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
 	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb)
 

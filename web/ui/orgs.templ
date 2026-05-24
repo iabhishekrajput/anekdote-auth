@@ -157,8 +157,8 @@ templ OrgListBody(csrfToken string, orgs []postgres.OrgListItem, pendingInvites 
 }
 
 // OrgDetailPage renders /account/orgs/:slug
-templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, isAdmin bool, grantedClients []*postgres.OrgGrantItem, errorMsg, successMsg string) {
-	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, isOwner, grantedClients, errorMsg, successMsg))
+templ OrgDetailPage(csrfToken string, org *models.Org, members []*models.OrgMembership, pendingEmails []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, isAdmin bool, grantedClients []*postgres.OrgGrantItem, outgoingRequests []*postgres.GrantRequest, errorMsg, successMsg string) {
+	@AccountLayout(org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug, csrfToken, isAdmin, OrgDetailBody(csrfToken, org, members, pendingEmails, currentUserID, canEdit, isOwner, grantedClients, outgoingRequests, errorMsg, successMsg))
 }
 
 type OrgPendingMember struct {
@@ -167,7 +167,7 @@ type OrgPendingMember struct {
 	Token string
 }
 
-templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, grantedClients []*postgres.OrgGrantItem, errorMsg, successMsg string) {
+templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMembership, pending []OrgPendingMember, currentUserID string, canEdit bool, isOwner bool, grantedClients []*postgres.OrgGrantItem, outgoingRequests []*postgres.GrantRequest, errorMsg, successMsg string) {
 	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
@@ -316,6 +316,31 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 						</tbody>
 					</table>
 				}
+				if len(outgoingRequests) > 0 {
+					<div class="border-t border-zinc-800 px-4 py-3">
+						<p class="text-xs font-medium text-zinc-400 mb-2">Pending access requests</p>
+						<table class="w-full text-sm">
+							<thead>
+								<tr class="text-xs uppercase tracking-wide text-zinc-500">
+									<th class="pb-2 text-left">Client</th>
+									<th class="pb-2 text-left">Requested</th>
+									<th class="pb-2"></th>
+								</tr>
+							</thead>
+							<tbody>
+								for _, req := range outgoingRequests {
+									<tr class="border-t border-zinc-800/50">
+										<td class="py-2 font-mono text-xs text-zinc-400">{ req.ClientID }</td>
+										<td class="py-2 text-xs text-zinc-500">{ req.RequestedAt.Format("2006-01-02") }</td>
+										<td class="py-2 text-right">
+											<span class="rounded-full border border-yellow-600/30 bg-yellow-600/10 px-2 py-0.5 text-xs text-yellow-500">pending</span>
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
 				<div class="border-t border-zinc-800 px-4 py-3 space-y-2">
 					<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/grants") } class="flex gap-2 items-center">
 						<input type="hidden" name="csrf_token" value={ csrfToken }/>
@@ -329,9 +354,9 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 						<button
 							type="submit"
 							class="h-8 rounded-md bg-brand px-3 text-xs font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
-						>Grant access</button>
+						>Request access</button>
 					</form>
-					<p class="text-xs text-zinc-600">Paste the client ID of an OAuth2 application you want to allow access to this org. Org owners can revoke access at any time.</p>
+					<p class="text-xs text-zinc-600">Paste the client ID of an OAuth2 application you want to allow access to this org. For multi-org clients, this sends an approval request to the client owner.</p>
 				</div>
 			</div>
 
@@ -532,8 +557,11 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 					for _, client := range clients {
 						<div class="px-4 py-4 space-y-2">
 							<div class="flex items-start justify-between gap-3">
-								<div class="flex items-center gap-2 min-w-0">
+								<div class="flex items-center gap-2 min-w-0 flex-wrap">
 									<span class="font-medium text-sm truncate">{ client.Name }</span>
+									if client.IsGlobal {
+										<span class="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-400">Multi-org</span>
+									}
 									if client.Public {
 										<span class="shrink-0 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-xs text-sky-400">Public · PKCE</span>
 									} else {
@@ -542,6 +570,12 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 								</div>
 								if canEdit {
 									<div class="flex items-center gap-2 shrink-0">
+										if client.IsOwner {
+											<a
+												href={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/edit") }
+												class="h-7 rounded border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-50 transition-colors inline-flex items-center"
+											>Edit</a>
+										}
 										if !client.Public {
 											<button
 												type="button"
@@ -553,7 +587,7 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 											type="button"
 											data-dialog-show={ "delete-" + client.ID + "-dialog" }
 											class="h-7 rounded border border-red-800/50 px-2 text-xs text-red-400 hover:text-red-300 transition-colors"
-										>Delete</button>
+										>{ deleteClientLabel(client.IsGlobal, client.IsOwner) }</button>
 									</div>
 								}
 							</div>
@@ -574,15 +608,74 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 							</div>
 						</div>
 
-						<!-- Delete modal -->
+						<!-- Multi-org client subsections: connected orgs + pending requests (owner view only) -->
+						if client.IsGlobal && client.IsOwner {
+							if len(client.ConnectedOrgs) > 0 {
+								<div class="border-t border-zinc-800/60 pt-2 space-y-1">
+									<p class="text-xs font-medium text-zinc-500">Connected orgs</p>
+									<table class="w-full text-xs">
+										<tbody>
+											for _, cg := range client.ConnectedOrgs {
+												<tr class="border-t border-zinc-800/30">
+													<td class="py-1.5 font-medium text-zinc-300">{ cg.OrgName }</td>
+													<td class="py-1.5 font-mono text-zinc-500">{ cg.OrgSlug }</td>
+													<td class="py-1.5 text-zinc-500">{ cg.GrantedAt.Format("2006-01-02") }</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+							}
+							if len(client.PendingRequests) > 0 {
+								<div class="border-t border-zinc-800/60 pt-2 space-y-1">
+									<div class="flex items-center justify-between">
+										<p class="text-xs font-medium text-zinc-500">Pending requests</p>
+										<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests") } class="text-xs text-zinc-500 hover:text-brand transition-colors duration-150">View history →</a>
+									</div>
+									<table class="w-full text-xs">
+										<tbody>
+											for _, req := range client.PendingRequests {
+												<tr class="border-t border-zinc-800/30">
+													<td class="py-1.5 font-medium text-zinc-300">{ req.RequesterOrgName }</td>
+													<td class="py-1.5 text-zinc-500">{ req.RequestedAt.Format("2006-01-02") }</td>
+													<td class="py-1.5 text-right">
+														<div class="inline-flex gap-1">
+															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID.String() + "/approve") } class="inline">
+																<input type="hidden" name="csrf_token" value={ csrfToken }/>
+																<button type="submit" class="h-6 rounded border border-emerald-700/50 px-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Approve</button>
+															</form>
+															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID.String() + "/deny") } class="inline">
+																<input type="hidden" name="csrf_token" value={ csrfToken }/>
+																<button type="submit" class="h-6 rounded border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-50 transition-colors">Deny</button>
+															</form>
+														</div>
+													</td>
+												</tr>
+											}
+										</tbody>
+									</table>
+								</div>
+							} else if client.IsGlobal && client.IsOwner {
+								<div class="border-t border-zinc-800/60 pt-2">
+									<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests") } class="text-xs text-zinc-500 hover:text-brand transition-colors duration-150">View request history →</a>
+								</div>
+							}
+						}
+
+						<!-- Delete / Remove modal -->
 						<div id={ "delete-" + client.ID + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
 							<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
-								<h2 class="text-base font-semibold">Delete { client.Name }?</h2>
-								<p class="text-sm text-zinc-400">This will permanently remove the client. Active tokens will remain valid until they expire.</p>
+								if client.IsGlobal && !client.IsOwner {
+									<h2 class="text-base font-semibold">Remove { client.Name } from this org?</h2>
+									<p class="text-sm text-zinc-400">This will remove this org's access to the client. The client itself will not be deleted.</p>
+								} else {
+									<h2 class="text-base font-semibold">Delete { client.Name }?</h2>
+									<p class="text-sm text-zinc-400">This will permanently remove the client. Active tokens will remain valid until they expire.</p>
+								}
 								<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/delete") } class="flex justify-end gap-2">
 									<input type="hidden" name="csrf_token" value={ csrfToken }/>
 									<button type="button" data-dialog-hide={ "delete-" + client.ID + "-dialog" } class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
-									<button type="submit" class="h-9 rounded-md bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-500 transition-colors">Delete client</button>
+									<button type="submit" class="h-9 rounded-md bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-500 transition-colors">{ deleteClientLabel(client.IsGlobal, client.IsOwner) }</button>
 								</form>
 							</div>
 						</div>
@@ -640,6 +733,13 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 						<input type="checkbox" name="public" value="on" class="rounded border-zinc-700 bg-zinc-900"/>
 						<span class="text-sm">Public client (PKCE only, no client secret)</span>
 					</label>
+					<div class="border-t border-zinc-800 pt-3 space-y-1.5">
+						<label class="flex items-center gap-2 cursor-pointer">
+							<input type="checkbox" name="multi_org" value="on" class="rounded border-zinc-700 bg-zinc-900"/>
+							<span class="text-sm font-medium">Multi-org client</span>
+						</label>
+						<p class="text-xs text-zinc-500 pl-6">Allow other orgs to request access to this client. Each request requires your approval before the org can use it.</p>
+					</div>
 					<div class="flex gap-2 justify-end">
 						<button type="button" data-dialog-hide="register-client-dialog" class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
 						@PrimaryButton("Register client", "")
@@ -647,6 +747,162 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 				</form>
 			</div>
 		</div>
+	}
+}
+
+// OrgClientEditPage renders /account/orgs/:slug/clients/:clientID/edit
+templ OrgClientEditPage(csrfToken string, org *models.Org, client *postgres.OrgClient, canEdit bool, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(client.Name+" — Edit - anekdote", "/account/orgs/"+org.Slug+"/clients", csrfToken, isAdmin, OrgClientEditBody(csrfToken, org, client, errorMsg, successMsg))
+}
+
+templ OrgClientEditBody(csrfToken string, org *models.Org, client *postgres.OrgClient, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl mx-auto space-y-6">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
+			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<!-- Tab bar -->
+		<div class="flex border-b border-zinc-800">
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">OAuth Clients</a>
+		</div>
+
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+				<div>
+					<h2 class="text-sm font-semibold">Edit client</h2>
+					<p class="text-xs text-zinc-500 font-mono mt-0.5">{ client.ID }</p>
+				</div>
+				<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="text-xs text-zinc-400 hover:text-zinc-50 transition-colors duration-150">← Back to clients</a>
+			</div>
+			<div class="p-4">
+				<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/edit") } class="space-y-4">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-sm font-medium">Client name</label>
+						<input
+							type="text"
+							name="name"
+							required
+							maxlength="255"
+							value={ client.Name }
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+						/>
+					</div>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-sm font-medium">Redirect URI</label>
+						<input
+							type="text"
+							name="redirect_uri"
+							required
+							value={ client.Domain }
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+						/>
+						<p class="text-xs text-zinc-500">Must be an http:// or https:// URI. No wildcards.</p>
+					</div>
+					<div class="flex gap-2 justify-end">
+						<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="h-9 inline-flex items-center rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Cancel</a>
+						@PrimaryButton("Save changes", "")
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+}
+
+// OrgClientRequestHistoryPage renders /account/orgs/:slug/clients/:clientID/requests
+templ OrgClientRequestHistoryPage(csrfToken string, org *models.Org, client *postgres.OrgClient, requests []*postgres.GrantRequest, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout(requestHistoryTitle(client)+" — Requests - anekdote", "/account/orgs/"+org.Slug+"/clients", csrfToken, isAdmin, OrgClientRequestHistoryBody(csrfToken, org, client, requests, errorMsg, successMsg))
+}
+
+templ OrgClientRequestHistoryBody(csrfToken string, org *models.Org, client *postgres.OrgClient, requests []*postgres.GrantRequest, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl mx-auto space-y-6">
+		<div>
+			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
+			<p class="text-sm text-zinc-400">slug: <span class="font-mono">{ org.Slug }</span></p>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<!-- Tab bar -->
+		<div class="flex border-b border-zinc-800">
+			<a href={ templ.URL("/account/orgs/" + org.Slug) } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Members</a>
+			<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">OAuth Clients</a>
+		</div>
+
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+				<div>
+					<h2 class="text-sm font-semibold">Access request history</h2>
+					if client != nil {
+						<p class="text-xs text-zinc-500 mt-0.5">{ client.Name }</p>
+					}
+				</div>
+				<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="text-xs text-zinc-400 hover:text-zinc-50 transition-colors duration-150">← Back to clients</a>
+			</div>
+			if len(requests) == 0 {
+				<div class="flex flex-col items-center gap-2 px-4 py-10 text-center">
+					<p class="text-sm text-zinc-400">No access requests yet.</p>
+				</div>
+			} else {
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+							<th class="px-4 py-2 text-left">Org</th>
+							<th class="px-4 py-2 text-left">Requested</th>
+							<th class="px-4 py-2 text-left">Status</th>
+							<th class="px-4 py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, req := range requests {
+							<tr class="border-b border-zinc-800/50 last:border-0">
+								<td class="px-4 py-3 font-medium">{ req.RequesterOrgName }</td>
+								<td class="px-4 py-3 text-zinc-400">{ req.RequestedAt.Format("2006-01-02") }</td>
+								<td class="px-4 py-3">
+									<span class={ grantRequestStatusClass(req.Status) }>{ req.Status }</span>
+								</td>
+								<td class="px-4 py-3 text-right">
+									if req.Status == "pending" {
+										<div class="inline-flex gap-1">
+											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID.String() + "/approve") } class="inline">
+												<input type="hidden" name="csrf_token" value={ csrfToken }/>
+												<button type="submit" class="h-6 rounded border border-emerald-700/50 px-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Approve</button>
+											</form>
+											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID.String() + "/deny") } class="inline">
+												<input type="hidden" name="csrf_token" value={ csrfToken }/>
+												<button type="submit" class="h-6 rounded border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-50 transition-colors">Deny</button>
+											</form>
+										</div>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+	</div>
+}
+
+func requestHistoryTitle(client *postgres.OrgClient) string {
+	if client != nil {
+		return client.Name
+	}
+	return "Client"
+}
+
+func grantRequestStatusClass(status string) string {
+	switch status {
+	case "approved":
+		return "rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-400"
+	case "denied":
+		return "rounded-full border border-red-400/30 bg-red-400/10 px-2 py-0.5 text-xs text-red-400"
+	default:
+		return "rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-400"
 	}
 }
 
@@ -689,6 +945,13 @@ templ inviteEmailMismatchBody(invitedEmail, currentEmail, logoutAction, csrfToke
 			</div>
 		</div>
 	</div>
+}
+
+func deleteClientLabel(isGlobal, isOwner bool) string {
+	if isGlobal && !isOwner {
+		return "Remove"
+	}
+	return "Delete"
 }
 
 func orgRoleBadgeClass(role string) string {

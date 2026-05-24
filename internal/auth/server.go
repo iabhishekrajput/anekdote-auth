@@ -29,7 +29,7 @@ func BuildServer(
 	manager.MapClientStorage(clientStore)
 	manager.MapTokenStorage(tokenStore)
 
-	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader, rdb, userStore)
+	jwtGen := NewJWTGenerator(keyStore, issuer, orgReader, clientStore, rdb, userStore)
 	manager.MapAccessGenerate(jwtGen)
 
 	srv := server.NewDefaultServer(manager)

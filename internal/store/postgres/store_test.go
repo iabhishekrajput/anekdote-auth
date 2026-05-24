@@ -30,9 +30,9 @@ func TestClientStore_GetByID_Success(t *testing.T) {
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("secret-abc"), bcrypt.MinCost)
 
-	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("client-123").
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).AddRow(string(hash), "http://localhost", true, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).AddRow("Test Client", string(hash), "http://localhost", true, nil))
 
 	client, err := store.GetByID(context.Background(), "client-123")
 	if err != nil {
@@ -68,7 +68,7 @@ func TestClientStore_GetByID_NotFound(t *testing.T) {
 
 	store := NewClientStore(db)
 
-	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("client-missing").
 		WillReturnError(sql.ErrNoRows)
 
@@ -196,9 +196,9 @@ func TestClientStore_ListOrgClients_Empty(t *testing.T) {
 	orgID := uuid.New()
 	store := NewClientStore(db)
 
-	mock.ExpectQuery(`SELECT id, name, domain, public, created_at FROM oauth2_clients WHERE org_id = \$1`).
+	mock.ExpectQuery(`SELECT (.+) FROM oauth2_clients`).
 		WithArgs(orgID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at", "is_global", "is_owner"}))
 
 	clients, err := store.ListOrgClients(context.Background(), orgID)
 	if err != nil {
@@ -217,11 +217,11 @@ func TestClientStore_ListOrgClients_WithRows(t *testing.T) {
 	store := NewClientStore(db)
 	now := time.Now()
 
-	mock.ExpectQuery(`SELECT id, name, domain, public, created_at FROM oauth2_clients WHERE org_id = \$1`).
+	mock.ExpectQuery(`SELECT (.+) FROM oauth2_clients`).
 		WithArgs(orgID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at"}).
-			AddRow("client-1", "My App", "https://example.com/cb", false, now).
-			AddRow("client-2", "SPA", "https://spa.example.com/cb", true, now))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at", "is_global", "is_owner"}).
+			AddRow("client-1", "My App", "https://example.com/cb", false, now, false, true).
+			AddRow("client-2", "SPA", "https://spa.example.com/cb", true, now, false, true))
 
 	clients, err := store.ListOrgClients(context.Background(), orgID)
 	if err != nil {
@@ -245,11 +245,16 @@ func TestClientStore_CreateOrgClient_Confidential(t *testing.T) {
 	orgID := uuid.New()
 	store := NewClientStore(db)
 
+	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO oauth2_clients`).
-		WithArgs(sqlmock.AnyArg(), "My App", sqlmock.AnyArg(), "https://example.com/cb", false, orgID).
+		WithArgs(sqlmock.AnyArg(), "My App", sqlmock.AnyArg(), "https://example.com/cb", false, sqlmock.AnyArg(), orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
-	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "My App", "https://example.com/cb", false)
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "My App", "https://example.com/cb", false, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -268,11 +273,16 @@ func TestClientStore_CreateOrgClient_Public(t *testing.T) {
 	orgID := uuid.New()
 	store := NewClientStore(db)
 
+	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO oauth2_clients`).
-		WithArgs(sqlmock.AnyArg(), "SPA", "", "https://spa.example.com/cb", true, orgID).
+		WithArgs(sqlmock.AnyArg(), "SPA", "", "https://spa.example.com/cb", true, sqlmock.AnyArg(), orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
 
-	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "SPA", "https://spa.example.com/cb", true)
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "SPA", "https://spa.example.com/cb", true, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -309,7 +319,11 @@ func TestClientStore_DeleteOrgClient_CrossOrg(t *testing.T) {
 
 	mock.ExpectExec(`DELETE FROM oauth2_clients WHERE id = \$1 AND org_id = \$2`).
 		WithArgs("client-123", orgID).
-		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows → cross-org attempt
+		WillReturnResult(sqlmock.NewResult(0, 0)) // 0 rows → not a direct-org client
+	// IsGlobalClient check: client exists but is single-org (org_id IS NOT NULL)
+	mock.ExpectQuery(`SELECT \(org_id IS NULL\) FROM oauth2_clients WHERE id = \$1`).
+		WithArgs("client-123").
+		WillReturnRows(sqlmock.NewRows([]string{"is_global"}).AddRow(false))
 
 	err := store.DeleteOrgClient(context.Background(), "client-123", orgID)
 	if !errors.Is(err, ErrClientNotFound) {
@@ -325,10 +339,10 @@ func TestClientStore_RotateOrgClientSecret_Success(t *testing.T) {
 	store := NewClientStore(db)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT public FROM oauth2_clients`).
 		WithArgs("client-123", orgID).
 		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(false))
-	mock.ExpectExec(`UPDATE oauth2_clients SET secret = \$1 WHERE id = \$2 AND org_id = \$3`).
+	mock.ExpectExec(`UPDATE oauth2_clients SET secret`).
 		WithArgs(sqlmock.AnyArg(), "client-123", orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
@@ -350,7 +364,7 @@ func TestClientStore_RotateOrgClientSecret_ClientNotFound(t *testing.T) {
 	store := NewClientStore(db)
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`SELECT public FROM oauth2_clients WHERE id = \$1 AND org_id = \$2 FOR UPDATE`).
+	mock.ExpectQuery(`SELECT public FROM oauth2_clients`).
 		WithArgs("client-missing", orgID).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()

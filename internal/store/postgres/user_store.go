@@ -275,3 +275,28 @@ func (s *UserStore) UpdateVerified(id uuid.UUID) error {
 	_, err := s.db.Exec(`UPDATE users SET is_verified = TRUE, updated_at = NOW() WHERE id = $1`, id)
 	return err
 }
+
+// ListOrgAdmins returns the emails of active owners and admins in the given org.
+func (s *UserStore) ListOrgAdmins(ctx context.Context, orgID uuid.UUID) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT u.email FROM users u
+		 JOIN org_memberships m ON m.user_id = u.id
+		 WHERE m.org_id = $1 AND m.role IN ('owner', 'admin')
+		   AND m.removed_at IS NULL
+		   AND u.disabled_at IS NULL AND u.deleted_at IS NULL`,
+		orgID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var emails []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		emails = append(emails, email)
+	}
+	return emails, rows.Err()
+}

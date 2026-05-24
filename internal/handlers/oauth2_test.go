@@ -214,10 +214,10 @@ func TestAuthorize_OrgClient_NonMember_RendersAccessDenied(t *testing.T) {
 	sessionID, _ := handler.sessionStore.Create(context.Background(), userID)
 
 	// Mock: GetByID returns an org-scoped client
-	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs("org-client-123").
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).
-			AddRow("hashed_secret", "https://app.example.com", false, orgID))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Org Client", "hashed_secret", "https://app.example.com", false, orgID))
 
 	req := httptest.NewRequest(http.MethodGet,
 		"/authorize?client_id=org-client-123&response_type=code&redirect_uri=https://app.example.com/callback&code_challenge=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&code_challenge_method=plain",

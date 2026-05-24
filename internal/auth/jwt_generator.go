@@ -29,6 +29,12 @@ type OrgMembershipReader interface {
 	GetMembership(ctx context.Context, orgID, userID uuid.UUID) (role string, err error)
 }
 
+// GrantChecker verifies that a multi-org client has been granted access to an org.
+// Implemented by *postgres.ClientStore.
+type GrantChecker interface {
+	HasGrant(ctx context.Context, clientID string, orgID uuid.UUID) (bool, error)
+}
+
 // UserReader is the minimal interface JWTGenerator needs for scope-driven claims.
 // Implemented by *postgres.UserStore.
 type UserReader interface {
@@ -37,20 +43,22 @@ type UserReader interface {
 
 // JWTGenerator implements oauth2.AccessGenerate
 type JWTGenerator struct {
-	keyStore  *crypto.KeyStore
-	issuer    string
-	orgStore  OrgMembershipReader
-	rdb       *goredis.Client
-	userStore UserReader
+	keyStore     *crypto.KeyStore
+	issuer       string
+	orgStore     OrgMembershipReader
+	grantChecker GrantChecker
+	rdb          *goredis.Client
+	userStore    UserReader
 }
 
-func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, rdb *goredis.Client, userStore UserReader) *JWTGenerator {
+func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, grantChecker GrantChecker, rdb *goredis.Client, userStore UserReader) *JWTGenerator {
 	return &JWTGenerator{
-		keyStore:  keyStore,
-		issuer:    issuer,
-		orgStore:  orgStore,
-		rdb:       rdb,
-		userStore: userStore,
+		keyStore:     keyStore,
+		issuer:       issuer,
+		orgStore:     orgStore,
+		grantChecker: grantChecker,
+		rdb:          rdb,
+		userStore:    userStore,
 	}
 }
 
@@ -104,6 +112,18 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 			}
 			if role == "" {
 				return "", "", oauth2errors.ErrAccessDenied
+			}
+			// For multi-org consent (encodedOrgID set), also verify the client has an
+			// active grant for the selected org. This prevents a user who is a member of
+			// org B from forging a token for a client that was never granted to org B.
+			if encodedOrgID != "" && g.grantChecker != nil {
+				ok, grantErr := g.grantChecker.HasGrant(ctx, data.Client.GetID(), *resolvedOrgID)
+				if grantErr != nil {
+					return "", "", fmt.Errorf("grant check failed: %w", grantErr)
+				}
+				if !ok {
+					return "", "", oauth2errors.ErrAccessDenied
+				}
 			}
 			claims["org_id"] = resolvedOrgID.String()
 			claims["org_role"] = role

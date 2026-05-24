@@ -1,0 +1,99 @@
+package email
+
+templ ClientGrantRequestEmail(clientName, requesterOrgName, approveURL, denyURL string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Access request for { clientName } - anekdote</title>
+			<style>
+				body {
+					font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+					background-color: #09090b;
+					color: #fafafa;
+					margin: 0;
+					padding: 0;
+					line-height: 1.6;
+					-webkit-font-smoothing: antialiased;
+				}
+				.container { max-width: 600px; margin: 40px auto; padding: 20px; }
+				.card {
+					background-color: #09090b;
+					border: 1px solid #27272a;
+					border-radius: 8px;
+					padding: 32px;
+					text-align: center;
+					box-shadow: 0 1px 2px 0 rgba(0,0,0,0.05);
+				}
+				.header { margin-bottom: 24px; }
+				.header h2 { margin: 0; color: #fafafa; font-size: 24px; font-weight: 600; letter-spacing: -0.025em; }
+				.content { font-size: 16px; color: #a1a1aa; margin-bottom: 32px; }
+				.actions { display: flex; gap: 12px; justify-content: center; margin-bottom: 24px; flex-wrap: wrap; }
+				.btn-approve {
+					display: inline-block;
+					background-color: #fbbf24;
+					color: #09090b;
+					font-weight: 600;
+					font-size: 14px;
+					padding: 12px 28px;
+					border-radius: 6px;
+					text-decoration: none;
+				}
+				.btn-deny {
+					display: inline-block;
+					background-color: transparent;
+					color: #a1a1aa;
+					font-weight: 500;
+					font-size: 14px;
+					padding: 12px 28px;
+					border-radius: 6px;
+					text-decoration: none;
+					border: 1px solid #3f3f46;
+				}
+				.note {
+					font-size: 13px;
+					color: #71717a;
+					background-color: #18181b;
+					border: 1px solid #27272a;
+					border-radius: 6px;
+					padding: 12px 16px;
+					margin-bottom: 24px;
+					text-align: left;
+				}
+				.footer {
+					font-size: 12px;
+					color: #a1a1aa;
+					margin-top: 32px;
+					border-top: 1px solid #27272a;
+					padding-top: 24px;
+				}
+			</style>
+		</head>
+		<body>
+			<div class="container">
+				<div class="card">
+					<div class="header">
+						<h2>Access request for { clientName }</h2>
+					</div>
+					<div class="content">
+						<p><strong>{ requesterOrgName }</strong> is requesting access to your OAuth2 client <strong>{ clientName }</strong> on anekdote.</p>
+						<p>Review this request and approve or deny it from your dashboard.</p>
+					</div>
+					<div class="note">
+						<strong>Note:</strong> Clicking Approve or Deny will open your browser. You may be asked to log in if you are not already signed in.
+					</div>
+					<div class="actions">
+						<a href={ templ.URL(approveURL) } class="btn-approve">Approve access</a>
+						<a href={ templ.URL(denyURL) } class="btn-deny">Deny</a>
+					</div>
+					<div class="footer">
+						<p>You are receiving this email because you are an owner or admin of the org that owns { clientName }.</p>
+						<p>If you did not expect this request, you can safely ignore this email.</p>
+						<p>&copy; 2026 anekdote. All rights reserved.</p>
+					</div>
+				</div>
+			</div>
+		</body>
+	</html>
+}

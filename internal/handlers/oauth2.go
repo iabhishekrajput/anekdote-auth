@@ -146,12 +146,25 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		return uid.String(), nil
 	}
 
-	// 3. Fetch client once — used for org gate + domain display.
-	type clientInfoIface interface{ GetDomain() string }
+	// 3. Fetch client once — used for org gate, domain display, and name on consent screen.
+	type clientInfoIface interface {
+		GetDomain() string
+		GetName() string
+	}
 	var fetchedClient clientInfoIface
 	if clientID != "Unknown Application" {
 		if c, cErr := h.server.Manager.GetClient(r.Context(), clientID); cErr == nil && c != nil {
-			fetchedClient = c
+			if ci, ok := c.(clientInfoIface); ok {
+				fetchedClient = ci
+			}
+		}
+	}
+
+	// Resolve display name early so access-denied pages can use it.
+	clientName := clientID
+	if fetchedClient != nil {
+		if n := fetchedClient.GetName(); n != "" {
+			clientName = n
 		}
 	}
 
@@ -179,7 +192,7 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 					if org, lookupErr := h.orgStore.GetOrgByID(r.Context(), *oci.OrgID); lookupErr == nil && org != nil {
 						orgName = org.DisplayName
 					}
-					_ = ui.OAuthAccessDeniedPage(clientID, orgName, returnURL).Render(r.Context(), w)
+					_ = ui.OAuthAccessDeniedPage(clientName, orgName, returnURL).Render(r.Context(), w)
 					return "", nil
 				}
 				// Single-org: proceed without picker, encode the org.
@@ -193,7 +206,7 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 					return "", nil
 				}
 				if len(grants) == 0 {
-					_ = ui.OAuthAccessDeniedNoGrant(clientID, returnURL).Render(r.Context(), w)
+					_ = ui.OAuthAccessDeniedNoGrant(clientName, returnURL).Render(r.Context(), w)
 					return "", nil
 				}
 				if len(grants) == 1 {
@@ -226,7 +239,7 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 		requestedScopes = []string{"openid", "profile"}
 	}
 
-	// Extract domain from registered redirect URI for trust badge display.
+	// Extract domain from the registered client for the trust badge.
 	clientDomain := ""
 	if fetchedClient != nil {
 		if rawDomain := fetchedClient.GetDomain(); rawDomain != "" {
@@ -242,7 +255,7 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	csrfToken := nosurf.Token(r)
-	ui.ConsentPage(clientID, clientDomain, requestedScopes, csrfToken, "", "", "", eligibleOrgs, selectedOrgID).Render(r.Context(), w)
+	ui.ConsentPage(clientName, clientDomain, requestedScopes, csrfToken, "", "", "", eligibleOrgs, selectedOrgID).Render(r.Context(), w)
 
 	// Return empty userID to halt go-oauth2 — we rendered the page ourselves.
 	return "", nil

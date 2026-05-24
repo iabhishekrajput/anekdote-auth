@@ -64,10 +64,10 @@ func TestOAuth2FullFlow(t *testing.T) {
 
 	// ─── Step 2: POST /authorize?accept=true ─────────────────────────────────
 	// go-oauth2 calls GetClient once (via GenerateAuthToken → GetByID) to validate redirect_uri.
-	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).
-			AddRow("", redirectURI, true, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Flow Client", "", redirectURI, true, nil))
 
 	postForm := url.Values{}
 	postForm.Set("client_id", clientID)
@@ -102,10 +102,10 @@ func TestOAuth2FullFlow(t *testing.T) {
 
 	// ─── Step 3: POST /token ─────────────────────────────────────────────────
 	// go-oauth2 calls GetClient once (via GenerateAccessToken → GetByID).
-	mock.ExpectQuery(`SELECT secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"secret", "domain", "public", "org_id"}).
-			AddRow("", redirectURI, true, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Flow Client", "", redirectURI, true, nil))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")

@@ -170,7 +170,7 @@ func TestOrgListPageWithOrgs(t *testing.T) {
 
 func TestOrgDetailPage(t *testing.T) {
 	org := &models.Org{Slug: "acme", DisplayName: "Acme Corp"}
-	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, false, false, nil, "", ""))
+	html := renderComp(t, "OrgDetailPage", ui.OrgDetailPage("csrf-xyz", org, []*models.OrgMembership{}, []ui.OrgPendingMember{}, "user-123", true, false, false, nil, nil, "", ""))
 	if !strings.Contains(html, "Acme Corp") {
 		t.Error("expected org name in output")
 	}

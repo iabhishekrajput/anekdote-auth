@@ -34,6 +34,7 @@ templ AdminLayout(title string, currentPath string, csrfToken string, body templ
 							<a href="/admin/clients" class={ adminNavClass(currentPath, "/admin/clients") }>Clients</a>
 							<a href="/admin/orgs" class={ adminNavClass(currentPath, "/admin/orgs") }>Orgs</a>
 							<a href="/admin/audit" class={ adminNavClass(currentPath, "/admin/audit") }>Audit</a>
+							<a href="/admin/grants" class={ adminNavClass(currentPath, "/admin/grants") }>Grants</a>
 						</nav>
 						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
 						<a
@@ -299,4 +300,108 @@ func auditExportURL(f postgres.AuditFilter) string {
 		u += "?" + params[1:]
 	}
 	return u
+}
+
+// AdminGrantList renders /admin/grants
+templ AdminGrantList(csrfToken string, grants []*postgres.AdminGrantRow, total, page, pageSize int, errorMsg, successMsg string) {
+	@AdminLayout("Grants - anekdote Admin", "/admin/grants", csrfToken, AdminGrantListBody(csrfToken, grants, total, page, pageSize, errorMsg, successMsg))
+}
+
+templ AdminGrantListBody(csrfToken string, grants []*postgres.AdminGrantRow, total, page, pageSize int, errorMsg, successMsg string) {
+	<div class="space-y-6">
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Client Org Grants</h1>
+				<p class="text-sm text-zinc-400">All active grants between clients and orgs.</p>
+			</div>
+			<span class="text-sm text-zinc-500">{ fmt.Sprintf("%d total", total) }</span>
+		</div>
+
+		if errorMsg != "" {
+			<div class="rounded-md border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-400">{ errorMsg }</div>
+		}
+		if successMsg != "" {
+			<div class="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-400">{ successMsg }</div>
+		}
+
+		<div class="rounded-lg border border-zinc-800">
+			if len(grants) == 0 {
+				<div class="flex flex-col items-center gap-2 px-4 py-10 text-center">
+					<p class="text-sm text-zinc-400">No grants found.</p>
+				</div>
+			} else {
+				<table class="w-full text-sm">
+					<thead>
+						<tr class="border-b border-zinc-800 text-xs uppercase tracking-wide text-zinc-500">
+							<th class="px-4 py-2 text-left">Client</th>
+							<th class="px-4 py-2 text-left">Owner Org</th>
+							<th class="px-4 py-2 text-left">Granted Org</th>
+							<th class="px-4 py-2 text-left">Granted</th>
+							<th class="px-4 py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, g := range grants {
+							<tr class="border-b border-zinc-800/50 last:border-0">
+								<td class="px-4 py-3">
+									<div class="font-medium">{ g.ClientName }</div>
+									<div class="font-mono text-xs text-zinc-500">{ g.ClientID }</div>
+								</td>
+								<td class="px-4 py-3 text-zinc-300">{ g.OwnerOrgName }</td>
+								<td class="px-4 py-3 text-zinc-300">{ g.GrantedOrgName }</td>
+								<td class="px-4 py-3 text-zinc-500">{ g.GrantedAt.Format("2006-01-02") }</td>
+								<td class="px-4 py-3 text-right">
+									<button
+										type="button"
+										data-dialog-show={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" }
+										class="h-7 rounded border border-red-800/50 px-2 text-xs text-red-400 hover:text-red-300 transition-colors"
+									>Revoke</button>
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</div>
+
+		<!-- Pagination -->
+		if total > pageSize {
+			<div class="flex items-center gap-2 justify-end text-sm">
+				if page > 1 {
+					<a href={ templ.URL(fmt.Sprintf("/admin/grants?page=%d", page-1)) } class="rounded-md border border-zinc-800 px-3 py-1.5 text-zinc-400 hover:text-zinc-50 transition-colors">← Prev</a>
+				}
+				<span class="text-zinc-500">Page { fmt.Sprintf("%d", page) }</span>
+				if page*pageSize < total {
+					<a href={ templ.URL(fmt.Sprintf("/admin/grants?page=%d", page+1)) } class="rounded-md border border-zinc-800 px-3 py-1.5 text-zinc-400 hover:text-zinc-50 transition-colors">Next →</a>
+				}
+			</div>
+		}
+	</div>
+
+	<!-- Revoke confirmation dialogs -->
+	for _, g := range grants {
+		<div id={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+			<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
+				<h2 class="text-base font-semibold">Revoke { g.GrantedOrgName }'s access?</h2>
+				<p class="text-sm text-zinc-400">This will remove <strong>{ g.GrantedOrgName }</strong>'s access to <strong>{ g.ClientName }</strong> and invalidate their outstanding tokens.</p>
+				<form method="POST" action={ templ.URL("/admin/grants/" + g.ClientID + "/" + g.GrantedOrgID.String() + "/revoke") } class="space-y-3">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="flex flex-col gap-1.5">
+						<label class="text-xs font-medium text-zinc-400">Reason (optional)</label>
+						<input
+							type="text"
+							name="reason"
+							maxlength="255"
+							placeholder="Policy violation, org request, etc."
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+						/>
+					</div>
+					<div class="flex justify-end gap-2">
+						<button type="button" data-dialog-hide={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" } class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
+						<button type="submit" class="h-9 rounded-md bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-500 transition-colors">Revoke access</button>
+					</div>
+				</form>
+			</div>
+		</div>
+	}
 }
