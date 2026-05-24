@@ -32,17 +32,17 @@ type UserInfoTombstoneStore interface {
 }
 
 type UserInfoHandler struct {
-	keyStore   *crypto.KeyStore
-	userStore  UserInfoUserStore
-	revStore   UserInfoRevStore
+	keyStore    *crypto.KeyStore
+	userStore   UserInfoUserStore
+	revStore    UserInfoRevStore
 	tombstoneDB UserInfoTombstoneStore
 }
 
 func NewUserInfoHandler(userStore UserInfoUserStore, keyStore *crypto.KeyStore, revStore UserInfoRevStore, rdb UserInfoTombstoneStore) *UserInfoHandler {
 	return &UserInfoHandler{
-		keyStore:   keyStore,
-		userStore:  userStore,
-		revStore:   revStore,
+		keyStore:    keyStore,
+		userStore:   userStore,
+		revStore:    revStore,
 		tombstoneDB: rdb,
 	}
 }

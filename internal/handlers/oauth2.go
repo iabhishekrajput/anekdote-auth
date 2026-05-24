@@ -46,9 +46,9 @@ type OAuth2Handler struct {
 	sessionStore *redis.SessionStore
 	revocStore   *redis.RevocationStore
 	keyStore     *crypto.KeyStore
-	orgStore     oauth2OrgStore        // optional; enables org membership check and friendly denial page at /authorize
+	orgStore     oauth2OrgStore         // optional; enables org membership check and friendly denial page at /authorize
 	grantStore   oauth2ClientGrantStore // optional; enables multi-org client grants
-	idTokenGen   IDTokenGenerator      // optional; enables id_token in /token response when openid scope granted
+	idTokenGen   IDTokenGenerator       // optional; enables id_token in /token response when openid scope granted
 }
 
 func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {

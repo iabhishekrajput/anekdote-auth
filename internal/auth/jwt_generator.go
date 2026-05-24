@@ -117,12 +117,19 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 			// active grant for the selected org. This prevents a user who is a member of
 			// org B from forging a token for a client that was never granted to org B.
 			if encodedOrgID != "" && g.grantChecker != nil {
-				ok, grantErr := g.grantChecker.HasGrant(ctx, data.Client.GetID(), *resolvedOrgID)
-				if grantErr != nil {
-					return "", "", fmt.Errorf("grant check failed: %w", grantErr)
+				needsGrantCheck := true
+				if oci, isOrgClient := data.Client.(*postgres.OrgClientInfo); isOrgClient && oci.OrgID != nil && oci.OrgID.String() == encodedOrgID {
+					needsGrantCheck = false
 				}
-				if !ok {
-					return "", "", oauth2errors.ErrAccessDenied
+
+				if needsGrantCheck {
+					ok, grantErr := g.grantChecker.HasGrant(ctx, data.Client.GetID(), *resolvedOrgID)
+					if grantErr != nil {
+						return "", "", fmt.Errorf("grant check failed: %w", grantErr)
+					}
+					if !ok {
+						return "", "", oauth2errors.ErrAccessDenied
+					}
 				}
 			}
 			claims["org_id"] = resolvedOrgID.String()

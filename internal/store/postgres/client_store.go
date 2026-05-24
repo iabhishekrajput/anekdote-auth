@@ -30,18 +30,18 @@ var ErrGrantRequestNotPending = errors.New("grant request is not pending")
 
 // OrgGrantItem is a row from client_org_grants joined with client name info.
 type OrgGrantItem struct {
-	ClientID      string
-	ClientName    string
-	GrantedAt     time.Time
+	ClientID       string
+	ClientName     string
+	GrantedAt      time.Time
 	GrantedByEmail string
 }
 
 // ClientGrantItem is a row from client_org_grants joined with org info.
 type ClientGrantItem struct {
-	OrgID       uuid.UUID
-	OrgSlug     string
-	OrgName     string
-	GrantedAt   time.Time
+	OrgID     uuid.UUID
+	OrgSlug   string
+	OrgName   string
+	GrantedAt time.Time
 }
 
 // OrgClientInfo wraps the library's ClientInfo and adds OrgID.
@@ -111,17 +111,17 @@ type OrgClient struct {
 
 // GrantRequest is a row from client_access_requests.
 type GrantRequest struct {
-	ID              uuid.UUID
-	ClientID        string
-	ClientName      string
-	RequesterOrgID  uuid.UUID
+	ID               uuid.UUID
+	ClientID         string
+	ClientName       string
+	RequesterOrgID   uuid.UUID
 	RequesterOrgSlug string
 	RequesterOrgName string
-	OwnerOrgID      uuid.UUID
-	RequestedBy     *uuid.UUID
-	Status          string
-	RequestedAt     time.Time
-	ResolvedAt      *time.Time
+	OwnerOrgID       uuid.UUID
+	RequestedBy      *uuid.UUID
+	Status           string
+	RequestedAt      time.Time
+	ResolvedAt       *time.Time
 }
 
 // ClientStore implements oauth2.ClientStore interface using PostgreSQL
