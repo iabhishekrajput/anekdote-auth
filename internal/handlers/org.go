@@ -731,6 +731,63 @@ func (h *OrgHandler) LeaveOrg(w http.ResponseWriter, r *http.Request, ps httprou
 	http.Redirect(w, r, "/account?message="+url.QueryEscape("You've left "+org.DisplayName+"."), http.StatusFound)
 }
 
+// DeleteOrg handles POST /account/orgs/:slug/delete — owner-only org deletion.
+func (h *OrgHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+
+	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if err != nil || role != "owner" {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	// Require the slug to be typed as confirmation.
+	if r.FormValue("confirm_slug") != slug {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error="+url.QueryEscape("Confirmation slug did not match"), http.StatusFound)
+		return
+	}
+
+	orgID := org.ID
+	orgName := org.DisplayName
+
+	if err := h.orgStore.DeleteOrg(r.Context(), orgID); err != nil {
+		http.Redirect(w, r, "/account/orgs/"+slug+"?error="+url.QueryEscape("Failed to delete organization"), http.StatusFound)
+		return
+	}
+
+	// Clean up pending invites from Redis.
+	h.cleanupOrgInvites(r.Context(), orgID.String())
+
+	if h.auditStore != nil {
+		go func() {
+			_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionDeleteOrg,
+				"org", orgID.String(), "", "owner")
+		}()
+	}
+
+	_ = orgName
+	http.Redirect(w, r, "/account/orgs?message="+url.QueryEscape("Organization deleted"), http.StatusFound)
+}
+
+// cleanupOrgInvites removes all pending Redis invite keys for an org.
+func (h *OrgHandler) cleanupOrgInvites(ctx context.Context, orgID string) {
+	tokens, err := h.rdb.SMembers(ctx, "org:invites:"+orgID).Result()
+	if err != nil {
+		return
+	}
+	for _, token := range tokens {
+		h.rdb.Del(ctx, "org:invite:"+token)
+	}
+	h.rdb.Del(ctx, "org:invites:"+orgID)
+}
+
 // loadPendingInvites reads org:invites:{orgID} SET and fetches each invite payload,
 // lazily pruning stale tokens.
 func (h *OrgHandler) loadPendingInvites(ctx context.Context, orgID string) []ui.OrgPendingMember {

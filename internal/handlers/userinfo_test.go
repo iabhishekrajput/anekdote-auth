@@ -63,7 +63,7 @@ func setupUserInfoHandler(t *testing.T) (*UserInfoHandler, *crypto.KeyStore, *mo
 	}
 	us := &mockUIUserStore{}
 	rs := &mockUIRevStore{}
-	return NewUserInfoHandler(us, ks, rs), ks, us, rs
+	return NewUserInfoHandler(us, ks, rs, nil), ks, us, rs
 }
 
 func makeToken(t *testing.T, ks *crypto.KeyStore, sub, scope, jti string, expiry time.Duration) string {
@@ -513,7 +513,7 @@ func TestUserInfo_RevokedToken_WithRealRedis(t *testing.T) {
 
 	userID := uuid.New()
 	us := &mockUIUserStore{user: &models.User{ID: userID, UpdatedAt: time.Now()}}
-	h := NewUserInfoHandler(us, ks, revStore)
+	h := NewUserInfoHandler(us, ks, revStore, rdb)
 
 	jti := uuid.NewString()
 	tok := makeToken(t, ks, userID.String(), "openid", jti, time.Hour)

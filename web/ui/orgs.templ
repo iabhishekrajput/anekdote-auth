@@ -278,6 +278,48 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 		}
 
 		if isOwner {
+			<!-- Delete org section -->
+			<div class="rounded-lg border border-red-900/40 bg-red-950/20 px-4 py-3 flex items-center justify-between gap-4">
+				<div>
+					<p class="text-sm font-medium text-zinc-200">Delete organization</p>
+					<p class="text-xs text-zinc-500 mt-0.5">Permanently deletes this org and removes all members. Cannot be undone.</p>
+				</div>
+				<button
+					type="button"
+					data-dialog-show="delete-org-dialog"
+					class="shrink-0 h-8 rounded-md border border-red-800 px-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors duration-150"
+				>Delete org</button>
+			</div>
+
+			<!-- Delete org confirmation modal -->
+			<div id="delete-org-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+				<div class="w-full max-w-sm rounded-lg border border-red-900/60 bg-zinc-950 p-6 shadow-xl space-y-4">
+					<h2 class="text-base font-semibold text-red-400">Delete { org.DisplayName }?</h2>
+					<p class="text-sm text-zinc-400">All members and clients will be removed. Type the org slug to confirm.</p>
+					<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/delete") } class="space-y-4" data-guard>
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<input
+							type="text"
+							name="confirm_slug"
+							required
+							placeholder={ org.Slug }
+							class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-red-600 focus:ring-1 focus:ring-red-600/30"
+						/>
+						<div class="flex gap-2 justify-end">
+							<button
+								type="button"
+								data-dialog-hide="delete-org-dialog"
+								class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+							>Cancel</button>
+							<button
+								type="submit"
+								class="h-9 rounded-md bg-red-700 px-3 text-sm text-zinc-50 hover:bg-red-600 transition-colors duration-150"
+							>Delete organization</button>
+						</div>
+					</form>
+				</div>
+			</div>
+
 			<!-- Transfer ownership section — owner-only destructive action -->
 			<div id="transfer-ownership" class="rounded-lg border border-red-900/40 p-4 space-y-3">
 				<h2 class="text-sm font-semibold text-red-400">Transfer ownership</h2>

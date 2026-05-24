@@ -109,5 +109,19 @@ templ adminOrgDetailBody(csrfToken string, org *models.Org, members []*models.Or
 				</table>
 			}
 		</div>
+		<div class="rounded-lg border border-red-900/40 p-4 space-y-2">
+			<p class="text-sm font-medium text-red-400">Danger zone</p>
+			<form
+				method="POST"
+				action={ templ.SafeURL("/admin/orgs/" + org.Slug + "/delete") }
+				data-confirm={ "Permanently delete org '" + org.Slug + "'? All clients and members will be removed." }
+			>
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<button
+					type="submit"
+					class="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-800 px-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+				>Delete org</button>
+			</form>
+		</div>
 	</div>
 }

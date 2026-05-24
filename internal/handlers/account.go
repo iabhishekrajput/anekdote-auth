@@ -1,12 +1,17 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
@@ -15,14 +20,20 @@ import (
 )
 
 type AccountHandler struct {
-	userStore *postgres.UserStore
-	orgStore  *postgres.OrgStore
+	userStore    *postgres.UserStore
+	orgStore     *postgres.OrgStore
+	sessionStore *redis.SessionStore
+	auditStore   *postgres.AuditStore
+	rdb          *goredis.Client
 }
 
-func NewAccountHandler(uStore *postgres.UserStore, orgStore *postgres.OrgStore) *AccountHandler {
+func NewAccountHandler(uStore *postgres.UserStore, orgStore *postgres.OrgStore, sessionStore *redis.SessionStore, auditStore *postgres.AuditStore, rdb *goredis.Client) *AccountHandler {
 	return &AccountHandler{
-		userStore: uStore,
-		orgStore:  orgStore,
+		userStore:    uStore,
+		orgStore:     orgStore,
+		sessionStore: sessionStore,
+		auditStore:   auditStore,
+		rdb:          rdb,
 	}
 }
 
@@ -153,4 +164,42 @@ func (h *AccountHandler) UpdatePassword(w http.ResponseWriter, r *http.Request, 
 	}
 
 	http.Redirect(w, r, "/account?message="+url.QueryEscape("Password updated"), http.StatusFound)
+}
+
+// userDeletionTombstoneTTL matches the OAuth2 access token max lifetime so
+// tokens issued before deletion are rejected at /userinfo until they expire.
+const userDeletionTombstoneTTL = 2 * time.Hour
+
+// DeleteSelf handles POST /account/delete — self-service account deletion.
+func (h *AccountHandler) DeleteSelf(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+
+	if err := h.userStore.DeleteUser(r.Context(), userID); err != nil {
+		if errors.Is(err, postgres.ErrUserOwnsOrg) {
+			http.Redirect(w, r, "/account?error="+url.QueryEscape("Transfer or delete your organizations before deleting your account"), http.StatusFound)
+			return
+		}
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to delete account"), http.StatusFound)
+		return
+	}
+
+	// Revoke all sessions.
+	_ = h.sessionStore.DeleteAllForUser(r.Context(), userID)
+
+	// Tombstone for in-flight JWTs — checked by /userinfo.
+	if h.rdb != nil {
+		h.rdb.Set(r.Context(), "deleted:user:"+userID.String(), "1", userDeletionTombstoneTTL)
+	}
+
+	// Audit log — fire-and-forget; deletion has already committed.
+	if h.auditStore != nil {
+		go func() {
+			_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionDeleteUser,
+				"user", userID.String(), "", "self")
+		}()
+	}
+
+	// Clear session cookie and redirect to login.
+	http.SetCookie(w, &http.Cookie{Name: "session_id", MaxAge: -1, Path: "/"})
+	http.Redirect(w, r, "/login?message="+url.QueryEscape("Your account has been deleted"), http.StatusFound)
 }

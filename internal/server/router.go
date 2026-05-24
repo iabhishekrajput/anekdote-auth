@@ -119,6 +119,8 @@ func NewRouter(
 	router.POST("/account/orgs/:slug/clients", withAuthRateLimit(orgH.RegisterClient))
 	router.POST("/account/orgs/:slug/clients/:clientID/delete", withAuthRateLimit(orgH.DeleteClient))
 	router.POST("/account/orgs/:slug/clients/:clientID/rotate-secret", withAuthRateLimit(orgH.RotateClientSecret))
+	router.POST("/account/orgs/:slug/delete", withAuthRateLimit(orgH.DeleteOrg))
+	router.POST("/account/delete", withAuthRateLimit(accountH.DeleteSelf))
 
 	// Admin routes — GET routes: any admin; mutations: role-scoped
 	router.GET("/admin", requireAdmin(adminH.Dashboard))
@@ -134,6 +136,8 @@ func NewRouter(
 	router.GET("/admin/orgs", requireAdmin(adminH.OrgList))
 	router.GET("/admin/orgs/:slug", requireAdmin(adminH.OrgDetail))
 	router.POST("/admin/orgs/:slug/members/:user_id/remove", requireSuperOrOrgAdmin(adminH.RemoveOrgMember))
+	router.POST("/admin/users/:id/delete", requireSuperAdmin(adminH.DeleteUser))
+	router.POST("/admin/orgs/:slug/delete", requireSuperAdmin(adminH.DeleteOrg))
 	router.GET("/admin/audit", requireAdmin(adminH.AuditLog))
 	router.GET("/admin/audit/export.csv", requireAdmin(adminH.ExportAuditCSV))
 

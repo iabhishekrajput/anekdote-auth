@@ -98,7 +98,7 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 		</section>
 
 		<!-- Security section -->
-		<section class="mt-8">
+		<section class="mt-8 pb-8 border-b border-zinc-800/60">
 			<div class="flex items-center justify-between mb-3">
 				<h3 class="text-base font-semibold">Security</h3>
 				<button
@@ -116,6 +116,22 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 					<p class="text-sm font-medium text-zinc-50">Password</p>
 					<span class="text-sm font-mono text-zinc-500 tracking-widest">••••••••</span>
 				</div>
+			</div>
+		</section>
+
+		<!-- Danger zone section -->
+		<section class="mt-8">
+			<h3 class="text-base font-semibold text-red-400 mb-3">Danger zone</h3>
+			<div class="rounded-lg border border-red-900/40 bg-red-950/20 px-4 py-3 flex items-center justify-between gap-4">
+				<div>
+					<p class="text-sm font-medium text-zinc-200">Delete account</p>
+					<p class="text-xs text-zinc-500 mt-0.5">Permanently anonymizes your data. Cannot be undone.</p>
+				</div>
+				<button
+					type="button"
+					data-dialog-show="delete-account-dialog"
+					class="shrink-0 h-8 rounded-md border border-red-800 px-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors duration-150"
+				>Delete account</button>
 			</div>
 		</section>
 	</div>
@@ -154,6 +170,28 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
 					>Cancel</button>
 					@PrimaryButton("Update password", "")
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<!-- Delete account confirmation modal -->
+	<div id="delete-account-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+		<div class="w-full max-w-sm rounded-lg border border-red-900/60 bg-zinc-950 p-6 shadow-xl">
+			<h2 class="mb-2 text-base font-semibold text-red-400">Delete your account?</h2>
+			<p class="mb-5 text-sm text-zinc-400">This permanently anonymizes your data and signs you out. It cannot be undone.</p>
+			<form method="POST" action="/account/delete" data-guard>
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="flex gap-2 justify-end">
+					<button
+						type="button"
+						data-dialog-hide="delete-account-dialog"
+						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+					>Cancel</button>
+					<button
+						type="submit"
+						class="h-9 rounded-md bg-red-700 px-3 text-sm text-zinc-50 hover:bg-red-600 transition-colors duration-150"
+					>Delete account</button>
 				</div>
 			</form>
 		</div>

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
@@ -25,17 +26,24 @@ type UserInfoRevStore interface {
 	IsRevoked(ctx context.Context, jti string) (bool, error)
 }
 
-type UserInfoHandler struct {
-	keyStore  *crypto.KeyStore
-	userStore UserInfoUserStore
-	revStore  UserInfoRevStore
+// UserInfoTombstoneStore checks for a deleted-user tombstone in Redis.
+type UserInfoTombstoneStore interface {
+	Exists(ctx context.Context, keys ...string) *goredis.IntCmd
 }
 
-func NewUserInfoHandler(userStore UserInfoUserStore, keyStore *crypto.KeyStore, revStore UserInfoRevStore) *UserInfoHandler {
+type UserInfoHandler struct {
+	keyStore   *crypto.KeyStore
+	userStore  UserInfoUserStore
+	revStore   UserInfoRevStore
+	tombstoneDB UserInfoTombstoneStore
+}
+
+func NewUserInfoHandler(userStore UserInfoUserStore, keyStore *crypto.KeyStore, revStore UserInfoRevStore, rdb UserInfoTombstoneStore) *UserInfoHandler {
 	return &UserInfoHandler{
-		keyStore:  keyStore,
-		userStore: userStore,
-		revStore:  revStore,
+		keyStore:   keyStore,
+		userStore:  userStore,
+		revStore:   revStore,
+		tombstoneDB: rdb,
 	}
 }
 
@@ -100,6 +108,7 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 	}
 
 	// 4. Extract sub — empty sub means client_credentials (no user context)
+	// Also check the deleted-user tombstone before the DB lookup.
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
 		h.writeTokenError(w, "invalid_token", "no user context")
@@ -111,7 +120,16 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		return
 	}
 
-	// 5. Fetch user; check for disabled account
+	// 5. Check tombstone — deleted users are rejected before the DB lookup.
+	if h.tombstoneDB != nil {
+		n, err := h.tombstoneDB.Exists(r.Context(), "deleted:user:"+userID.String()).Result()
+		if err != nil || n > 0 {
+			h.writeTokenError(w, "invalid_token", "user not found")
+			return
+		}
+	}
+
+	// 6. Fetch user; check for disabled/deleted account
 	user, lookupErr := h.userStore.GetByID(userID)
 	if lookupErr != nil {
 		h.writeTokenError(w, "invalid_token", "user not found")
@@ -122,7 +140,7 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		return
 	}
 
-	// 6. Build response from scope using exact-word matching
+	// 7. Build response from scope using exact-word matching
 	scope, _ := claims["scope"].(string)
 	scopeSet := make(map[string]bool)
 	for _, s := range strings.Fields(scope) {
@@ -143,7 +161,7 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		resp["email_verified"] = user.IsVerified
 	}
 
-	// 7. Write response with required OIDC/RFC 6749 headers
+	// 8. Write response with required OIDC/RFC 6749 headers
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(resp)

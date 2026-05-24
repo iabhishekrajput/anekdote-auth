@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
@@ -54,7 +55,7 @@ func (s *OrgStore) GetOrgBySlug(ctx context.Context, slug string) (*models.Org, 
 	var org models.Org
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, slug, display_name, owner_id, created_at, updated_at
-		 FROM organizations WHERE slug = $1`,
+		 FROM organizations WHERE slug = $1 AND deleted_at IS NULL`,
 		slug,
 	).Scan(&org.ID, &org.Slug, &org.DisplayName, &org.OwnerID, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
@@ -70,7 +71,7 @@ func (s *OrgStore) GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, e
 	var org models.Org
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, slug, display_name, owner_id, created_at, updated_at
-		 FROM organizations WHERE id = $1`,
+		 FROM organizations WHERE id = $1 AND deleted_at IS NULL`,
 		id,
 	).Scan(&org.ID, &org.Slug, &org.DisplayName, &org.OwnerID, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
@@ -106,7 +107,7 @@ func (s *OrgStore) ListOrgsForUser(ctx context.Context, userID uuid.UUID) ([]*mo
 		        o.slug, o.display_name, o.owner_id
 		 FROM org_memberships m
 		 JOIN organizations o ON o.id = m.org_id
-		 WHERE m.user_id = $1 AND m.removed_at IS NULL
+		 WHERE m.user_id = $1 AND m.removed_at IS NULL AND o.deleted_at IS NULL
 		 ORDER BY m.joined_at`,
 		userID,
 	)
@@ -148,7 +149,7 @@ func (s *OrgStore) ListOrgsForUserFull(ctx context.Context, userID uuid.UUID) ([
 		        (SELECT COUNT(*) FROM org_memberships m2 WHERE m2.org_id = o.id AND m2.removed_at IS NULL) AS member_count
 		 FROM org_memberships m
 		 JOIN organizations o ON o.id = m.org_id
-		 WHERE m.user_id = $1 AND m.removed_at IS NULL
+		 WHERE m.user_id = $1 AND m.removed_at IS NULL AND o.deleted_at IS NULL
 		 ORDER BY m.joined_at`,
 		userID,
 	)
@@ -343,12 +344,12 @@ func (s *OrgStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCur
 	var rows *sql.Rows
 	if cursor == nil {
 		rows, err = s.db.QueryContext(ctx,
-			selectCols+` ORDER BY o.created_at DESC, o.id DESC LIMIT $1`,
+			selectCols+` WHERE o.deleted_at IS NULL ORDER BY o.created_at DESC, o.id DESC LIMIT $1`,
 			limit+1,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			selectCols+` WHERE o.created_at < $1 OR (o.created_at = $1 AND o.id::text < $2)
+			selectCols+` WHERE o.deleted_at IS NULL AND (o.created_at < $1 OR (o.created_at = $1 AND o.id::text < $2))
 			 ORDER BY o.created_at DESC, o.id DESC LIMIT $3`,
 			cursor.CreatedAt, cursor.ID.String(), limit+1,
 		)
@@ -383,9 +384,60 @@ func (s *OrgStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCur
 	return items, nextCursor, total, nil
 }
 
-// CountAll returns the total number of orgs.
+// CountAll returns the total number of non-deleted orgs.
 func (s *OrgStore) CountAll(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM organizations`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM organizations WHERE deleted_at IS NULL`).Scan(&count)
 	return count, err
+}
+
+var ErrOrgHasClients = errors.New("org has OAuth2 clients; delete them before deleting the org")
+
+// DeleteOrg soft-deletes an org: removes OAuth2 clients, soft-removes memberships,
+// and sets deleted_at. oauth2_clients are hard-deleted so client_id becomes available again.
+func (s *OrgStore) DeleteOrg(ctx context.Context, id uuid.UUID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Lock org row.
+	var currentDeletedAt *time.Time
+	var orgSlug string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT deleted_at, slug FROM organizations WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&currentDeletedAt, &orgSlug); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("org not found")
+		}
+		return err
+	}
+	if currentDeletedAt != nil {
+		return fmt.Errorf("org not found")
+	}
+
+	// Hard-delete OAuth2 clients owned by this org.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM oauth2_clients WHERE org_id = $1`, id,
+	); err != nil {
+		return fmt.Errorf("delete org clients: %w", err)
+	}
+
+	// Soft-remove all active memberships.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE org_memberships SET removed_at = NOW()
+		 WHERE org_id = $1 AND removed_at IS NULL`, id,
+	); err != nil {
+		return fmt.Errorf("remove org memberships: %w", err)
+	}
+
+	// Soft-delete the org itself.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE organizations SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, id,
+	); err != nil {
+		return fmt.Errorf("soft-delete org: %w", err)
+	}
+
+	return tx.Commit()
 }

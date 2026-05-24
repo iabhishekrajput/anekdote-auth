@@ -675,8 +675,8 @@ func TestAcceptInvite_Success(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "user@example.com", "User", "hash", true, false, nil, false, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+			AddRow(userID, "user@example.com", "User", "hash", true, false, nil, false, nil, nil, time.Now(), time.Now()))
 	orgMock.ExpectExec(`INSERT INTO org_memberships`).
 		WithArgs(orgID, userID, "member", nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -712,8 +712,8 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, false, nil, true, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+			AddRow(userID, "wrong@example.com", "Wrong User", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now()))
 
 	req := httptest.NewRequest(http.MethodGet, "/join?token="+token, nil)
 	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
@@ -1198,8 +1198,8 @@ func sendInviteRequest(t *testing.T, userID uuid.UUID, email, role string) (*htt
 }
 
 func userEmailRow(id uuid.UUID, email string) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(id, email, "User", "hash", true, false, nil, false, nil, time.Now(), time.Now())
+	return sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(id, email, "User", "hash", true, false, nil, false, nil, nil, time.Now(), time.Now())
 }
 
 func TestSendInvite_ExistingActiveMember(t *testing.T) {
@@ -1257,7 +1257,7 @@ func TestSendInvite_AlreadyPendingInvite(t *testing.T) {
 		WillReturnRows(membershipRow("admin"))
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("bob@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}))
 
 	req, rr := sendInviteRequest(t, actorID, "bob@example.com", "viewer")
 	h.SendInvite(rr, req, withParams("slug", "acme"))
@@ -1321,7 +1321,7 @@ func TestSendInvite_EmailNormalization(t *testing.T) {
 		WillReturnRows(membershipRow("admin"))
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("alice@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}))
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(actorID).
 		WillReturnRows(userEmailRow(actorID, "admin@example.com"))
@@ -1364,7 +1364,7 @@ func TestSendInvite_NewUnregisteredUser(t *testing.T) {
 		WillReturnRows(membershipRow("admin"))
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("new@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}))
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(actorID).
 		WillReturnRows(userEmailRow(actorID, "admin@example.com"))

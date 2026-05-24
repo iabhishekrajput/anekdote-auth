@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -26,15 +27,17 @@ type AdminHandler struct {
 	clientStore  *postgres.ClientStore
 	sessionStore *redis.SessionStore
 	auditStore   *postgres.AuditStore
+	rdb          *goredis.Client
 }
 
-func NewAdminHandler(uStore *postgres.UserStore, oStore *postgres.OrgStore, cStore *postgres.ClientStore, sStore *redis.SessionStore, aStore *postgres.AuditStore) *AdminHandler {
+func NewAdminHandler(uStore *postgres.UserStore, oStore *postgres.OrgStore, cStore *postgres.ClientStore, sStore *redis.SessionStore, aStore *postgres.AuditStore, rdb *goredis.Client) *AdminHandler {
 	return &AdminHandler{
 		userStore:    uStore,
 		orgStore:     oStore,
 		clientStore:  cStore,
 		sessionStore: sStore,
 		auditStore:   aStore,
+		rdb:          rdb,
 	}
 }
 
@@ -420,6 +423,87 @@ func parseAuditFilter(r *http.Request) postgres.AuditFilter {
 		}
 	}
 	return f
+}
+
+// DeleteUser handles POST /admin/users/:id/delete — superadmin hard-deletes (soft) a user.
+func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	ctx := r.Context()
+	id, err := uuid.Parse(ps.ByName("id"))
+	if err != nil {
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
+		return
+	}
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	if id == adminID {
+		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("You cannot delete your own account via admin panel"), http.StatusFound)
+		return
+	}
+
+	if err := h.userStore.DeleteUser(ctx, id); err != nil {
+		errMsg := "Failed to delete user"
+		if errors.Is(err, postgres.ErrUserOwnsOrg) {
+			errMsg = "User owns organizations; delete those orgs first"
+		}
+		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape(errMsg), http.StatusFound)
+		return
+	}
+
+	_ = h.sessionStore.DeleteAllForUser(ctx, id)
+
+	if h.rdb != nil {
+		h.rdb.Set(ctx, "deleted:user:"+id.String(), "1", 2*time.Hour)
+	}
+
+	go func() {
+		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDeleteUser,
+			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+	}()
+	http.Redirect(w, r, "/admin/users?message="+url.QueryEscape("User deleted"), http.StatusFound)
+}
+
+// DeleteOrg handles POST /admin/orgs/:slug/delete — superadmin deletes an org.
+func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	ctx := r.Context()
+	slug := ps.ByName("slug")
+	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	org, err := h.orgStore.GetOrgBySlug(ctx, slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/admin/orgs?error="+url.QueryEscape("Org not found"), http.StatusFound)
+		return
+	}
+
+	orgID := org.ID
+
+	if err := h.orgStore.DeleteOrg(ctx, orgID); err != nil {
+		http.Redirect(w, r, "/admin/orgs/"+slug+"?error="+url.QueryEscape("Failed to delete org"), http.StatusFound)
+		return
+	}
+
+	// Clean up pending Redis invite keys.
+	if h.rdb != nil {
+		tokens, err := h.rdb.SMembers(ctx, "org:invites:"+orgID.String()).Result()
+		if err == nil {
+			for _, token := range tokens {
+				h.rdb.Del(ctx, "org:invite:"+token)
+			}
+			h.rdb.Del(ctx, "org:invites:"+orgID.String())
+		}
+	}
+
+	go func() {
+		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDeleteOrg,
+			"org", orgID.String(), extractIP(r), r.Header.Get("User-Agent"))
+	}()
+	http.Redirect(w, r, "/admin/orgs?message="+url.QueryEscape("Organization deleted"), http.StatusFound)
 }
 
 // extractIP returns the client IP from the request, checking proxy headers first.

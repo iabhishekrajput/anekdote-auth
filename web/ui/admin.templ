@@ -148,7 +148,10 @@ templ adminAuditLogBody(entries []*postgres.AuditLogEntry, total int, cursor, ne
 					<option value="demote_admin" selected?={ filter.Action == "demote_admin" }>demote_admin</option>
 					<option value="change_admin_role" selected?={ filter.Action == "change_admin_role" }>change_admin_role</option>
 					<option value="delete_client" selected?={ filter.Action == "delete_client" }>delete_client</option>
+					<option value="delete_user" selected?={ filter.Action == "delete_user" }>delete_user</option>
+					<option value="delete_org" selected?={ filter.Action == "delete_org" }>delete_org</option>
 					<option value="remove_org_member" selected?={ filter.Action == "remove_org_member" }>remove_org_member</option>
+					<option value="transfer_org_ownership" selected?={ filter.Action == "transfer_org_ownership" }>transfer_org_ownership</option>
 				</select>
 			</div>
 			<div class="flex flex-col gap-1">
@@ -238,13 +241,13 @@ templ cursorPaginationControls(basePath, cursor, nextCursor string) {
 
 func auditActionBadgeClass(action string) string {
 	switch action {
-	case "disable_user", "delete_client":
+	case "disable_user", "delete_client", "delete_user", "delete_org":
 		return "rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-400"
 	case "enable_user":
 		return "rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-400"
 	case "remove_org_member", "demote_admin":
 		return "rounded bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-400"
-	case "promote_admin", "change_admin_role":
+	case "promote_admin", "change_admin_role", "transfer_org_ownership":
 		return "rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400"
 	default:
 		return "rounded bg-zinc-700/50 px-1.5 py-0.5 text-xs text-zinc-400"

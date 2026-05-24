@@ -33,9 +33,9 @@ func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 	u := &models.User{}
 	var adminRole sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, created_at, updated_at
-		FROM users WHERE email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
+		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
+		FROM users WHERE email = $1 AND deleted_at IS NULL`, email).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -50,9 +50,9 @@ func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
 	u := &models.User{}
 	var adminRole sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, created_at, updated_at
-		FROM users WHERE id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.CreatedAt, &u.UpdatedAt)
+		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
+		FROM users WHERE id = $1 AND deleted_at IS NULL`, id).
+		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -134,14 +134,14 @@ func (s *UserStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCu
 	if cursor == nil {
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT id, email, name, is_verified, disabled_at, created_at
-			 FROM users ORDER BY created_at DESC, id DESC LIMIT $1`,
+			 FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC LIMIT $1`,
 			limit+1,
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT id, email, name, is_verified, disabled_at, created_at
 			 FROM users
-			 WHERE created_at < $1 OR (created_at = $1 AND id::text < $2)
+			 WHERE deleted_at IS NULL AND (created_at < $1 OR (created_at = $1 AND id::text < $2))
 			 ORDER BY created_at DESC, id DESC LIMIT $3`,
 			cursor.CreatedAt, cursor.ID.String(), limit+1,
 		)
@@ -172,11 +172,64 @@ func (s *UserStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCu
 	return users, nextCursor, total, nil
 }
 
-// CountAll returns the total number of users.
+// CountAll returns the total number of non-deleted users.
 func (s *UserStore) CountAll(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`).Scan(&count)
 	return count, err
+}
+
+var ErrUserOwnsOrg = errors.New("user owns one or more organizations; transfer ownership before deleting")
+
+// DeleteUser soft-deletes a user by anonymizing their email/name and setting deleted_at.
+// Fails if the user still owns any non-deleted organizations.
+// Uses SELECT FOR UPDATE to prevent concurrent double-delete races.
+func (s *UserStore) DeleteUser(ctx context.Context, id uuid.UUID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Lock the user row.
+	var currentDeletedAt *time.Time
+	if err := tx.QueryRowContext(ctx,
+		`SELECT deleted_at FROM users WHERE id = $1 FOR UPDATE`, id,
+	).Scan(&currentDeletedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrUserNotFound
+		}
+		return err
+	}
+	if currentDeletedAt != nil {
+		return ErrUserNotFound
+	}
+
+	// Reject if user still owns orgs.
+	var ownedOrgs int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM organizations WHERE owner_id = $1 AND deleted_at IS NULL`, id,
+	).Scan(&ownedOrgs); err != nil {
+		return err
+	}
+	if ownedOrgs > 0 {
+		return ErrUserOwnsOrg
+	}
+
+	// Anonymize and soft-delete.
+	_, err = tx.ExecContext(ctx,
+		`UPDATE users SET
+			deleted_at = NOW(),
+			email      = 'deleted-' || id::text || '@deleted.invalid',
+			name       = '[deleted]',
+			password_hash = '',
+			updated_at = NOW()
+		 WHERE id = $1`, id,
+	)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetDisabled sets or clears disabled_at for a user.

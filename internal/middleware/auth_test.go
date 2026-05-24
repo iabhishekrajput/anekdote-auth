@@ -112,8 +112,8 @@ func TestRequireAdmin_NonAdminEmail(t *testing.T) {
 	userID := uuid.New()
 	sessionID, _ := store.Create(context.Background(), userID)
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "regular@example.com", "Regular User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "regular@example.com", "Regular User", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now())
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(rows)
@@ -144,8 +144,8 @@ func TestRequireAdmin_ValidAdmin(t *testing.T) {
 	userID := uuid.New()
 	sessionID, _ := store.Create(context.Background(), userID)
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "admin@example.com", "Admin User", "hash", true, true, "superadmin", true, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "admin@example.com", "Admin User", "hash", true, true, "superadmin", true, nil, nil, time.Now(), time.Now())
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
 		WillReturnRows(rows)

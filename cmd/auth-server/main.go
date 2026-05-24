@@ -97,11 +97,11 @@ func main() {
 		WithOrgSupport(orgStore, rdb)
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
-	accountH := handlers.NewAccountHandler(userStore, orgStore)
+	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)
-	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore)
+	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
-	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore)
+	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)

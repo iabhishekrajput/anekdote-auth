@@ -11,6 +11,7 @@ type Org struct {
 	Slug        string
 	DisplayName string
 	OwnerID     uuid.UUID
+	DeletedAt   *time.Time
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

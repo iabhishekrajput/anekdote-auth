@@ -16,6 +16,7 @@ type User struct {
 	AdminRole       string // "superadmin", "readonly", "org_admin" — only meaningful when IsAdmin is true
 	PasswordChanged bool   // false until the user explicitly sets their own password
 	DisabledAt      *time.Time
+	DeletedAt       *time.Time
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

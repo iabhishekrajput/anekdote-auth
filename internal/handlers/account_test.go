@@ -31,7 +31,7 @@ func setupAccountMockedHandler(t *testing.T) (*AccountHandler, sqlmock.Sqlmock, 
 
 	userStore := postgres.NewUserStore(userDB)
 	orgStore := postgres.NewOrgStore(orgDB)
-	handler := NewAccountHandler(userStore, orgStore)
+	handler := NewAccountHandler(userStore, orgStore, nil, nil, nil)
 
 	return handler, userMock, orgMock
 }
@@ -50,8 +50,8 @@ func TestViewAccount_Success(t *testing.T) {
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
+	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now())
 
 	userMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
@@ -84,8 +84,8 @@ func TestViewAccount_OrgStoreFails(t *testing.T) {
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, time.Now(), time.Now())
+	userRows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now())
 
 	userMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
@@ -150,8 +150,8 @@ func TestUpdatePassword_Success(t *testing.T) {
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
 
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "created_at", "updated_at"}).
-		AddRow(userID, "test@example.com", "Test User", string(hash), true, false, nil, true, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "test@example.com", "Test User", string(hash), true, false, nil, true, nil, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
