@@ -235,7 +235,7 @@ func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID uuid.UUID, name
 	// Auto-grant the owner org so it can use its own multi-org client without an approval step.
 	if _, err = tx.ExecContext(ctx,
 		`INSERT INTO client_org_grants (client_id, org_id, granted_by, granted_at)
-		 VALUES ($1, $2, $2, NOW())
+		 VALUES ($1, $2, NULL, NOW())
 		 ON CONFLICT (client_id, org_id) DO NOTHING`,
 		clientID, orgID,
 	); err != nil {
