@@ -511,6 +511,40 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
+// ExploreApps handles GET /account/orgs/:slug/explore
+func (h *OrgHandler) ExploreApps(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	slug := ps.ByName("slug")
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+
+	role, err := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if err != nil || role == "" || role == "member" {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	clients, err := h.clientStore.ListDiscoverableClients(r.Context(), org.ID)
+	if err != nil {
+		slog.Error("ExploreApps: failed to list clients", "error", err)
+		http.Redirect(w, r, "/account/orgs/"+org.Slug+"?error="+url.QueryEscape("Failed to load apps"), http.StatusFound)
+		return
+	}
+
+	canEdit := role == "owner" || role == "admin"
+	isOwner := role == "owner"
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
+	csrfToken := nosurf.Token(r)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ui.OrgExploreAppsPage(csrfToken, org, clients, canEdit, isOwner, isAdmin,
+		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
 // RegisterClient handles POST /account/orgs/:slug/clients
 func (h *OrgHandler) RegisterClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)

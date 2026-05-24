@@ -110,6 +110,7 @@ func NewRouter(
 	router.POST("/account/orgs", withAuthRateLimit(orgH.CreateOrg))
 	router.GET("/account/orgs/:slug", withAuth(orgH.OrgDetail))
 	router.GET("/account/orgs/:slug/clients", withAuth(orgH.OrgClients))
+	router.GET("/account/orgs/:slug/explore", withAuth(orgH.ExploreApps))
 	router.POST("/account/orgs/:slug/invites", withAuthRateLimit(orgH.SendInvite))
 	router.POST("/account/orgs/:slug/invites/:token/revoke", withAuthRateLimit(orgH.RevokeInvite))
 	router.POST("/account/orgs/:slug/members/:userID/role", withAuthRateLimit(orgH.ChangeMemberRole))

@@ -44,6 +44,18 @@ type ClientGrantItem struct {
 	GrantedAt time.Time
 }
 
+// DiscoverableClient represents a multi-org client available for connection.
+type DiscoverableClient struct {
+	ID           string
+	Name         string
+	Domain       string
+	Public       bool
+	OwnerOrgID   uuid.UUID
+	OwnerOrgName string
+	OwnerOrgSlug string
+	CreatedAt    time.Time
+}
+
 // OrgClientInfo wraps the library's ClientInfo and adds OrgID.
 // GetByID wraps ALL clients — existing clients with no org_id get OrgID=nil,
 // so the type assertion in JWTGenerator always succeeds; nil is the safe fallback.
@@ -322,6 +334,39 @@ func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string
 		return "", err
 	}
 	return newSecret, nil
+}
+
+// ListDiscoverableClients returns public/multi-org clients that the given org does not yet have access to or pending requests for.
+func (s *ClientStore) ListDiscoverableClients(ctx context.Context, excludeOrgID uuid.UUID) ([]*DiscoverableClient, error) {
+	query := `
+		SELECT c.id, c.name, c.domain, c.public, c.owner_org_id, o.display_name, o.slug, c.created_at
+		FROM oauth2_clients c
+		JOIN organizations o ON c.owner_org_id = o.id
+		WHERE c.org_id IS NULL
+		AND c.owner_org_id != $1
+		AND NOT EXISTS (
+			SELECT 1 FROM client_org_grants g WHERE g.client_id = c.id AND g.org_id = $1
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM client_access_requests r WHERE r.client_id = c.id AND r.requester_org_id = $1 AND r.status = 'pending'
+		)
+		ORDER BY c.created_at DESC
+	`
+	rows, err := s.db.QueryContext(ctx, query, excludeOrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var clients []*DiscoverableClient
+	for rows.Next() {
+		c := &DiscoverableClient{}
+		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.OwnerOrgID, &c.OwnerOrgName, &c.OwnerOrgSlug, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		clients = append(clients, c)
+	}
+	return clients, rows.Err()
 }
 
 // AdminClientItem is used by the admin panel for the client list view.
