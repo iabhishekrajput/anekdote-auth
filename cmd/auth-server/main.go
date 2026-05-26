@@ -119,6 +119,7 @@ func main() {
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{
 		Path:     "/",
+		MaxAge:   365 * 24 * 60 * 60, // 1 year — matches nosurf default; must be set explicitly because SetBaseCookie replaces the entire struct
 		HttpOnly: true,
 		Secure:   cfg.AppEnv == "production",
 		SameSite: http.SameSiteLaxMode,
@@ -145,9 +146,17 @@ func main() {
 		http.Redirect(w, r, u.String(), http.StatusFound)
 	}))
 
+	// Static files bypass the CSRF handler to prevent a race condition on first
+	// page load: parallel GET /static/* requests would each generate a new CSRF
+	// base token and set it as a cookie; the browser stores the last one received,
+	// which may not match the token embedded in the HTML form → ErrBadToken.
+	topMux := http.NewServeMux()
+	topMux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static"))))
+	topMux.Handle("/", csrfHandler)
+
 	srv := &http.Server{
 		Addr:    ":" + cfg.Port,
-		Handler: middleware.RequestLogger(csrfHandler),
+		Handler: middleware.RequestLogger(topMux),
 	}
 
 	// 8. Start Server with Graceful Shutdown

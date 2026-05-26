@@ -382,7 +382,7 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 				<div class="w-full max-w-sm rounded-lg border border-red-900/60 bg-zinc-950 p-6 shadow-xl space-y-4">
 					<h2 class="text-base font-semibold text-red-400">Delete { org.DisplayName }?</h2>
 					<p class="text-sm text-zinc-400">All members and clients will be removed. Type the org slug to confirm.</p>
-					<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/delete") } class="space-y-4" data-guard>
+					<form method="POST" action={ templ.SafeURL("/account/orgs/" + org.Slug + "/delete") } class="space-y-4">
 						<input type="hidden" name="csrf_token" value={ csrfToken }/>
 						<input
 							type="text"

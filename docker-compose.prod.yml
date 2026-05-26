@@ -1,0 +1,102 @@
+# Production deployment — single server with Cloudflare Tunnel
+#
+# Prerequisites:
+#   1. Copy .env.example to .env and fill in production values (see notes below)
+#   2. Generate RSA key pair:  make generate-certs
+#   3. In the Cloudflare dashboard: create a tunnel, add a public hostname
+#      pointing to http://app:8080, then copy the tunnel token.
+#   4. Pull images:  docker compose -f docker-compose.prod.yml pull
+#   5. Start:        docker compose -f docker-compose.prod.yml up -d
+#
+# .env additions required for this file (not in .env.example):
+#   POSTGRES_USER=authuser
+#   POSTGRES_PASSWORD=<strong-password>
+#   POSTGRES_DB=authdb
+#   IMAGE_TAG=latest                  # or a specific release tag, e.g. v1.2.3
+#   CLOUDFLARE_TUNNEL_TOKEN=<token>   # from the Cloudflare dashboard
+#
+# Keys that must use Docker-internal hostnames (not localhost):
+#   DB_DSN and REDIS_URL are overridden below — your .env values for
+#   those two keys are ignored by this compose file.
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: .env              # reads POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-authuser} -d ${POSTGRES_DB:-authdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM alpine:3.20
+        RUN apk add --no-cache curl && \
+            ARCH=$(uname -m) && \
+            [ "$$ARCH" = "aarch64" ] && ARCH="arm64" || ARCH="x86_64" && \
+            curl -fsSL "https://github.com/pressly/goose/releases/download/v3.22.0/goose_linux_$${ARCH}" \
+              -o /usr/local/bin/goose && \
+            chmod +x /usr/local/bin/goose
+        WORKDIR /migrations
+        ENTRYPOINT ["goose"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://${POSTGRES_USER:-authuser}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-authdb}?sslmode=disable
+    command: ["-dir", "/migrations", "up"]
+
+  app:
+    image: ghcr.io/iabhishekrajput/anekdote-auth:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # No ports: — cloudflared reaches the app via the internal Docker network.
+    # Nothing is exposed to the host.
+    env_file: .env
+    environment:
+      # Force internal Docker hostnames — overrides whatever is in .env
+      DB_DSN: postgres://${POSTGRES_USER:-authuser}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-authdb}?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./certs:/app/certs:ro   # RSA key pair from make generate-certs
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate run
+
+volumes:
+  postgres_data:
+  redis_data:

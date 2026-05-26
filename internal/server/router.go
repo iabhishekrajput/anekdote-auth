@@ -172,9 +172,6 @@ func NewRouter(
 	router.GET("/healthz", probeH.Health)
 	router.GET("/readyz", probeH.Ready)
 
-	// 5. Static Files
-	router.ServeFiles("/static/*filepath", http.Dir("web/static"))
-
 	slog.Info("Router initialized with endpoints")
 	return router
 }
