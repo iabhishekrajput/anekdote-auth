@@ -57,7 +57,7 @@ templ adminUserListBody(csrfToken string, users []*postgres.UserListItem, total 
 							</td>
 							<td class="px-4 py-3 text-xs text-zinc-500">{ u.CreatedAt.Format("2006-01-02") }</td>
 							<td class="px-4 py-3 text-right">
-								<a href={ templ.SafeURL("/admin/users/" + u.ID.String()) } class="text-xs text-brand hover:underline">View</a>
+								<a href={ templ.SafeURL("/admin/users/" + u.ID) } class="text-xs text-brand hover:underline">View</a>
 							</td>
 						</tr>
 					}
@@ -79,7 +79,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 		</div>
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ user.Email }</h1>
-			<p class="text-sm text-zinc-400">User ID: { user.ID.String() }</p>
+			<p class="text-sm text-zinc-400">User ID: { user.ID }</p>
 		</div>
 		@AlertContainer(errorMsg, successMsg)
 		<div class="rounded-lg border border-zinc-800 divide-y divide-zinc-800">
@@ -124,7 +124,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			if user.DisabledAt != nil {
 				<form
 					method="POST"
-					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/enable") }
+					action={ templ.SafeURL("/admin/users/" + user.ID + "/enable") }
 					data-confirm="Re-enable this account? The user will regain full access."
 				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
@@ -136,7 +136,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			} else {
 				<form
 					method="POST"
-					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/disable") }
+					action={ templ.SafeURL("/admin/users/" + user.ID + "/disable") }
 					data-confirm="Disable this user and revoke all their active sessions?"
 				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
@@ -152,7 +152,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			if user.IsAdmin {
 				<form
 					method="POST"
-					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/demote") }
+					action={ templ.SafeURL("/admin/users/" + user.ID + "/demote") }
 					data-confirm={ "Remove admin access from " + user.Email + "?" }
 				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
@@ -172,7 +172,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 				</form>
 				<form
 					method="POST"
-					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/admin-role") }
+					action={ templ.SafeURL("/admin/users/" + user.ID + "/admin-role") }
 				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
 					<div class="flex items-center gap-2">
@@ -193,7 +193,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			} else {
 				<form
 					method="POST"
-					action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/promote") }
+					action={ templ.SafeURL("/admin/users/" + user.ID + "/promote") }
 					data-confirm={ "Grant admin access to " + user.Email + "? They will have full access to this admin panel." }
 				>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
@@ -240,7 +240,7 @@ templ adminUserDetailBody(csrfToken string, user *models.User, orgs []postgres.O
 			<p class="text-sm font-medium text-red-400">Danger zone</p>
 			<form
 				method="POST"
-				action={ templ.SafeURL("/admin/users/" + user.ID.String() + "/delete") }
+				action={ templ.SafeURL("/admin/users/" + user.ID + "/delete") }
 				data-confirm={ "Permanently delete " + user.Email + "? This anonymizes their data and cannot be undone." }
 			>
 				<input type="hidden" name="csrf_token" value={ csrfToken }/>

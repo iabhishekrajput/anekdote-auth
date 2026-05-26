@@ -30,11 +30,11 @@ type mockOrgStore struct {
 	org        *models.Org
 }
 
-func (m *mockOrgStore) GetMembership(_ context.Context, _, _ uuid.UUID) (string, error) {
+func (m *mockOrgStore) GetMembership(_ context.Context, _, _ string) (string, error) {
 	return m.membership, m.memberErr
 }
 
-func (m *mockOrgStore) GetOrgByID(_ context.Context, _ uuid.UUID) (*models.Org, error) {
+func (m *mockOrgStore) GetOrgByID(_ context.Context, _ string) (*models.Org, error) {
 	if m.org != nil {
 		return m.org, nil
 	}
@@ -131,7 +131,7 @@ func TestAuthorize_LoggedIn_Consent(t *testing.T) {
 	handler, mock, mr := setupOAuth2MockedHandler(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := handler.sessionStore.Create(context.Background(), userID)
 
 	// HandleAuthorizeRequest might not query the client store immediately before
@@ -200,7 +200,7 @@ func TestToken_InvalidRequest(t *testing.T) {
 // not a member of the org that owns the client, we render OAuthAccessDeniedPage
 // and return ("", nil) so go-oauth2 does NOT overwrite the response.
 func TestAuthorize_OrgClient_NonMember_RendersAccessDenied(t *testing.T) {
-	orgID := uuid.New()
+	orgID := "org_test_acme_id"
 	orgStore := &mockOrgStore{
 		membership: "",
 		memberErr:  errors.New("not a member"),
@@ -210,7 +210,7 @@ func TestAuthorize_OrgClient_NonMember_RendersAccessDenied(t *testing.T) {
 	handler, mock, mr := setupOAuth2HandlerWithOrgStore(t, orgStore)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := handler.sessionStore.Create(context.Background(), userID)
 
 	// Mock: GetByID returns an org-scoped client

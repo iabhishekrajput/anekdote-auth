@@ -95,7 +95,7 @@ templ adminOrgDetailBody(csrfToken string, org *models.Org, members []*models.Or
 									if m.Role != "owner" {
 										<form
 											method="POST"
-											action={ templ.SafeURL("/admin/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") }
+											action={ templ.SafeURL("/admin/orgs/" + org.Slug + "/members/" + m.UserID + "/remove") }
 											data-confirm="Remove this member from the org?"
 										>
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>

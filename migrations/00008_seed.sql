@@ -16,8 +16,9 @@
 --        make migrate-down    (rolls back this file only)
 --      or via the admin panel: /admin/users → disable/delete
 -- ============================================================
-INSERT INTO users (name, email, password_hash, is_verified, is_admin, admin_role)
+INSERT INTO users (id, name, email, password_hash, is_verified, is_admin, admin_role)
 VALUES (
+    'usr_00000000000000000000000000',
     'Bootstrap Admin',
     'admin@localhost',
     '$2a$10$D3I1bda1qzOdR0NSxJLXHu.tM1tDQyLna5szEEs0Dx.LMcCfAObOS',

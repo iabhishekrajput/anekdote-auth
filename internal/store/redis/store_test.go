@@ -26,7 +26,7 @@ func TestSessionStore_CreateAndGet(t *testing.T) {
 	defer mr.Close()
 
 	store := NewSessionStore(client)
-	userID := uuid.New()
+	userID := uuid.New().String()
 
 	sessionID, err := store.Create(context.Background(), userID)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestSessionStore_Delete(t *testing.T) {
 	defer mr.Close()
 
 	store := NewSessionStore(client)
-	sessionID, _ := store.Create(context.Background(), uuid.New())
+	sessionID, _ := store.Create(context.Background(), uuid.New().String())
 
 	err := store.Delete(context.Background(), sessionID)
 	if err != nil {
@@ -68,7 +68,7 @@ func TestSessionStore_GetUserFromSession(t *testing.T) {
 	defer mr.Close()
 
 	store := NewSessionStore(client)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := store.Create(context.Background(), userID)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -88,7 +88,7 @@ func TestSessionStore_OTP(t *testing.T) {
 	defer mr.Close()
 
 	store := NewSessionStore(client)
-	userID := uuid.New()
+	userID := uuid.New().String()
 
 	err := store.CreateOTP(context.Background(), userID, "123456")
 	if err != nil {
@@ -145,7 +145,7 @@ func TestSessionStore_ResetTokens(t *testing.T) {
 	defer mr.Close()
 
 	store := NewSessionStore(client)
-	userID := uuid.New()
+	userID := uuid.New().String()
 
 	token, _ := store.CreateResetToken(context.Background(), userID)
 	fetchedID, _ := store.GetUserByResetToken(context.Background(), token)
@@ -168,8 +168,8 @@ func TestSessionStore_DeleteAllForUser(t *testing.T) {
 	store := NewSessionStore(client)
 	ctx := context.Background()
 
-	targetID := uuid.New()
-	otherID := uuid.New()
+	targetID := uuid.New().String()
+	otherID := uuid.New().String()
 
 	// Create two sessions for the target user, one for another user.
 	sid1, _ := store.Create(ctx, targetID)
@@ -194,7 +194,7 @@ func TestSessionStore_DeleteAllForUser(t *testing.T) {
 		t.Errorf("other user's session should still exist: %v", err)
 	}
 	if id != otherID {
-		t.Errorf("expected other user UUID %s, got %s", otherID, id)
+		t.Errorf("expected other user %s, got %s", otherID, id)
 	}
 }
 

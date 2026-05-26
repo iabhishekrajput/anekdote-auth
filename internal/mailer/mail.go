@@ -109,7 +109,7 @@ func (m *Mailer) SendOwnershipTransfer(ctx context.Context, toEmail, orgName, or
 	return m.client.DialAndSendWithContext(ctx, msg)
 }
 
-func (m *Mailer) SendClientGrantRequest(ctx context.Context, toEmails []string, clientName, requesterOrgName, approveURL, denyURL string) error {
+func (m *Mailer) SendClientGrantRequest(ctx context.Context, toEmails []string, clientName, requesterOrgName, requestsURL string) error {
 	msg := mail.NewMsg()
 	if err := msg.From(m.config.SMTPFrom); err != nil {
 		return err
@@ -120,7 +120,7 @@ func (m *Mailer) SendClientGrantRequest(ctx context.Context, toEmails []string, 
 	msg.Subject(requesterOrgName + " is requesting access to " + clientName + " - anekdote")
 
 	var body bytes.Buffer
-	if err := uiemail.ClientGrantRequestEmail(clientName, requesterOrgName, approveURL, denyURL).Render(ctx, &body); err != nil {
+	if err := uiemail.ClientGrantRequestEmail(clientName, requesterOrgName, requestsURL).Render(ctx, &body); err != nil {
 		return err
 	}
 	msg.SetBodyString(mail.TypeTextHTML, body.String())

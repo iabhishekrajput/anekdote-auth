@@ -51,6 +51,10 @@ templ AccountLayout(title string, currentPath string, csrfToken string, isAdmin 
 								href="/account/orgs"
 								class={ accountNavClass(currentPath, "/account/orgs") }
 							>Organizations</a>
+							<a
+								href="/account/apps"
+								class={ accountNavClass(currentPath, "/account/apps") }
+							>Apps</a>
 						</nav>
 						if isAdmin {
 							<span class="h-4 w-px bg-zinc-800 mx-1"></span>

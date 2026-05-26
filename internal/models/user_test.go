@@ -4,13 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 )
 
 func TestUserCreation(t *testing.T) {
 	now := time.Now()
-	uid := uuid.New()
+	uid := "usr_01jpqrst1234567890abcdefgh"
 
 	user := models.User{
 		ID:           uid,

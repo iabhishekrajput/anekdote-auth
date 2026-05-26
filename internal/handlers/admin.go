@@ -12,7 +12,6 @@ import (
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -64,9 +63,14 @@ func (h *AdminHandler) Dashboard(w http.ResponseWriter, r *http.Request, _ httpr
 		slog.Error("admin: count clients", "err", err)
 		dbErr = true
 	}
+	grantCount, err := h.clientStore.CountAllGrants(ctx)
+	if err != nil {
+		slog.Error("admin: count grants", "err", err)
+		dbErr = true
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.AdminDashboard(nosurf.Token(r), userCount, orgCount, clientCount, dbErr).Render(ctx, w)
+	_ = ui.AdminDashboard(nosurf.Token(r), userCount, orgCount, clientCount, grantCount, dbErr).Render(ctx, w)
 }
 
 func (h *AdminHandler) UserList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -96,11 +100,7 @@ func (h *AdminHandler) UserList(w http.ResponseWriter, r *http.Request, _ httpro
 
 func (h *AdminHandler) UserDetail(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Error(w, "Invalid user ID", http.StatusBadRequest)
-		return
-	}
+	id := ps.ByName("id")
 	user, err := h.userStore.GetByID(id)
 	if err != nil {
 		http.Error(w, "User not found", http.StatusNotFound)
@@ -116,129 +116,109 @@ func (h *AdminHandler) UserDetail(w http.ResponseWriter, r *http.Request, ps htt
 
 func (h *AdminHandler) DisableUser(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	if id == adminID {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("You cannot disable your own account"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("You cannot disable your own account"), http.StatusFound)
 		return
 	}
 	if err := h.userStore.SetDisabled(ctx, id, true); err != nil {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Failed to disable user"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Failed to disable user"), http.StatusFound)
 		return
 	}
 	_ = h.sessionStore.DeleteAllForUser(ctx, id)
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDisableUser,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
-	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("User disabled and sessions revoked"), http.StatusFound)
+	http.Redirect(w, r, "/admin/users/"+id+"?message="+url.QueryEscape("User disabled and sessions revoked"), http.StatusFound)
 }
 
 func (h *AdminHandler) EnableUser(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	if err := h.userStore.SetDisabled(ctx, id, false); err != nil {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Failed to enable user"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Failed to enable user"), http.StatusFound)
 		return
 	}
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionEnableUser,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
-	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("User enabled"), http.StatusFound)
+	http.Redirect(w, r, "/admin/users/"+id+"?message="+url.QueryEscape("User enabled"), http.StatusFound)
 }
 
 func (h *AdminHandler) PromoteAdmin(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	if err := h.userStore.SetAdmin(ctx, id, true); err != nil {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Failed to grant admin access"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Failed to grant admin access"), http.StatusFound)
 		return
 	}
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionPromoteAdmin,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
-	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("Admin access granted"), http.StatusFound)
+	http.Redirect(w, r, "/admin/users/"+id+"?message="+url.QueryEscape("Admin access granted"), http.StatusFound)
 }
 
 func (h *AdminHandler) DemoteAdmin(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	if err := h.userStore.SetAdmin(ctx, id, false); err != nil {
 		if errors.Is(err, postgres.ErrLastAdmin) {
-			http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Cannot remove the last admin"), http.StatusFound)
+			http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Cannot remove the last admin"), http.StatusFound)
 			return
 		}
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Failed to remove admin access"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Failed to remove admin access"), http.StatusFound)
 		return
 	}
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDemoteAdmin,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
-	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("Admin access removed"), http.StatusFound)
+	http.Redirect(w, r, "/admin/users/"+id+"?message="+url.QueryEscape("Admin access removed"), http.StatusFound)
 }
 
 // ChangeAdminRole updates a user's admin_role (superadmin / readonly / org_admin).
 // Only meaningful when the target user is already an admin (is_admin = true).
 func (h *AdminHandler) ChangeAdminRole(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	role := r.FormValue("role")
 	if err := h.userStore.SetAdminRole(ctx, id, role); err != nil {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("Invalid role: "+err.Error()), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("Invalid role: "+err.Error()), http.StatusFound)
 		return
 	}
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionChangeAdminRole,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
-	http.Redirect(w, r, "/admin/users/"+id.String()+"?message="+url.QueryEscape("Admin role updated to "+role), http.StatusFound)
+	http.Redirect(w, r, "/admin/users/"+id+"?message="+url.QueryEscape("Admin role updated to "+role), http.StatusFound)
 }
 
 func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -269,7 +249,7 @@ func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ http
 func (h *AdminHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
 	clientID := ps.ByName("id")
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
@@ -332,12 +312,8 @@ func (h *AdminHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps http
 func (h *AdminHandler) RemoveOrgMember(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
 	slug := ps.ByName("slug")
-	targetUserID, err := uuid.Parse(ps.ByName("user_id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/orgs?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	targetUserID := ps.ByName("user_id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
@@ -361,7 +337,7 @@ func (h *AdminHandler) RemoveOrgMember(w http.ResponseWriter, r *http.Request, p
 	}
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionRemoveOrgMember,
-			"org_member", org.ID.String()+"/"+targetUserID.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"org_member", org.ID+"/"+targetUserID, extractIP(r), r.Header.Get("User-Agent"))
 	}()
 	http.Redirect(w, r, "/admin/orgs/"+slug+"?message="+url.QueryEscape("Member removed"), http.StatusFound)
 }
@@ -408,9 +384,7 @@ func (h *AdminHandler) ExportAuditCSV(w http.ResponseWriter, r *http.Request, _ 
 func parseAuditFilter(r *http.Request) postgres.AuditFilter {
 	var f postgres.AuditFilter
 	if adminIDStr := r.URL.Query().Get("admin_id"); adminIDStr != "" {
-		if id, err := uuid.Parse(adminIDStr); err == nil {
-			f.AdminID = &id
-		}
+		f.AdminID = &adminIDStr
 	}
 	if action := r.URL.Query().Get("action"); action != "" {
 		f.Action = action
@@ -433,18 +407,14 @@ func parseAuditFilter(r *http.Request) postgres.AuditFilter {
 // DeleteUser handles POST /admin/users/:id/delete — superadmin hard-deletes (soft) a user.
 func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
-	id, err := uuid.Parse(ps.ByName("id"))
-	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	id := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 	if id == adminID {
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape("You cannot delete your own account via admin panel"), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape("You cannot delete your own account via admin panel"), http.StatusFound)
 		return
 	}
 
@@ -453,19 +423,19 @@ func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request, ps htt
 		if errors.Is(err, postgres.ErrUserOwnsOrg) {
 			errMsg = "User owns organizations; delete those orgs first"
 		}
-		http.Redirect(w, r, "/admin/users/"+id.String()+"?error="+url.QueryEscape(errMsg), http.StatusFound)
+		http.Redirect(w, r, "/admin/users/"+id+"?error="+url.QueryEscape(errMsg), http.StatusFound)
 		return
 	}
 
 	_ = h.sessionStore.DeleteAllForUser(ctx, id)
 
 	if h.rdb != nil {
-		h.rdb.Set(ctx, "deleted:user:"+id.String(), "1", 2*time.Hour)
+		h.rdb.Set(ctx, "deleted:user:"+id, "1", 2*time.Hour)
 	}
 
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDeleteUser,
-			"user", id.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"user", id, extractIP(r), r.Header.Get("User-Agent"))
 	}()
 	http.Redirect(w, r, "/admin/users?message="+url.QueryEscape("User deleted"), http.StatusFound)
 }
@@ -474,7 +444,7 @@ func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request, ps htt
 func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
 	slug := ps.ByName("slug")
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
@@ -495,18 +465,18 @@ func (h *AdminHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps http
 
 	// Clean up pending Redis invite keys.
 	if h.rdb != nil {
-		tokens, err := h.rdb.SMembers(ctx, "org:invites:"+orgID.String()).Result()
+		tokens, err := h.rdb.SMembers(ctx, "org:invites:"+orgID).Result()
 		if err == nil {
 			for _, token := range tokens {
 				h.rdb.Del(ctx, "org:invite:"+token)
 			}
-			h.rdb.Del(ctx, "org:invites:"+orgID.String())
+			h.rdb.Del(ctx, "org:invites:"+orgID)
 		}
 	}
 
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionDeleteOrg,
-			"org", orgID.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"org", orgID, extractIP(r), r.Header.Get("User-Agent"))
 	}()
 	http.Redirect(w, r, "/admin/orgs?message="+url.QueryEscape("Organization deleted"), http.StatusFound)
 }
@@ -542,16 +512,10 @@ func (h *AdminHandler) GrantList(w http.ResponseWriter, r *http.Request, _ httpr
 func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	ctx := r.Context()
 	clientID := ps.ByName("clientID")
-	orgIDStr := ps.ByName("orgID")
-	adminID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	orgID := ps.ByName("orgID")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
 	if !ok {
 		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-
-	orgID, err := uuid.Parse(orgIDStr)
-	if err != nil {
-		http.Redirect(w, r, "/admin/grants?error="+url.QueryEscape("Invalid org ID"), http.StatusFound)
 		return
 	}
 
@@ -568,7 +532,7 @@ func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps ht
 
 	// Blocklist all outstanding JTIs for users of this org.
 	if h.rdb != nil && h.revocStore != nil {
-		pattern := "oauth:user-org-tokens:*:" + orgID.String()
+		pattern := "oauth:user-org-tokens:*:" + orgID
 		if keys, scanErr := h.rdb.Keys(ctx, pattern).Result(); scanErr == nil {
 			for _, key := range keys {
 				if jtis, err := h.rdb.SMembers(ctx, key).Result(); err == nil {
@@ -582,7 +546,7 @@ func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps ht
 
 	go func() {
 		_ = h.auditStore.Log(context.WithoutCancel(ctx), adminID, postgres.AuditActionRevokeOrgClient,
-			"grant", clientID+"/"+orgID.String(), extractIP(r), r.Header.Get("User-Agent"))
+			"grant", clientID+"/"+orgID, extractIP(r), r.Header.Get("User-Agent"))
 	}()
 
 	// Notify grantedOrg's admins that access was removed.

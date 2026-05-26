@@ -8,8 +8,6 @@ import (
 	"io"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // AuditAction is a typed constant for admin audit log action names.
@@ -32,8 +30,8 @@ const (
 
 // AuditLogEntry is a single row from admin_audit_log.
 type AuditLogEntry struct {
-	ID         uuid.UUID
-	AdminID    *uuid.UUID
+	ID         string
+	AdminID    *string
 	Action     AuditAction
 	TargetType string
 	TargetID   string
@@ -44,7 +42,7 @@ type AuditLogEntry struct {
 
 // AuditFilter holds optional filter parameters for audit log queries.
 type AuditFilter struct {
-	AdminID *uuid.UUID
+	AdminID *string
 	Action  string
 	From    *time.Time
 	To      *time.Time
@@ -58,10 +56,10 @@ func NewAuditStore(db *sql.DB) *AuditStore {
 	return &AuditStore{db: db}
 }
 
-// Log inserts an audit entry. adminID may be zero-value (logged as NULL).
-func (s *AuditStore) Log(ctx context.Context, adminID uuid.UUID, action AuditAction, targetType, targetID, ipAddr, ua string) error {
-	var aid *uuid.UUID
-	if adminID != (uuid.UUID{}) {
+// Log inserts an audit entry. adminID may be empty string (logged as NULL).
+func (s *AuditStore) Log(ctx context.Context, adminID string, action AuditAction, targetType, targetID, ipAddr, ua string) error {
+	var aid *string
+	if adminID != "" {
 		aid = &adminID
 	}
 	_, err := s.db.ExecContext(ctx,
@@ -132,8 +130,8 @@ func (s *AuditStore) ListAuditCursor(ctx context.Context, limit int, cursor *Pag
 	// cursor predicate (must come first so arg numbers align)
 	if cursor != nil {
 		conditions = append(conditions,
-			fmt.Sprintf("(created_at < $%d OR (created_at = $%d AND id::text < $%d))", 1, 1, 2))
-		args = append(args, cursor.CreatedAt, cursor.ID.String())
+			fmt.Sprintf("(created_at < $%d OR (created_at = $%d AND id < $%d))", 1, 1, 2))
+		args = append(args, cursor.CreatedAt, cursor.ID)
 	}
 
 	// filter predicates
@@ -205,10 +203,10 @@ func (s *AuditStore) ExportAuditCSV(ctx context.Context, filter AuditFilter, w i
 		}
 		adminIDStr := ""
 		if e.AdminID != nil {
-			adminIDStr = e.AdminID.String()
+			adminIDStr = *e.AdminID
 		}
 		_ = cw.Write([]string{
-			e.ID.String(),
+			e.ID,
 			adminIDStr,
 			string(e.Action),
 			e.TargetType,

@@ -34,7 +34,7 @@ func TestOAuth2FullFlow(t *testing.T) {
 		codeChallenge = codeVerifier                                  // plain method
 	)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, err := handler.sessionStore.Create(context.Background(), userID)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
@@ -149,7 +149,7 @@ func TestOAuth2FullFlow(t *testing.T) {
 	if !ok {
 		t.Fatal("step 4: unexpected claims type")
 	}
-	if claims["sub"] != userID.String() {
+	if claims["sub"] != userID {
 		t.Errorf("step 4: expected sub=%s, got %v", userID, claims["sub"])
 	}
 	jti, _ := claims["jti"].(string)

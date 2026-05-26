@@ -13,7 +13,6 @@ import (
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/config"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -185,7 +184,7 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 	}
 
 	slog.Info("register success", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
-	http.Redirect(w, r, fmt.Sprintf("/verify-email?user_id=%s", user.ID.String()), http.StatusFound)
+	http.Redirect(w, r, "/verify-email?user_id="+user.ID, http.StatusFound)
 }
 
 // Helper to generate a 6-digit cryptographic OTP
@@ -236,22 +235,17 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Invalid User ID format", "UserID": userIDStr})
-		return
-	}
+	userID := userIDStr
 
-	valid, err := h.sessionStore.VerifyOTP(context.Background(), userID, otp)
-	if err != nil || !valid {
+	valid, verifyErr := h.sessionStore.VerifyOTP(context.Background(), userID, otp)
+	if verifyErr != nil || !valid {
 		w.WriteHeader(http.StatusUnauthorized)
 		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Invalid or expired OTP", "UserID": userIDStr})
 		return
 	}
 
 	// Update the database to mark user as verified
-	err = h.userStore.UpdateVerified(userID)
+	err := h.userStore.UpdateVerified(userID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		h.render(w, r, "verify_email.tmpl", map[string]interface{}{"Error": "Failed to update user status", "UserID": userIDStr})
@@ -284,15 +278,13 @@ func (h *IdentityHandler) VerifyEmailFunc(w http.ResponseWriter, r *http.Request
 					OrgID string `json:"org_id"`
 					Role  string `json:"role"`
 				}
-				if json.Unmarshal([]byte(raw), &inv) == nil {
-					if orgID, err := uuid.Parse(inv.OrgID); err == nil {
-						if addErr := h.orgStore.AddMember(context.Background(), orgID, userID, inv.Role, nil); addErr == nil {
-							h.rdb.Del(context.Background(), "org:invite:"+inviteToken)
-							h.rdb.SRem(context.Background(), "org:invites:"+inv.OrgID, inviteToken)
-							slog.Info("email verified", "user_id", userID, "remote", r.RemoteAddr)
-							http.Redirect(w, r, "/account/orgs?message=You+joined+the+organization", http.StatusFound)
-							return
-						}
+				if json.Unmarshal([]byte(raw), &inv) == nil && inv.OrgID != "" {
+					if addErr := h.orgStore.AddMember(context.Background(), inv.OrgID, userID, inv.Role, nil); addErr == nil {
+						h.rdb.Del(context.Background(), "org:invite:"+inviteToken)
+						h.rdb.SRem(context.Background(), "org:invites:"+inv.OrgID, inviteToken)
+						slog.Info("email verified", "user_id", userID, "remote", r.RemoteAddr)
+						http.Redirect(w, r, "/account/orgs?message=You+joined+the+organization", http.StatusFound)
+						return
 					}
 				}
 			}
@@ -365,7 +357,7 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 		} else {
 			slog.Debug("OTP generated (no mailer configured)", "email", user.Email, "otp", otp)
 		}
-		http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
+		http.Redirect(w, r, "/verify-email?user_id="+user.ID+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
 		return
 	}
 
@@ -524,20 +516,19 @@ func (h *IdentityHandler) ResetPasswordFunc(w http.ResponseWriter, r *http.Reque
 // Generates a fresh OTP for the given user_id and emails it.
 func (h *IdentityHandler) ResendOTPFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	userIDStr := r.FormValue("user_id")
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
+	if userIDStr == "" {
 		http.Redirect(w, r, "/resend-verification", http.StatusFound)
 		return
 	}
 
-	user, err := h.userStore.GetByID(userID)
+	user, err := h.userStore.GetByID(userIDStr)
 	if err != nil || user.IsVerified {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
 
 	otp, _ := generateOTP()
-	_ = h.sessionStore.CreateOTP(context.Background(), userID, otp)
+	_ = h.sessionStore.CreateOTP(context.Background(), userIDStr, otp)
 	if h.mailer != nil {
 		if err := h.mailer.SendOTP(context.Background(), user.Email, otp); err != nil {
 			slog.Error("failed to send OTP email on verify-email resend", "email", user.Email, "err", err)
@@ -580,5 +571,5 @@ func (h *IdentityHandler) ResendVerificationFunc(w http.ResponseWriter, r *http.
 		slog.Debug("OTP generated (no mailer configured)", "email", user.Email, "otp", otp)
 	}
 
-	http.Redirect(w, r, "/verify-email?user_id="+user.ID.String()+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
+	http.Redirect(w, r, "/verify-email?user_id="+user.ID+"&message=A+new+verification+code+has+been+sent+to+your+email.", http.StatusFound)
 }

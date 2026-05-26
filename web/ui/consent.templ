@@ -75,11 +75,7 @@ templ ConsentPageBody(clientName string, domain string, scopes []string, csrfTok
 			</button>
 		</form>
 
-		if len(eligibleOrgs) > 1 {
-			<p class="text-center text-xs text-zinc-500">Org owners can revoke access from organization settings</p>
-		} else {
-			<p class="text-center text-xs text-zinc-500">Org owners can revoke access from organization settings</p>
-		}
+		<p class="text-center text-xs text-zinc-500">Org owners can revoke access from organization settings</p>
 	</div>
 }
 

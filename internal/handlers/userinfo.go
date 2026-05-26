@@ -10,7 +10,6 @@ import (
 
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/julienschmidt/httprouter"
@@ -18,7 +17,7 @@ import (
 
 // UserInfoUserStore is the minimal interface UserInfoHandler needs for user lookup.
 type UserInfoUserStore interface {
-	GetByID(id uuid.UUID) (*models.User, error)
+	GetByID(id string) (*models.User, error)
 }
 
 // UserInfoRevStore is the minimal interface UserInfoHandler needs for revocation checks.
@@ -114,15 +113,11 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		h.writeTokenError(w, "invalid_token", "no user context")
 		return
 	}
-	userID, parseErr := uuid.Parse(sub)
-	if parseErr != nil {
-		h.writeTokenError(w, "invalid_token", "invalid sub")
-		return
-	}
+	userID := sub
 
 	// 5. Check tombstone — deleted users are rejected before the DB lookup.
 	if h.tombstoneDB != nil {
-		n, err := h.tombstoneDB.Exists(r.Context(), "deleted:user:"+userID.String()).Result()
+		n, err := h.tombstoneDB.Exists(r.Context(), "deleted:user:"+userID).Result()
 		if err != nil || n > 0 {
 			h.writeTokenError(w, "invalid_token", "user not found")
 			return
@@ -131,7 +126,7 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 
 	// 6. Fetch user; check for disabled/deleted account
 	user, lookupErr := h.userStore.GetByID(userID)
-	if lookupErr != nil {
+	if lookupErr != nil || user == nil {
 		h.writeTokenError(w, "invalid_token", "user not found")
 		return
 	}
@@ -148,7 +143,7 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 	}
 
 	resp := map[string]interface{}{
-		"sub": user.ID.String(),
+		"sub": user.ID,
 	}
 	if scopeSet["profile"] {
 		resp["updated_at"] = user.UpdatedAt.Unix()

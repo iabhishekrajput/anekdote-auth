@@ -62,8 +62,8 @@ func setupOrgHandler(t *testing.T) (*OrgHandler, sqlmock.Sqlmock, sqlmock.Sqlmoc
 }
 
 // orgSlugRow returns a single-row result for a GetOrgBySlug query.
-func orgSlugRow(orgID uuid.UUID, slug, name string) *sqlmock.Rows {
-	ownerID := uuid.New()
+func orgSlugRow(orgID string, slug, name string) *sqlmock.Rows {
+	ownerID := uuid.New().String()
 	return sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}).
 		AddRow(orgID, slug, name, ownerID, time.Now(), time.Now())
 }
@@ -88,8 +88,8 @@ func TestOrgClients_NoFlash(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -119,8 +119,8 @@ func TestOrgClients_WithFlash(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 	const secret = "key_abc123"
 
@@ -165,8 +165,8 @@ func TestOrgClients_NonMember(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -195,8 +195,8 @@ func TestRegisterClient_Success_Confidential(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -237,8 +237,8 @@ func TestRegisterClient_Success_Public(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -277,8 +277,8 @@ func TestRegisterClient_InvalidName(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -314,8 +314,8 @@ func TestRegisterClient_InvalidRedirectURI(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -347,8 +347,8 @@ func TestRegisterClient_NonAdmin(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -382,8 +382,8 @@ func TestDeleteClient_Success(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -414,8 +414,8 @@ func TestDeleteClient_NotFound(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -446,8 +446,8 @@ func TestDeleteClient_NonAdmin(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -477,8 +477,8 @@ func TestRotateClientSecret_Success(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -520,8 +520,8 @@ func TestRotateClientSecret_ClientNotFound(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -555,8 +555,8 @@ func TestRotateClientSecret_FlashFailure(t *testing.T) {
 	h, orgMock, clientMock, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 	clientIDStr := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
@@ -603,7 +603,7 @@ func seedInvite(mr *miniredis.Miniredis, token, orgID, orgSlug, orgName, email, 
 }
 
 // seedSession creates a session in miniredis and returns the session ID.
-func seedSession(t *testing.T, rdb *goredis.Client, userID uuid.UUID) string {
+func seedSession(t *testing.T, rdb *goredis.Client, userID string) string {
 	t.Helper()
 	sess := redisStore.NewSessionStore(rdb)
 	sessionID, err := sess.Create(context.Background(), userID)
@@ -656,8 +656,8 @@ func TestAcceptInvite_NotLoggedIn(t *testing.T) {
 	defer mr.Close()
 
 	const token = "invite-token-notloggedin"
-	orgID := uuid.New()
-	seedInvite(mr, token, orgID.String(), "acme", "Acme Corp", "invited@example.com", "admin@example.com", "member")
+	orgID := uuid.New().String()
+	seedInvite(mr, token, orgID, "acme", "Acme Corp", "invited@example.com", "admin@example.com", "member")
 
 	req := httptest.NewRequest(http.MethodGet, "/join?token="+token, nil)
 	rr := httptest.NewRecorder()
@@ -678,10 +678,10 @@ func TestAcceptInvite_Success(t *testing.T) {
 	defer mr.Close()
 
 	const token = "invite-token-success"
-	userID := uuid.New()
-	orgID := uuid.New()
+	userID := uuid.New().String()
+	orgID := uuid.New().String()
 	sessionID := seedSession(t, h.rdb, userID)
-	seedInvite(mr, token, orgID.String(), "acme", "Acme Corp", "user@example.com", "admin@example.com", "member")
+	seedInvite(mr, token, orgID, "acme", "Acme Corp", "user@example.com", "admin@example.com", "member")
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
@@ -715,10 +715,10 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 	defer mr.Close()
 
 	const token = "invite-token-mismatch"
-	userID := uuid.New()
-	orgID := uuid.New()
+	userID := uuid.New().String()
+	orgID := uuid.New().String()
 	sessionID := seedSession(t, h.rdb, userID)
-	seedInvite(mr, token, orgID.String(), "acme", "Acme Corp", "invited@example.com", "admin@example.com", "member")
+	seedInvite(mr, token, orgID, "acme", "Acme Corp", "invited@example.com", "admin@example.com", "member")
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM users WHERE id = \$1`).
 		WithArgs(userID).
@@ -752,7 +752,7 @@ func TestAcceptInvite_EmailMismatch(t *testing.T) {
 
 // --- LeaveOrg POST ---
 
-func leaveOrgRequest(t *testing.T, userID uuid.UUID) (*http.Request, *httptest.ResponseRecorder) {
+func leaveOrgRequest(t *testing.T, userID string) (*http.Request, *httptest.ResponseRecorder) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/leave", nil)
 	req = withUserContext(req, userID)
@@ -763,7 +763,7 @@ func TestLeaveOrg_OrgNotFound(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}))
@@ -787,8 +787,8 @@ func TestLeaveOrg_NotMember(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -813,8 +813,8 @@ func TestLeaveOrg_OwnerBlocked_ViaStore(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -843,9 +843,9 @@ func TestLeaveOrg_Success_Member(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	differentOwner := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	differentOwner := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -881,9 +881,9 @@ func TestLeaveOrg_Success_Admin(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	differentOwner := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	differentOwner := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -915,9 +915,9 @@ func TestLeaveOrg_StoreError(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	differentOwner := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	differentOwner := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -947,7 +947,7 @@ func TestLeaveOrg_StoreError(t *testing.T) {
 
 // --- TransferOwnershipAndLeave POST ---
 
-func transferOwnershipRequest(t *testing.T, userID uuid.UUID, newOwnerID string) (*http.Request, *httptest.ResponseRecorder) {
+func transferOwnershipRequest(t *testing.T, userID string, newOwnerID string) (*http.Request, *httptest.ResponseRecorder) {
 	t.Helper()
 	form := url.Values{}
 	form.Set("new_owner_id", newOwnerID)
@@ -962,7 +962,7 @@ func TestTransferOwnership_OrgNotFound(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "slug", "display_name", "owner_id", "created_at", "updated_at"}))
@@ -982,8 +982,8 @@ func TestTransferOwnership_NotMember(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1008,8 +1008,8 @@ func TestTransferOwnership_NotOwner(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1034,8 +1034,8 @@ func TestTransferOwnership_SelfTransfer(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1044,7 +1044,7 @@ func TestTransferOwnership_SelfTransfer(t *testing.T) {
 		WithArgs(orgID, userID).
 		WillReturnRows(membershipRow("owner"))
 
-	req, rr := transferOwnershipRequest(t, userID, userID.String())
+	req, rr := transferOwnershipRequest(t, userID, userID)
 	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
 
 	if rr.Code != http.StatusFound {
@@ -1056,39 +1056,13 @@ func TestTransferOwnership_SelfTransfer(t *testing.T) {
 	}
 }
 
-func TestTransferOwnership_InvalidUUID(t *testing.T) {
-	h, orgMock, _, mr := setupOrgHandler(t)
-	defer mr.Close()
-
-	orgID := uuid.New()
-	userID := uuid.New()
-
-	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
-		WithArgs("acme").
-		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
-	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
-		WithArgs(orgID, userID).
-		WillReturnRows(membershipRow("owner"))
-
-	req, rr := transferOwnershipRequest(t, userID, "not-a-uuid")
-	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
-
-	if rr.Code != http.StatusFound {
-		t.Errorf("expected 302, got %d", rr.Code)
-	}
-	loc := rr.Header().Get("Location")
-	if !strings.Contains(loc, "/account/orgs/acme?error=") || !strings.Contains(loc, "Invalid+user+ID") {
-		t.Errorf("expected invalid UUID error redirect, got %s", loc)
-	}
-}
-
 func TestTransferOwnership_TargetNotMember(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	newOwnerID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	newOwnerID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1103,7 +1077,7 @@ func TestTransferOwnership_TargetNotMember(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"role"}))
 	orgMock.ExpectRollback()
 
-	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID)
 	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
 
 	if rr.Code != http.StatusFound {
@@ -1119,9 +1093,9 @@ func TestTransferOwnership_StoreError(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	newOwnerID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	newOwnerID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1135,7 +1109,7 @@ func TestTransferOwnership_StoreError(t *testing.T) {
 		WillReturnError(errors.New("db failure"))
 	orgMock.ExpectRollback()
 
-	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID)
 	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
 
 	if rr.Code != http.StatusFound {
@@ -1151,9 +1125,9 @@ func TestTransferOwnership_Success(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	userID := uuid.New()
-	newOwnerID := uuid.New()
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	newOwnerID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1178,7 +1152,7 @@ func TestTransferOwnership_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	orgMock.ExpectCommit()
 
-	req, rr := transferOwnershipRequest(t, userID, newOwnerID.String())
+	req, rr := transferOwnershipRequest(t, userID, newOwnerID)
 	h.TransferOwnershipAndLeave(rr, req, withParams("slug", "acme"))
 
 	if rr.Code != http.StatusFound {
@@ -1195,7 +1169,7 @@ func TestTransferOwnership_Success(t *testing.T) {
 
 // --- SendInvite ---
 
-func sendInviteRequest(t *testing.T, userID uuid.UUID, email, role string) (*http.Request, *httptest.ResponseRecorder) {
+func sendInviteRequest(t *testing.T, userID string, email, role string) (*http.Request, *httptest.ResponseRecorder) {
 	t.Helper()
 	form := url.Values{}
 	form.Set("email", email)
@@ -1207,7 +1181,7 @@ func sendInviteRequest(t *testing.T, userID uuid.UUID, email, role string) (*htt
 	return req, httptest.NewRecorder()
 }
 
-func userEmailRow(id uuid.UUID, email string) *sqlmock.Rows {
+func userEmailRow(id string, email string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
 		AddRow(id, email, "User", "hash", true, false, nil, false, nil, nil, time.Now(), time.Now())
 }
@@ -1216,9 +1190,9 @@ func TestSendInvite_ExistingActiveMember(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	actorID := uuid.New()
-	targetID := uuid.New()
+	orgID := uuid.New().String()
+	actorID := uuid.New().String()
+	targetID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1252,12 +1226,12 @@ func TestSendInvite_AlreadyPendingInvite(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	actorID := uuid.New()
+	orgID := uuid.New().String()
+	actorID := uuid.New().String()
 
 	const existingToken = "existing-pending-token"
-	seedInvite(mr, existingToken, orgID.String(), "acme", "Acme Corp", "bob@example.com", "admin@example.com", "member")
-	h.rdb.SAdd(context.Background(), "org:invites:"+orgID.String(), existingToken)
+	seedInvite(mr, existingToken, orgID, "acme", "Acme Corp", "bob@example.com", "admin@example.com", "member")
+	h.rdb.SAdd(context.Background(), "org:invites:"+orgID, existingToken)
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1288,8 +1262,8 @@ func TestSendInvite_GetByEmailError(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	actorID := uuid.New()
+	orgID := uuid.New().String()
+	actorID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1320,8 +1294,8 @@ func TestSendInvite_EmailNormalization(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	actorID := uuid.New()
+	orgID := uuid.New().String()
+	actorID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1346,7 +1320,7 @@ func TestSendInvite_EmailNormalization(t *testing.T) {
 	if !strings.Contains(loc, "Invite+sent") && !strings.Contains(loc, "Invite%20sent") {
 		t.Errorf("expected success redirect, got %s", loc)
 	}
-	members, err := mr.SMembers("org:invites:" + orgID.String())
+	members, err := mr.SMembers("org:invites:" + orgID)
 	if err != nil || len(members) == 0 {
 		t.Fatal("expected invite token in Redis SET")
 	}
@@ -1363,8 +1337,8 @@ func TestSendInvite_NewUnregisteredUser(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()
 
-	orgID := uuid.New()
-	actorID := uuid.New()
+	orgID := uuid.New().String()
+	actorID := uuid.New().String()
 
 	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
 		WithArgs("acme").
@@ -1389,11 +1363,342 @@ func TestSendInvite_NewUnregisteredUser(t *testing.T) {
 	if !strings.Contains(loc, "Invite+sent") && !strings.Contains(loc, "Invite%20sent") {
 		t.Errorf("expected success redirect, got %s", loc)
 	}
-	members, err := mr.SMembers("org:invites:" + orgID.String())
+	members, err := mr.SMembers("org:invites:" + orgID)
 	if err != nil || len(members) == 0 {
 		t.Fatal("expected invite token in org:invites SET")
 	}
 	if _, err := mr.Get("org:invite:" + members[0]); err != nil {
 		t.Errorf("expected org:invite payload in Redis: %v", err)
+	}
+}
+
+// --- GrantClientAccess ---
+
+func TestGrantClientAccess_SingleOrg_DirectGrant(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// IsGlobalClient: org_id IS NOT NULL → not global
+	clientMock.ExpectQuery(`SELECT \(org_id IS NULL\) FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"is_global"}).AddRow(false))
+
+	// GrantOrgAccess: INSERT INTO client_org_grants
+	clientMock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(clientIDStr, orgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	form := url.Values{}
+	form.Set("client_id", clientIDStr)
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.GrantClientAccess(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "granted") && !strings.Contains(loc, "message=") {
+		t.Errorf("expected success message redirect, got %s", loc)
+	}
+}
+
+func TestGrantClientAccess_MultiOrg_CreatesRequest(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+	ownerOrgID := uuid.New().String()
+	requestID := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// IsGlobalClient: org_id IS NULL → global
+	clientMock.ExpectQuery(`SELECT \(org_id IS NULL\) FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"is_global"}).AddRow(true))
+
+	// GetClientOwnerOrgID
+	clientMock.ExpectQuery(`SELECT owner_org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_org_id"}).AddRow(ownerOrgID))
+
+	// CreateGrantRequest
+	clientMock.ExpectQuery(`INSERT INTO client_access_requests`).
+		WithArgs(clientIDStr, orgID, ownerOrgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientIDStr, orgID, ownerOrgID, userID, "pending", time.Now()))
+
+	form := url.Values{}
+	form.Set("client_id", clientIDStr)
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.GrantClientAccess(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "message=") {
+		t.Errorf("expected success message redirect, got %s", loc)
+	}
+	if strings.Contains(loc, "error=") {
+		t.Errorf("expected no error in redirect, got %s", loc)
+	}
+}
+
+func TestGrantClientAccess_NotOwner(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("admin")) // admin, not owner
+
+	form := url.Values{}
+	form.Set("client_id", clientIDStr)
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/grants",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.GrantClientAccess(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rr.Code)
+	}
+}
+
+// --- ApproveGrantRequest ---
+
+func TestApproveGrantRequest_Success(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+	requestID := uuid.New().String()
+	requesterOrgID := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// GetClientOwnerOrgID — must match this org
+	clientMock.ExpectQuery(`SELECT owner_org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_org_id"}).AddRow(orgID))
+
+	// ApproveGrantRequest TX
+	clientMock.ExpectBegin()
+	clientMock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientIDStr, orgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientIDStr, requesterOrgID, orgID, userID, "approved", time.Now()))
+	clientMock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(clientIDStr, requesterOrgID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectCommit()
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/account/orgs/acme/clients/"+clientIDStr+"/requests/"+requestID+"/approve", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.ApproveGrantRequest(rr, req, withParams("slug", "acme", "clientID", clientIDStr, "requestID", requestID))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "message=") || strings.Contains(loc, "error=") {
+		t.Errorf("expected success message redirect, got %s", loc)
+	}
+}
+
+func TestApproveGrantRequest_NotOwner(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+	requestID := uuid.New().String()
+	otherOrgID := uuid.New().String() // client owned by a different org
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// GetClientOwnerOrgID — returns a different org → forbidden
+	clientMock.ExpectQuery(`SELECT owner_org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_org_id"}).AddRow(otherOrgID))
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/account/orgs/acme/clients/"+clientIDStr+"/requests/"+requestID+"/approve", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.ApproveGrantRequest(rr, req, withParams("slug", "acme", "clientID", clientIDStr, "requestID", requestID))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rr.Code)
+	}
+}
+
+// --- DenyGrantRequest ---
+
+func TestDenyGrantRequest_Success(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+	requestID := uuid.New().String()
+	requesterOrgID := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	clientMock.ExpectQuery(`SELECT owner_org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientIDStr).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_org_id"}).AddRow(orgID))
+
+	// DenyGrantRequest — single UPDATE (no TX)
+	clientMock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientIDStr, orgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientIDStr, requesterOrgID, orgID, userID, "denied", time.Now()))
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/account/orgs/acme/clients/"+clientIDStr+"/requests/"+requestID+"/deny", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.DenyGrantRequest(rr, req, withParams("slug", "acme", "clientID", clientIDStr, "requestID", requestID))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("Location")
+	if !strings.Contains(loc, "message=") || strings.Contains(loc, "error=") {
+		t.Errorf("expected success message redirect, got %s", loc)
+	}
+}
+
+// --- ExploreApps ---
+
+func TestExploreApps_Success(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+	ownerOrgID := uuid.New().String()
+	clientIDStr := uuid.New().String()
+	now := time.Now()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+
+	// ListDiscoverableClients: COUNT then SELECT
+	clientMock.ExpectQuery(`SELECT COUNT\(\*\) FROM oauth2_clients`).
+		WithArgs(orgID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	clientMock.ExpectQuery(`SELECT c\.id, c\.name`).
+		WithArgs(orgID, 21). // pageSize=20 → limit+1=21
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "owner_org_id", "display_name", "slug", "created_at"}).
+			AddRow(clientIDStr, "Global App", "https://app.example.com/cb", false, ownerOrgID, "Owner Corp", "owner-corp", now))
+
+	req := httptest.NewRequest(http.MethodGet, "/account/orgs/acme/explore", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.ExploreApps(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Global App") {
+		t.Error("expected client name in response body")
+	}
+}
+
+func TestExploreApps_NonMember(t *testing.T) {
+	h, orgMock, _, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"role"})) // no membership
+
+	req := httptest.NewRequest(http.MethodGet, "/account/orgs/acme/explore", nil)
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.ExploreApps(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Header().Get("Location"), "Access+denied") {
+		t.Errorf("expected access denied redirect, got %s", rr.Header().Get("Location"))
 	}
 }

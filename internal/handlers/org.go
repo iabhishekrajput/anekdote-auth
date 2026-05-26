@@ -15,6 +15,7 @@ import (
 	goredis "github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
+	// uuid is used for generating invite tokens (uuid.New().String())
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis/redisutil"
@@ -89,7 +90,7 @@ func NewOrgHandler(
 
 // ListOrgs handles GET /account/orgs
 func (h *OrgHandler) ListOrgs(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 
 	orgs, err := h.orgStore.ListOrgsForUserFull(r.Context(), userID)
 	if err != nil {
@@ -105,7 +106,7 @@ func (h *OrgHandler) ListOrgs(w http.ResponseWriter, r *http.Request, _ httprout
 
 // CreateOrg handles POST /account/orgs
 func (h *OrgHandler) CreateOrg(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 
 	slug := r.FormValue("slug")
 	displayName := r.FormValue("display_name")
@@ -174,7 +175,7 @@ func (h *OrgHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, _ http
 
 	// Check if user is authenticated
 	sessionUserID, sessionErr := h.sessionStore.GetUserFromSession(r)
-	if sessionErr != nil || sessionUserID == uuid.Nil {
+	if sessionErr != nil || sessionUserID == "" {
 		// Not logged in — redirect to register with invite param preserved
 		http.Redirect(w, r, "/register?invite="+url.QueryEscape(token), http.StatusFound)
 		return
@@ -195,13 +196,12 @@ func (h *OrgHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
-	orgID, err := uuid.Parse(inv.OrgID)
-	if err != nil {
+	if inv.OrgID == "" {
 		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Invalid invite"), http.StatusFound)
 		return
 	}
 
-	if err := h.orgStore.AddMember(r.Context(), orgID, sessionUserID, inv.Role, nil); err != nil {
+	if err := h.orgStore.AddMember(r.Context(), inv.OrgID, sessionUserID, inv.Role, nil); err != nil {
 		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Failed to join organization"), http.StatusFound)
 		return
 	}
@@ -215,7 +215,7 @@ func (h *OrgHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, _ http
 
 // OrgDetail handles GET /account/orgs/:slug
 func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 
 	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
@@ -236,7 +236,7 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 		return
 	}
 
-	pending := h.loadPendingInvites(r.Context(), org.ID.String())
+	pending := h.loadPendingInvites(r.Context(), org.ID)
 	canEdit := role == "owner" || role == "admin"
 	isOwner := role == "owner"
 
@@ -251,13 +251,13 @@ func (h *OrgHandler) OrgDetail(w http.ResponseWriter, r *http.Request, ps httpro
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 	csrfToken := nosurf.Token(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID.String(), canEdit, isOwner, isAdmin,
+	_ = ui.OrgDetailPage(csrfToken, org, members, pending, userID, canEdit, isOwner, isAdmin,
 		grantedClients, outgoingRequests, r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
 // SendInvite handles POST /account/orgs/:slug/invites
 func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	redirectBase := "/account/orgs/" + slug
 
@@ -296,7 +296,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 		}
 	}
 
-	for _, p := range h.loadPendingInvites(r.Context(), org.ID.String()) {
+	for _, p := range h.loadPendingInvites(r.Context(), org.ID) {
 		if p.Email == email {
 			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("an invitation is already pending for this email"), http.StatusFound)
 			return
@@ -311,8 +311,8 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 
 	token := uuid.New().String()
 	inv := invitePayload{
-		OrgID:        org.ID.String(),
-		InviterID:    userID.String(),
+		OrgID:        org.ID,
+		InviterID:    userID,
 		Role:         inviteRole,
 		Email:        email,
 		InviterEmail: inviterEmail,
@@ -323,7 +323,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 
 	pipe := h.rdb.Pipeline()
 	pipe.Set(r.Context(), "org:invite:"+token, string(data), inviteKeyTTL)
-	pipe.SAdd(r.Context(), "org:invites:"+org.ID.String(), token)
+	pipe.SAdd(r.Context(), "org:invites:"+org.ID, token)
 	if _, err := pipe.Exec(r.Context()); err != nil {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to create invite"), http.StatusFound)
 		return
@@ -333,7 +333,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 	if h.mailer != nil {
 		if err := h.mailer.SendOrgInvite(r.Context(), email, org.DisplayName, inviterEmail, acceptURL); err != nil {
 			h.rdb.Del(r.Context(), "org:invite:"+token)
-			h.rdb.SRem(r.Context(), "org:invites:"+org.ID.String(), token)
+			h.rdb.SRem(r.Context(), "org:invites:"+org.ID, token)
 			http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to send invite email"), http.StatusFound)
 			return
 		}
@@ -344,7 +344,7 @@ func (h *OrgHandler) SendInvite(w http.ResponseWriter, r *http.Request, ps httpr
 
 // RevokeInvite handles POST /account/orgs/:slug/invites/:token/revoke
 func (h *OrgHandler) RevokeInvite(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	token := ps.ByName("token")
 	redirectBase := "/account/orgs/" + slug
@@ -362,14 +362,14 @@ func (h *OrgHandler) RevokeInvite(w http.ResponseWriter, r *http.Request, ps htt
 	}
 
 	h.rdb.Del(r.Context(), "org:invite:"+token)
-	h.rdb.SRem(r.Context(), "org:invites:"+org.ID.String(), token)
+	h.rdb.SRem(r.Context(), "org:invites:"+org.ID, token)
 
 	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Invite revoked"), http.StatusFound)
 }
 
 // ChangeMemberRole handles POST /account/orgs/:slug/members/:userID/role
 func (h *OrgHandler) ChangeMemberRole(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	actorID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	actorID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	targetIDStr := ps.ByName("userID")
 	redirectBase := "/account/orgs/" + slug
@@ -386,11 +386,7 @@ func (h *OrgHandler) ChangeMemberRole(w http.ResponseWriter, r *http.Request, ps
 		return
 	}
 
-	targetID, err := uuid.Parse(targetIDStr)
-	if err != nil {
-		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
+	targetID := targetIDStr
 
 	newRole := r.FormValue("role")
 	if err := h.orgStore.UpdateMemberRole(r.Context(), org.ID, targetID, newRole); err != nil {
@@ -411,7 +407,7 @@ func (h *OrgHandler) ChangeMemberRole(w http.ResponseWriter, r *http.Request, ps
 
 // RemoveMember handles POST /account/orgs/:slug/members/:userID/remove
 func (h *OrgHandler) RemoveMember(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	actorID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	actorID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	targetIDStr := ps.ByName("userID")
 	redirectBase := "/account/orgs/" + slug
@@ -428,11 +424,7 @@ func (h *OrgHandler) RemoveMember(w http.ResponseWriter, r *http.Request, ps htt
 		return
 	}
 
-	targetID, err := uuid.Parse(targetIDStr)
-	if err != nil {
-		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
-		return
-	}
+	targetID := targetIDStr
 
 	if err := h.orgStore.RemoveMember(r.Context(), org.ID, targetID); err != nil {
 		if errors.Is(err, postgres.ErrOwnerCannotBeRemoved) {
@@ -472,7 +464,7 @@ func (h *OrgHandler) popSecretFlash(ctx context.Context, clientID string) string
 
 // OrgClients handles GET /account/orgs/:slug/clients
 func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 
 	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
@@ -513,7 +505,7 @@ func (h *OrgHandler) OrgClients(w http.ResponseWriter, r *http.Request, ps httpr
 
 // ExploreApps handles GET /account/orgs/:slug/explore
 func (h *OrgHandler) ExploreApps(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 
 	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
@@ -528,7 +520,9 @@ func (h *OrgHandler) ExploreApps(w http.ResponseWriter, r *http.Request, ps http
 		return
 	}
 
-	clients, err := h.clientStore.ListDiscoverableClients(r.Context(), org.ID)
+	const pageSize = 20
+	cursor, _ := postgres.DecodeCursor(r.URL.Query().Get("cursor"))
+	clients, nextCursor, _, err := h.clientStore.ListDiscoverableClients(r.Context(), org.ID, pageSize, cursor)
 	if err != nil {
 		slog.Error("ExploreApps: failed to list clients", "error", err)
 		http.Redirect(w, r, "/account/orgs/"+org.Slug+"?error="+url.QueryEscape("Failed to load apps"), http.StatusFound)
@@ -541,13 +535,13 @@ func (h *OrgHandler) ExploreApps(w http.ResponseWriter, r *http.Request, ps http
 	csrfToken := nosurf.Token(r)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ui.OrgExploreAppsPage(csrfToken, org, clients, canEdit, isOwner, isAdmin,
+	_ = ui.OrgExploreAppsPage(csrfToken, org, clients, nextCursor, canEdit, isOwner, isAdmin,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
 }
 
 // RegisterClient handles POST /account/orgs/:slug/clients
 func (h *OrgHandler) RegisterClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	redirectBase := "/account/orgs/" + slug + "/clients"
 
@@ -594,7 +588,7 @@ func (h *OrgHandler) RegisterClient(w http.ResponseWriter, r *http.Request, ps h
 
 // DeleteClient handles POST /account/orgs/:slug/clients/:clientID/delete
 func (h *OrgHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	redirectBase := "/account/orgs/" + slug + "/clients"
@@ -619,7 +613,7 @@ func (h *OrgHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps htt
 			}
 			// Best-effort token revocation for this org's grants.
 			if h.rdb != nil && h.revocStore != nil {
-				indexKey := "oauth:user-org-tokens:*:" + org.ID.String()
+				indexKey := "oauth:user-org-tokens:*:" + org.ID
 				if keys, kErr := h.rdb.Keys(r.Context(), indexKey).Result(); kErr == nil {
 					for _, key := range keys {
 						if jtis, err := h.rdb.SMembers(r.Context(), key).Result(); err == nil {
@@ -655,7 +649,7 @@ func (h *OrgHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps htt
 
 // RotateClientSecret handles POST /account/orgs/:slug/clients/:clientID/rotate-secret
 func (h *OrgHandler) RotateClientSecret(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	redirectBase := "/account/orgs/" + slug + "/clients"
@@ -709,7 +703,7 @@ func (h *OrgHandler) RotateClientSecret(w http.ResponseWriter, r *http.Request, 
 
 // TransferOwnershipAndLeave handles POST /account/orgs/:slug/transfer-ownership
 func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	redirectBase := "/account/orgs/" + slug
 
@@ -725,9 +719,8 @@ func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	newOwnerIDStr := r.FormValue("new_owner_id")
-	newOwnerID, err := uuid.Parse(newOwnerIDStr)
-	if err != nil {
+	newOwnerID := strings.TrimSpace(r.FormValue("new_owner_id"))
+	if newOwnerID == "" {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid user ID"), http.StatusFound)
 		return
 	}
@@ -749,7 +742,7 @@ func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Re
 
 	// Best-effort: revoke org-scoped tokens for the departing owner.
 	if h.revocStore != nil && h.rdb != nil {
-		indexKey := "oauth:user-org-tokens:" + userID.String() + ":" + org.ID.String()
+		indexKey := "oauth:user-org-tokens:" + userID + ":" + org.ID
 		if jtis, err := h.rdb.SMembers(r.Context(), indexKey).Result(); err == nil && len(jtis) > 0 {
 			for _, jti := range jtis {
 				h.revocStore.RevokeJTI(r.Context(), jti, time.Hour)
@@ -761,7 +754,7 @@ func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Re
 	// Audit log.
 	if h.auditStore != nil {
 		_ = h.auditStore.Log(r.Context(), userID, postgres.AuditActionTransferOrgOwnership,
-			"org", org.ID.String(), r.RemoteAddr, r.UserAgent())
+			"org", org.ID, r.RemoteAddr, r.UserAgent())
 	}
 
 	// Best-effort: notify new owner by email in a goroutine so email failure
@@ -782,7 +775,7 @@ func (h *OrgHandler) TransferOwnershipAndLeave(w http.ResponseWriter, r *http.Re
 
 // LeaveOrg handles POST /account/orgs/:slug/leave
 func (h *OrgHandler) LeaveOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 
 	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
@@ -812,7 +805,7 @@ func (h *OrgHandler) LeaveOrg(w http.ResponseWriter, r *http.Request, ps httprou
 
 	// Best-effort: revoke all org-scoped tokens issued to this user for this org.
 	if h.revocStore != nil && h.rdb != nil {
-		indexKey := "oauth:user-org-tokens:" + userID.String() + ":" + org.ID.String()
+		indexKey := "oauth:user-org-tokens:" + userID + ":" + org.ID
 		if jtis, err := h.rdb.SMembers(r.Context(), indexKey).Result(); err == nil && len(jtis) > 0 {
 			for _, jti := range jtis {
 				h.revocStore.RevokeJTI(r.Context(), jti, time.Hour)
@@ -826,7 +819,7 @@ func (h *OrgHandler) LeaveOrg(w http.ResponseWriter, r *http.Request, ps httprou
 
 // DeleteOrg handles POST /account/orgs/:slug/delete — owner-only org deletion.
 func (h *OrgHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 
 	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
@@ -856,12 +849,12 @@ func (h *OrgHandler) DeleteOrg(w http.ResponseWriter, r *http.Request, ps httpro
 	}
 
 	// Clean up pending invites from Redis.
-	h.cleanupOrgInvites(r.Context(), orgID.String())
+	h.cleanupOrgInvites(r.Context(), orgID)
 
 	if h.auditStore != nil {
 		go func() {
 			_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionDeleteOrg,
-				"org", orgID.String(), "", "owner")
+				"org", orgID, "", "owner")
 		}()
 	}
 
@@ -923,7 +916,7 @@ func isUniqueViolation(err error) bool {
 // For single-org clients it grants access directly (legacy path).
 // For multi-org clients it creates a pending access request and emails the owner org.
 func (h *OrgHandler) GrantClientAccess(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	redirectBase := "/account/orgs/" + slug
 
@@ -986,6 +979,11 @@ func (h *OrgHandler) GrantClientAccess(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 
+	if h.auditStore != nil {
+		_ = h.auditStore.Log(r.Context(), userID, postgres.AuditActionGrantOrgClient,
+			"client", clientID, r.RemoteAddr, r.UserAgent())
+	}
+
 	// Send email to owner org's admins/owners.
 	if h.mailer != nil {
 		ownerOrg, oErr := h.orgStore.GetOrgByID(r.Context(), *ownerOrgID)
@@ -999,10 +997,9 @@ func (h *OrgHandler) GrantClientAccess(w http.ResponseWriter, r *http.Request, p
 					}
 				}
 				if len(adminEmails) > 0 {
-					approveURL := h.appURL + "/account/orgs/" + ownerOrg.Slug + "/clients/" + clientID + "/requests/" + gr.ID.String() + "/approve"
-					denyURL := h.appURL + "/account/orgs/" + ownerOrg.Slug + "/clients/" + clientID + "/requests/" + gr.ID.String() + "/deny"
+					requestsURL := h.appURL + "/account/orgs/" + ownerOrg.Slug + "/clients/" + clientID + "/requests"
 					go func() {
-						if eErr := h.mailer.SendClientGrantRequest(context.Background(), adminEmails, gr.ClientName, org.DisplayName, approveURL, denyURL); eErr != nil {
+						if eErr := h.mailer.SendClientGrantRequest(context.Background(), adminEmails, gr.ClientName, org.DisplayName, requestsURL); eErr != nil {
 							slog.Error("grant request email failed", "client", clientID, "err", eErr)
 						}
 					}()
@@ -1016,7 +1013,7 @@ func (h *OrgHandler) GrantClientAccess(w http.ResponseWriter, r *http.Request, p
 
 // RevokeClientAccess handles POST /account/orgs/:slug/grants/:clientID/revoke — owner removes a client grant.
 func (h *OrgHandler) RevokeClientAccess(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 
@@ -1038,10 +1035,16 @@ func (h *OrgHandler) RevokeClientAccess(w http.ResponseWriter, r *http.Request, 
 
 	// Blocklist all outstanding JTIs for users of this org issued for this client's grants.
 	if h.rdb != nil && h.revocStore != nil {
-		pattern := "oauth:user-org-tokens:*:" + org.ID.String()
-		keys, scanErr := h.rdb.Keys(r.Context(), pattern).Result()
-		if scanErr == nil {
-			for _, key := range keys {
+		pattern := "oauth:user-org-tokens:*:" + org.ID
+		var cursor uint64
+		for {
+			var batch []string
+			var scanErr error
+			batch, cursor, scanErr = h.rdb.Scan(r.Context(), cursor, pattern, 100).Result()
+			if scanErr != nil {
+				break
+			}
+			for _, key := range batch {
 				jtis, err := h.rdb.SMembers(r.Context(), key).Result()
 				if err != nil {
 					continue
@@ -1049,6 +1052,9 @@ func (h *OrgHandler) RevokeClientAccess(w http.ResponseWriter, r *http.Request, 
 				for _, jti := range jtis {
 					_ = h.revocStore.RevokeJTI(r.Context(), jti, 2*time.Hour)
 				}
+			}
+			if cursor == 0 {
+				break
 			}
 		}
 	}
@@ -1085,7 +1091,7 @@ func (h *OrgHandler) RevokeClientAccess(w http.ResponseWriter, r *http.Request, 
 
 // ApproveGrantRequest handles POST /account/orgs/:slug/clients/:clientID/requests/:requestID/approve
 func (h *OrgHandler) ApproveGrantRequest(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	requestIDStr := ps.ByName("requestID")
@@ -1109,11 +1115,7 @@ func (h *OrgHandler) ApproveGrantRequest(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	requestID, err := uuid.Parse(requestIDStr)
-	if err != nil {
-		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid request ID"), http.StatusFound)
-		return
-	}
+	requestID := requestIDStr
 
 	gr, err := h.clientStore.ApproveGrantRequest(r.Context(), requestID, clientID, org.ID, userID)
 	if err != nil {
@@ -1154,7 +1156,7 @@ func (h *OrgHandler) ApproveGrantRequest(w http.ResponseWriter, r *http.Request,
 
 // DenyGrantRequest handles POST /account/orgs/:slug/clients/:clientID/requests/:requestID/deny
 func (h *OrgHandler) DenyGrantRequest(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	requestIDStr := ps.ByName("requestID")
@@ -1178,11 +1180,7 @@ func (h *OrgHandler) DenyGrantRequest(w http.ResponseWriter, r *http.Request, ps
 		return
 	}
 
-	requestID, err := uuid.Parse(requestIDStr)
-	if err != nil {
-		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid request ID"), http.StatusFound)
-		return
-	}
+	requestID := requestIDStr
 
 	gr, err := h.clientStore.DenyGrantRequest(r.Context(), requestID, clientID, org.ID, userID)
 	if err != nil {
@@ -1217,7 +1215,7 @@ func (h *OrgHandler) DenyGrantRequest(w http.ResponseWriter, r *http.Request, ps
 
 // EditClient handles GET /account/orgs/:slug/clients/:clientID/edit
 func (h *OrgHandler) EditClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	redirectBase := "/account/orgs/" + slug + "/clients"
@@ -1254,7 +1252,7 @@ func (h *OrgHandler) EditClient(w http.ResponseWriter, r *http.Request, ps httpr
 
 // EditClientPost handles POST /account/orgs/:slug/clients/:clientID/edit
 func (h *OrgHandler) EditClientPost(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	redirectBase := "/account/orgs/" + slug + "/clients/" + clientID + "/edit"
@@ -1296,7 +1294,7 @@ func (h *OrgHandler) EditClientPost(w http.ResponseWriter, r *http.Request, ps h
 
 // ClientRequestHistory handles GET /account/orgs/:slug/clients/:clientID/requests
 func (h *OrgHandler) ClientRequestHistory(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	slug := ps.ByName("slug")
 	clientID := ps.ByName("clientID")
 	redirectBase := "/account/orgs/" + slug + "/clients"
@@ -1333,6 +1331,136 @@ func (h *OrgHandler) ClientRequestHistory(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.OrgClientRequestHistoryPage(nosurf.Token(r), org, client, requests, isAdmin,
 		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
+// SetGrantScopes handles POST /account/orgs/:slug/clients/:clientID/grants/:orgID/scopes
+// The owner of a multi-org client can restrict which scopes are issued to users from a granted org.
+func (h *OrgHandler) SetGrantScopes(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(string)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+	grantedOrgIDStr := ps.ByName("orgID")
+	redirectBase := "/account/orgs/" + slug + "/clients"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Verify the client is owned by this org.
+	ownerOrgID, err := h.clientStore.GetClientOwnerOrgID(r.Context(), clientID)
+	if err != nil || ownerOrgID == nil || *ownerOrgID != org.ID {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	grantedOrgID := grantedOrgIDStr
+
+	// Normalise: trim spaces, collapse multiple spaces, deduplicate.
+	rawScopes := strings.TrimSpace(r.FormValue("allowed_scopes"))
+	seen := make(map[string]bool)
+	var normalised []string
+	for _, s := range strings.Fields(rawScopes) {
+		if !seen[s] {
+			seen[s] = true
+			normalised = append(normalised, s)
+		}
+	}
+	scopes := strings.Join(normalised, " ")
+
+	if err := h.clientStore.SetGrantScopes(r.Context(), clientID, grantedOrgID, scopes); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to update scopes"), http.StatusFound)
+		return
+	}
+
+	if h.auditStore != nil {
+		_ = h.auditStore.Log(r.Context(), userID, postgres.AuditActionGrantOrgClient,
+			"client", clientID, r.RemoteAddr, r.UserAgent())
+	}
+
+	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Scope restriction updated"), http.StatusFound)
+}
+
+// DeveloperApps handles GET /account/apps — cross-org client management portal.
+func (h *OrgHandler) DeveloperApps(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(string)
+
+	clients, err := h.clientStore.ListClientsForUser(r.Context(), userID)
+	if err != nil {
+		slog.Error("DeveloperApps: failed to list clients", "err", err)
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to load apps"), http.StatusFound)
+		return
+	}
+
+	// Load orgs where user is owner/admin for the "Register New App" form picker.
+	orgs, _ := h.orgStore.ListOrgsForUserFull(r.Context(), userID)
+
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
+	csrfToken := nosurf.Token(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ui.DeveloperAppsPage(csrfToken, clients, orgs, isAdmin,
+		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
+// RegisterDevApp handles POST /account/apps — quick client registration from the developer portal.
+func (h *OrgHandler) RegisterDevApp(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(string)
+	redirectBase := "/account/apps"
+
+	orgID := strings.TrimSpace(r.FormValue("org_id"))
+	if orgID == "" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid org selection"), http.StatusFound)
+		return
+	}
+
+	// Verify the user is owner/admin of the chosen org.
+	role, _ := h.orgStore.GetMembership(r.Context(), orgID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied for that org"), http.StatusFound)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	redirectURI := strings.TrimSpace(r.FormValue("redirect_uri"))
+	isPublic := r.FormValue("public") == "on"
+	isMultiOrg := r.FormValue("multi_org") == "on"
+
+	if len(name) == 0 || len(name) > 255 {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client name must be 1–255 characters"), http.StatusFound)
+		return
+	}
+	if err := validateRedirectURI(redirectURI); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	clientID, plainSecret, err := h.clientStore.CreateOrgClient(r.Context(), orgID, name, redirectURI, isPublic, isMultiOrg)
+	if err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to register app"), http.StatusFound)
+		return
+	}
+
+	// Look up the org slug to redirect to the org's client list where the secret flash can be shown.
+	org, err := h.orgStore.GetOrgByID(r.Context(), orgID)
+	if err != nil || org == nil {
+		http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("App registered"), http.StatusFound)
+		return
+	}
+
+	if plainSecret != "" {
+		if err := h.storeSecretFlash(r.Context(), clientID, plainSecret); err != nil {
+			http.Redirect(w, r, "/account/orgs/"+org.Slug+"/clients?newClientID="+url.QueryEscape(clientID)+"&error="+url.QueryEscape("App registered but secret could not be saved. Click Rotate Secret to reveal it."), http.StatusFound)
+			return
+		}
+	}
+
+	http.Redirect(w, r, "/account/orgs/"+org.Slug+"/clients?newClientID="+url.QueryEscape(clientID), http.StatusFound)
 }
 
 func validateRedirectURI(rawURI string) error {

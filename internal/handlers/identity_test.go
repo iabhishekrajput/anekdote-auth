@@ -69,7 +69,7 @@ func TestRegisterFunc_Success(t *testing.T) {
 		AddRow(newID, "test@example.com", "Test User", "hashed_password_stub", false, time.Now(), time.Now())
 
 	mock.ExpectQuery(`INSERT INTO users`).
-		WithArgs("test@example.com", "Test User", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "test@example.com", "Test User", sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
 	handler.RegisterFunc(rr, req, nil)
@@ -207,13 +207,13 @@ func TestVerifyEmailFunc_Success(t *testing.T) {
 	handler, mock, mr := setupMockedHandler(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 
 	// Pre-populate OTP in Redis
 	handler.sessionStore.CreateOTP(context.Background(), userID, "123456")
 
 	formData := url.Values{}
-	formData.Set("user_id", userID.String())
+	formData.Set("user_id", userID)
 	formData.Set("otp", "123456")
 
 	req := httptest.NewRequest(http.MethodPost, "/verify-email", strings.NewReader(formData.Encode()))

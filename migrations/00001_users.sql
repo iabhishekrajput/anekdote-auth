@@ -1,28 +1,29 @@
 -- +goose Up
 -- +goose StatementBegin
 
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
-CREATE TABLE users (
-    id                UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name              VARCHAR(255) NOT NULL,
-    email             VARCHAR(255) UNIQUE NOT NULL,
-    password_hash     VARCHAR(255) NOT NULL,
-    is_verified       BOOLEAN      NOT NULL DEFAULT FALSE,
-    is_admin          BOOLEAN      NOT NULL DEFAULT FALSE,
-    admin_role        TEXT,
-    password_changed  BOOLEAN      NOT NULL DEFAULT FALSE,
-    disabled_at       TIMESTAMPTZ,
-    created_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE FUNCTION trigger_set_timestamp() RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE TABLE users (
+    id               TEXT         PRIMARY KEY,
+    name             VARCHAR(255) NOT NULL,
+    email            VARCHAR(255) UNIQUE NOT NULL,
+    password_hash    VARCHAR(255) NOT NULL,
+    is_verified      BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_admin         BOOLEAN      NOT NULL DEFAULT FALSE,
+    admin_role       TEXT,
+    password_changed BOOLEAN      NOT NULL DEFAULT FALSE,
+    disabled_at      TIMESTAMPTZ,
+    deleted_at       TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_users_deleted_at ON users(deleted_at) WHERE deleted_at IS NOT NULL;
 
 CREATE TRIGGER set_timestamp_users
     BEFORE UPDATE ON users
@@ -34,9 +35,8 @@ CREATE TRIGGER set_timestamp_users
 -- +goose StatementBegin
 
 DROP TRIGGER IF EXISTS set_timestamp_users ON users;
-DROP FUNCTION IF EXISTS trigger_set_timestamp();
+DROP INDEX IF EXISTS idx_users_deleted_at;
 DROP TABLE IF EXISTS users;
--- Careful in shared DBs — only drop if this is the sole tenant.
-DROP EXTENSION IF EXISTS "uuid-ossp";
+DROP FUNCTION IF EXISTS trigger_set_timestamp() CASCADE;
 
 -- +goose StatementEnd

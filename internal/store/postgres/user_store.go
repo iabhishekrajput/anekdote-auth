@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 )
 
@@ -46,7 +46,7 @@ func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 	return u, nil
 }
 
-func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
+func (s *UserStore) GetByID(id string) (*models.User, error) {
 	u := &models.User{}
 	var adminRole sql.NullString
 	err := s.db.QueryRow(`
@@ -65,7 +65,7 @@ func (s *UserStore) GetByID(id uuid.UUID) (*models.User, error) {
 
 // SetAdmin sets the is_admin flag for a user. Demoting the last admin returns ErrLastAdmin.
 // Uses SELECT FOR UPDATE inside a transaction to prevent TOCTOU races.
-func (s *UserStore) SetAdmin(ctx context.Context, id uuid.UUID, admin bool) error {
+func (s *UserStore) SetAdmin(ctx context.Context, id string, admin bool) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -95,7 +95,7 @@ func (s *UserStore) SetAdmin(ctx context.Context, id uuid.UUID, admin bool) erro
 }
 
 // SetAdminRole updates the admin_role column. Only valid roles are accepted.
-func (s *UserStore) SetAdminRole(ctx context.Context, id uuid.UUID, role string) error {
+func (s *UserStore) SetAdminRole(ctx context.Context, id string, role string) error {
 	if !validAdminRoles[role] {
 		return errors.New("invalid admin role: must be superadmin, readonly, or org_admin")
 	}
@@ -113,7 +113,7 @@ func (s *UserStore) CountAdmins(ctx context.Context) (int, error) {
 
 // UserListItem is used by the admin panel for list views.
 type UserListItem struct {
-	ID         uuid.UUID
+	ID         string
 	Email      string
 	Name       string
 	IsVerified bool
@@ -141,9 +141,9 @@ func (s *UserStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCu
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT id, email, name, is_verified, disabled_at, created_at
 			 FROM users
-			 WHERE deleted_at IS NULL AND (created_at < $1 OR (created_at = $1 AND id::text < $2))
+			 WHERE deleted_at IS NULL AND (created_at < $1 OR (created_at = $1 AND id < $2))
 			 ORDER BY created_at DESC, id DESC LIMIT $3`,
-			cursor.CreatedAt, cursor.ID.String(), limit+1,
+			cursor.CreatedAt, cursor.ID, limit+1,
 		)
 	}
 	if err != nil {
@@ -184,7 +184,7 @@ var ErrUserOwnsOrg = errors.New("user owns one or more organizations; transfer o
 // DeleteUser soft-deletes a user by anonymizing their email/name and setting deleted_at.
 // Fails if the user still owns any non-deleted organizations.
 // Uses SELECT FOR UPDATE to prevent concurrent double-delete races.
-func (s *UserStore) DeleteUser(ctx context.Context, id uuid.UUID) error {
+func (s *UserStore) DeleteUser(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -220,7 +220,7 @@ func (s *UserStore) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	_, err = tx.ExecContext(ctx,
 		`UPDATE users SET
 			deleted_at = NOW(),
-			email      = 'deleted-' || id::text || '@deleted.invalid',
+			email      = 'deleted-' || id || '@deleted.invalid',
 			name       = '[deleted]',
 			password_hash = '',
 			updated_at = NOW()
@@ -233,7 +233,7 @@ func (s *UserStore) DeleteUser(ctx context.Context, id uuid.UUID) error {
 }
 
 // SetDisabled sets or clears disabled_at for a user.
-func (s *UserStore) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) error {
+func (s *UserStore) SetDisabled(ctx context.Context, id string, disabled bool) error {
 	var err error
 	if disabled {
 		_, err = s.db.ExecContext(ctx,
@@ -247,11 +247,12 @@ func (s *UserStore) SetDisabled(ctx context.Context, id uuid.UUID, disabled bool
 
 func (s *UserStore) Create(email, name, passwordHash string) (*models.User, error) {
 	u := &models.User{}
+	id := idgen.NewUserID()
 	err := s.db.QueryRow(`
-		INSERT INTO users (email, name, password_hash, password_changed)
-		VALUES ($1, $2, $3, TRUE)
+		INSERT INTO users (id, email, name, password_hash, password_changed)
+		VALUES ($1, $2, $3, $4, TRUE)
 		RETURNING id, email, name, password_hash, is_verified, created_at, updated_at`,
-		email, name, passwordHash).
+		id, email, name, passwordHash).
 		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
@@ -261,23 +262,23 @@ func (s *UserStore) Create(email, name, passwordHash string) (*models.User, erro
 	return u, nil
 }
 
-func (s *UserStore) UpdateName(id uuid.UUID, newName string) error {
+func (s *UserStore) UpdateName(id string, newName string) error {
 	_, err := s.db.Exec(`UPDATE users SET name = $1, updated_at = NOW() WHERE id = $2`, newName, id)
 	return err
 }
 
-func (s *UserStore) UpdatePassword(id uuid.UUID, newHash string) error {
+func (s *UserStore) UpdatePassword(id string, newHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = $1, password_changed = TRUE, updated_at = NOW() WHERE id = $2`, newHash, id)
 	return err
 }
 
-func (s *UserStore) UpdateVerified(id uuid.UUID) error {
+func (s *UserStore) UpdateVerified(id string) error {
 	_, err := s.db.Exec(`UPDATE users SET is_verified = TRUE, updated_at = NOW() WHERE id = $1`, id)
 	return err
 }
 
 // ListOrgAdmins returns the emails of active owners and admins in the given org.
-func (s *UserStore) ListOrgAdmins(ctx context.Context, orgID uuid.UUID) ([]string, error) {
+func (s *UserStore) ListOrgAdmins(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT u.email FROM users u
 		 JOIN org_memberships m ON m.user_id = u.id

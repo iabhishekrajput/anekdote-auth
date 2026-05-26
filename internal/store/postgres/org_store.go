@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 )
 
@@ -28,13 +28,14 @@ func (s *OrgStore) BeginTx(ctx context.Context) (*sql.Tx, error) {
 }
 
 // CreateOrgWithOwner inserts org + owner membership atomically within the provided tx.
-func (s *OrgStore) CreateOrgWithOwner(ctx context.Context, tx *sql.Tx, slug, displayName string, ownerID uuid.UUID) (*models.Org, error) {
+func (s *OrgStore) CreateOrgWithOwner(ctx context.Context, tx *sql.Tx, slug, displayName string, ownerID string) (*models.Org, error) {
 	var org models.Org
+	org.ID = idgen.NewOrgID()
 	err := tx.QueryRowContext(ctx,
-		`INSERT INTO organizations (slug, display_name, owner_id)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO organizations (id, slug, display_name, owner_id)
+		 VALUES ($1, $2, $3, $4)
 		 RETURNING id, slug, display_name, owner_id, created_at, updated_at`,
-		slug, displayName, ownerID,
+		org.ID, slug, displayName, ownerID,
 	).Scan(&org.ID, &org.Slug, &org.DisplayName, &org.OwnerID, &org.CreatedAt, &org.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert organization: %w", err)
@@ -67,7 +68,7 @@ func (s *OrgStore) GetOrgBySlug(ctx context.Context, slug string) (*models.Org, 
 	return &org, nil
 }
 
-func (s *OrgStore) GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, error) {
+func (s *OrgStore) GetOrgByID(ctx context.Context, id string) (*models.Org, error) {
 	var org models.Org
 	err := s.db.QueryRowContext(ctx,
 		`SELECT id, slug, display_name, owner_id, created_at, updated_at
@@ -84,7 +85,7 @@ func (s *OrgStore) GetOrgByID(ctx context.Context, id uuid.UUID) (*models.Org, e
 }
 
 // GetMembership returns the user's active role or ("", nil) for no membership.
-func (s *OrgStore) GetMembership(ctx context.Context, orgID, userID uuid.UUID) (string, error) {
+func (s *OrgStore) GetMembership(ctx context.Context, orgID, userID string) (string, error) {
 	var role string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT role FROM org_memberships
@@ -101,7 +102,7 @@ func (s *OrgStore) GetMembership(ctx context.Context, orgID, userID uuid.UUID) (
 }
 
 // ListOrgsForUser returns active memberships with org details.
-func (s *OrgStore) ListOrgsForUser(ctx context.Context, userID uuid.UUID) ([]*models.OrgMembership, error) {
+func (s *OrgStore) ListOrgsForUser(ctx context.Context, userID string) ([]*models.OrgMembership, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT m.org_id, m.user_id, m.role, m.invited_by, m.joined_at,
 		        o.slug, o.display_name, o.owner_id
@@ -119,10 +120,7 @@ func (s *OrgStore) ListOrgsForUser(ctx context.Context, userID uuid.UUID) ([]*mo
 	var memberships []*models.OrgMembership
 	for rows.Next() {
 		var m models.OrgMembership
-		// We embed org fields into OrgMembership.UserEmail field reuse — for list view
-		// we use a dedicated struct; reuse OrgMembership for simplicity here.
-		var orgSlug, orgDisplayName string
-		var orgOwnerID uuid.UUID
+		var orgSlug, orgDisplayName, orgOwnerID string
 		if err := rows.Scan(&m.OrgID, &m.UserID, &m.Role, &m.InvitedBy, &m.JoinedAt,
 			&orgSlug, &orgDisplayName, &orgOwnerID); err != nil {
 			return nil, err
@@ -142,7 +140,7 @@ type OrgListItem struct {
 	MemberCount int
 }
 
-func (s *OrgStore) ListOrgsForUserFull(ctx context.Context, userID uuid.UUID) ([]OrgListItem, error) {
+func (s *OrgStore) ListOrgsForUserFull(ctx context.Context, userID string) ([]OrgListItem, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT o.id, o.slug, o.display_name, o.owner_id, o.created_at, o.updated_at,
 		        m.role,
@@ -174,7 +172,7 @@ func (s *OrgStore) ListOrgsForUserFull(ctx context.Context, userID uuid.UUID) ([
 }
 
 // ListMembers returns active members for an org (removed_at IS NULL).
-func (s *OrgStore) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*models.OrgMembership, error) {
+func (s *OrgStore) ListMembers(ctx context.Context, orgID string) ([]*models.OrgMembership, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT m.org_id, m.user_id, m.role, m.invited_by, m.joined_at, u.email
 		 FROM org_memberships m
@@ -200,7 +198,7 @@ func (s *OrgStore) ListMembers(ctx context.Context, orgID uuid.UUID) ([]*models.
 }
 
 // AddMember upserts — clears removed_at AND updates role on conflict.
-func (s *OrgStore) AddMember(ctx context.Context, orgID, userID uuid.UUID, role string, invitedBy *uuid.UUID) error {
+func (s *OrgStore) AddMember(ctx context.Context, orgID, userID string, role string, invitedBy *string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO org_memberships (org_id, user_id, role, invited_by)
 		 VALUES ($1, $2, $3, $4)
@@ -215,9 +213,9 @@ func (s *OrgStore) AddMember(ctx context.Context, orgID, userID uuid.UUID, role 
 }
 
 // RemoveMember soft-deletes. Rejects if user is the org owner.
-func (s *OrgStore) RemoveMember(ctx context.Context, orgID, userID uuid.UUID) error {
+func (s *OrgStore) RemoveMember(ctx context.Context, orgID, userID string) error {
 	// Check ownership using organizations.owner_id (source of truth)
-	var ownerID uuid.UUID
+	var ownerID string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT owner_id FROM organizations WHERE id = $1`, orgID,
 	).Scan(&ownerID)
@@ -237,7 +235,7 @@ func (s *OrgStore) RemoveMember(ctx context.Context, orgID, userID uuid.UUID) er
 }
 
 // UpdateMemberRole changes role. Rejects 'owner' — use ownership transfer path.
-func (s *OrgStore) UpdateMemberRole(ctx context.Context, orgID, userID uuid.UUID, role string) error {
+func (s *OrgStore) UpdateMemberRole(ctx context.Context, orgID, userID string, role string) error {
 	if role == "owner" {
 		return ErrInvalidRole
 	}
@@ -252,7 +250,7 @@ func (s *OrgStore) UpdateMemberRole(ctx context.Context, orgID, userID uuid.UUID
 // TransferOwnershipAndLeave atomically transfers org ownership from fromOwnerID to toUserID
 // and removes fromOwnerID's membership. Two sources of truth are updated in one TX:
 // organizations.owner_id and org_memberships.role — they must always stay in sync.
-func (s *OrgStore) TransferOwnershipAndLeave(ctx context.Context, orgID, fromOwnerID, toUserID uuid.UUID) error {
+func (s *OrgStore) TransferOwnershipAndLeave(ctx context.Context, orgID, fromOwnerID, toUserID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -313,7 +311,7 @@ func (s *OrgStore) TransferOwnershipAndLeave(ctx context.Context, orgID, fromOwn
 }
 
 // CountClients returns the number of OAuth2 clients registered to an org.
-func (s *OrgStore) CountClients(ctx context.Context, orgID uuid.UUID) (int, error) {
+func (s *OrgStore) CountClients(ctx context.Context, orgID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM oauth2_clients WHERE org_id = $1`, orgID,
@@ -349,9 +347,9 @@ func (s *OrgStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCur
 		)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
-			selectCols+` WHERE o.deleted_at IS NULL AND (o.created_at < $1 OR (o.created_at = $1 AND o.id::text < $2))
+			selectCols+` WHERE o.deleted_at IS NULL AND (o.created_at < $1 OR (o.created_at = $1 AND o.id < $2))
 			 ORDER BY o.created_at DESC, o.id DESC LIMIT $3`,
-			cursor.CreatedAt, cursor.ID.String(), limit+1,
+			cursor.CreatedAt, cursor.ID, limit+1,
 		)
 	}
 	if err != nil {
@@ -395,7 +393,7 @@ var ErrOrgHasClients = errors.New("org has OAuth2 clients; delete them before de
 
 // DeleteOrg soft-deletes an org: removes OAuth2 clients, soft-removes memberships,
 // and sets deleted_at. oauth2_clients are hard-deleted so client_id becomes available again.
-func (s *OrgStore) DeleteOrg(ctx context.Context, id uuid.UUID) error {
+func (s *OrgStore) DeleteOrg(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

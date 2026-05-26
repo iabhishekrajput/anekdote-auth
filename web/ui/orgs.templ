@@ -206,9 +206,9 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 							</td>
 							<td class="px-4 py-3 text-zinc-400 text-xs">{ m.JoinedAt.Format("2006-01-02") }</td>
 							<td class="px-4 py-3 text-right">
-								if canEdit && m.UserID.String() != currentUserID && m.Role != "owner" {
+								if canEdit && m.UserID != currentUserID && m.Role != "owner" {
 									<div class="inline-flex items-center gap-2">
-										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/role") } class="inline-flex items-center gap-1">
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID + "/role") } class="inline-flex items-center gap-1">
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
 											<select name="role" data-autosubmit class="h-7 rounded border border-zinc-700 bg-zinc-900 px-1.5 text-xs text-zinc-200 outline-none focus:border-brand">
 												<option value="member" selected?={ m.Role == "member" }>member</option>
@@ -216,7 +216,7 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 												<option value="admin" selected?={ m.Role == "admin" }>admin</option>
 											</select>
 										</form>
-										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID.String() + "/remove") } class="inline" data-guard>
+										<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/members/" + m.UserID + "/remove") } class="inline" data-guard>
 											<input type="hidden" name="csrf_token" value={ csrfToken }/>
 											<button type="submit" data-confirm-email={ m.UserEmail } class="text-xs text-red-400 hover:text-red-300">Remove</button>
 										</form>
@@ -331,7 +331,10 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 							<tbody>
 								for _, req := range outgoingRequests {
 									<tr class="border-t border-zinc-800/50">
-										<td class="py-2 font-mono text-xs text-zinc-400">{ req.ClientID }</td>
+										<td class="py-2 text-sm font-medium text-zinc-300">
+											{ req.ClientName }
+											<span class="ml-1.5 font-mono text-xs text-zinc-600">{ req.ClientID }</span>
+										</td>
 										<td class="py-2 text-xs text-zinc-500">{ req.RequestedAt.Format("2006-01-02") }</td>
 										<td class="py-2 text-right">
 											<span class="rounded-full border border-yellow-600/30 bg-yellow-600/10 px-2 py-0.5 text-xs text-yellow-500">pending</span>
@@ -436,8 +439,8 @@ templ OrgDetailBody(csrfToken string, org *models.Org, members []*models.OrgMemb
 								>
 									<option value="">— select a member —</option>
 									for _, m := range members {
-										if m.UserID.String() != currentUserID {
-											<option value={ m.UserID.String() }>{ m.UserEmail } ({ m.Role })</option>
+										if m.UserID != currentUserID {
+											<option value={ m.UserID }>{ m.UserEmail } ({ m.Role })</option>
 										}
 									}
 								</select>
@@ -613,19 +616,73 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 						<!-- Multi-org client subsections: connected orgs + pending requests (owner view only) -->
 						if client.IsGlobal && client.IsOwner {
 							if len(client.ConnectedOrgs) > 0 {
-								<div class="border-t border-zinc-800/60 pt-2 space-y-1">
+								<div class="border-t border-zinc-800/60 pt-2 space-y-2">
 									<p class="text-xs font-medium text-zinc-500">Connected orgs</p>
 									<table class="w-full text-xs">
+										<thead>
+											<tr class="text-xs uppercase tracking-wide text-zinc-600">
+												<th class="pb-1 text-left font-medium">Org</th>
+												<th class="pb-1 text-left font-medium">Slug</th>
+												<th class="pb-1 text-left font-medium">Granted</th>
+												<th class="pb-1 text-right font-medium">Scopes</th>
+											</tr>
+										</thead>
 										<tbody>
 											for _, cg := range client.ConnectedOrgs {
 												<tr class="border-t border-zinc-800/30">
 													<td class="py-1.5 font-medium text-zinc-300">{ cg.OrgName }</td>
 													<td class="py-1.5 font-mono text-zinc-500">{ cg.OrgSlug }</td>
 													<td class="py-1.5 text-zinc-500">{ cg.GrantedAt.Format("2006-01-02") }</td>
+													<td class="py-1.5 text-right">
+														if canEdit {
+															<button type="button"
+																data-dialog-show={ "scopes-" + client.ID + "-" + cg.OrgID + "-dialog" }
+																class="text-xs text-zinc-500 hover:text-brand transition-colors">
+																if cg.AllowedScopes != nil && *cg.AllowedScopes != "" {
+																	{ *cg.AllowedScopes }
+																} else {
+																	All scopes
+																}
+															</button>
+														} else {
+															if cg.AllowedScopes != nil && *cg.AllowedScopes != "" {
+																<span class="font-mono text-zinc-600">{ *cg.AllowedScopes }</span>
+															} else {
+																<span class="text-zinc-700">All scopes</span>
+															}
+														}
+													</td>
 												</tr>
 											}
 										</tbody>
 									</table>
+									if canEdit {
+										for _, cg := range client.ConnectedOrgs {
+											<!-- Per-org scope restriction modal -->
+											<div id={ "scopes-" + client.ID + "-" + cg.OrgID + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+												<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
+													<h2 class="text-base font-semibold">Scope restriction for { cg.OrgName }</h2>
+													<p class="text-sm text-zinc-400">Enter space-separated scopes to restrict tokens issued to this org's users. Leave blank to allow all scopes.</p>
+													<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/grants/" + cg.OrgID + "/scopes") } class="space-y-4">
+														<input type="hidden" name="csrf_token" value={ csrfToken }/>
+														<input
+															type="text"
+															name="allowed_scopes"
+															placeholder="e.g. openid email"
+															if cg.AllowedScopes != nil {
+																value={ *cg.AllowedScopes }
+															}
+															class="w-full h-9 rounded-md border border-zinc-700 bg-zinc-900 px-3 font-mono text-xs text-zinc-50 placeholder:text-zinc-600 outline-none focus:border-brand"
+														/>
+														<div class="flex justify-end gap-2">
+															<button type="button" data-dialog-hide={ "scopes-" + client.ID + "-" + cg.OrgID + "-dialog" } class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
+															<button type="submit" class="h-9 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 hover:bg-brand-hover transition-colors">Save</button>
+														</div>
+													</form>
+												</div>
+											</div>
+										}
+									}
 								</div>
 							}
 							if len(client.PendingRequests) > 0 {
@@ -642,11 +699,11 @@ templ OrgClientsBody(csrfToken string, org *models.Org, canEdit bool, clients []
 													<td class="py-1.5 text-zinc-500">{ req.RequestedAt.Format("2006-01-02") }</td>
 													<td class="py-1.5 text-right">
 														<div class="inline-flex gap-1">
-															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID.String() + "/approve") } class="inline">
+															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID + "/approve") } class="inline">
 																<input type="hidden" name="csrf_token" value={ csrfToken }/>
 																<button type="submit" class="h-6 rounded border border-emerald-700/50 px-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Approve</button>
 															</form>
-															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID.String() + "/deny") } class="inline">
+															<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/requests/" + req.ID + "/deny") } class="inline">
 																<input type="hidden" name="csrf_token" value={ csrfToken }/>
 																<button type="submit" class="h-6 rounded border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-50 transition-colors">Deny</button>
 															</form>
@@ -872,11 +929,11 @@ templ OrgClientRequestHistoryBody(csrfToken string, org *models.Org, client *pos
 								<td class="px-4 py-3 text-right">
 									if req.Status == "pending" {
 										<div class="inline-flex gap-1">
-											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID.String() + "/approve") } class="inline">
+											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID + "/approve") } class="inline">
 												<input type="hidden" name="csrf_token" value={ csrfToken }/>
 												<button type="submit" class="h-6 rounded border border-emerald-700/50 px-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors">Approve</button>
 											</form>
-											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID.String() + "/deny") } class="inline">
+											<form method="POST" action={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + req.ClientID + "/requests/" + req.ID + "/deny") } class="inline">
 												<input type="hidden" name="csrf_token" value={ csrfToken }/>
 												<button type="submit" class="h-6 rounded border border-zinc-700 px-2 text-xs text-zinc-400 hover:text-zinc-50 transition-colors">Deny</button>
 											</form>
@@ -971,11 +1028,11 @@ func orgRoleBadgeClass(role string) string {
 	}
 }
 
-templ OrgExploreAppsPage(csrfToken string, org *models.Org, clients []*postgres.DiscoverableClient, canEdit bool, isOwner bool, isAdmin bool, errorMsg, successMsg string) {
-	@AccountLayout("Explore Apps - "+org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug+"/explore", csrfToken, isAdmin, OrgExploreAppsBody(csrfToken, org, clients, canEdit, isOwner, errorMsg, successMsg))
+templ OrgExploreAppsPage(csrfToken string, org *models.Org, clients []*postgres.DiscoverableClient, nextCursor string, canEdit bool, isOwner bool, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout("Explore Apps - "+org.DisplayName+" - anekdote", "/account/orgs/"+org.Slug+"/explore", csrfToken, isAdmin, OrgExploreAppsBody(csrfToken, org, clients, nextCursor, canEdit, isOwner, errorMsg, successMsg))
 }
 
-templ OrgExploreAppsBody(csrfToken string, org *models.Org, clients []*postgres.DiscoverableClient, canEdit bool, isOwner bool, errorMsg, successMsg string) {
+templ OrgExploreAppsBody(csrfToken string, org *models.Org, clients []*postgres.DiscoverableClient, nextCursor string, canEdit bool, isOwner bool, errorMsg, successMsg string) {
 	<div class="w-full max-w-3xl mx-auto space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">{ org.DisplayName }</h1>
@@ -1050,7 +1107,161 @@ templ OrgExploreAppsBody(csrfToken string, org *models.Org, clients []*postgres.
 						}
 					</div>
 				}
+				if nextCursor != "" {
+					<div class="flex justify-center pt-2">
+						<a href={ templ.URL("/account/orgs/" + org.Slug + "/explore?cursor=" + nextCursor) } class="inline-flex h-9 items-center rounded-md border border-zinc-800 px-4 text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Load more →</a>
+					</div>
+				}
 			</div>
 		}
+	</div>
+}
+
+// DeveloperAppsPage renders /account/apps — cross-org client management portal.
+templ DeveloperAppsPage(csrfToken string, clients []*postgres.UserClientItem, orgs []postgres.OrgListItem, isAdmin bool, errorMsg, successMsg string) {
+	@AccountLayout("Developer Apps - anekdote", "/account/apps", csrfToken, isAdmin, DeveloperAppsBody(csrfToken, clients, orgs, errorMsg, successMsg))
+}
+
+templ DeveloperAppsBody(csrfToken string, clients []*postgres.UserClientItem, orgs []postgres.OrgListItem, errorMsg, successMsg string) {
+	<div class="w-full max-w-3xl mx-auto space-y-6">
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Developer Apps</h1>
+				<p class="text-sm text-zinc-400">OAuth clients you manage across all your organizations.</p>
+			</div>
+			<button
+				type="button"
+				data-dialog-show="register-app-dialog"
+				class="inline-flex h-9 items-center gap-1 rounded-md bg-brand px-3 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
+			>+ Register app</button>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3">
+				<h2 class="text-sm font-semibold">Your apps</h2>
+			</div>
+			if len(clients) == 0 {
+				<div class="flex flex-col items-center gap-3 px-4 py-10 text-center">
+					<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-700"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+					<p class="text-sm text-zinc-500">No apps registered yet.</p>
+					<p class="text-xs text-zinc-600">Register an app to start the OAuth2 authorization flow from your org.</p>
+				</div>
+			} else {
+				<div class="divide-y divide-zinc-800">
+					for _, client := range clients {
+						<div class="px-4 py-4 flex items-center justify-between gap-4">
+							<div class="space-y-1.5 min-w-0">
+								<div class="flex items-center gap-2 min-w-0 flex-wrap">
+									<span class="font-medium text-sm truncate">{ client.Name }</span>
+									if client.IsGlobal {
+										<span class="shrink-0 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-xs text-emerald-400">Multi-org</span>
+									}
+									if client.Public {
+										<span class="shrink-0 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-xs text-sky-400">Public · PKCE</span>
+									} else {
+										<span class="shrink-0 rounded-full border border-violet-400/30 bg-violet-400/10 px-2 py-0.5 text-xs text-violet-400">Confidential</span>
+									}
+								</div>
+								<div class="space-y-0.5 text-xs text-zinc-500">
+									<div class="flex items-center gap-2">
+										<span class="text-zinc-600">ID:</span>
+										<span class="font-mono text-zinc-400">{ client.ID }</span>
+										<button type="button" data-copy={ client.ID } class="h-5 rounded border border-zinc-800 px-1.5 text-zinc-600 hover:text-zinc-400 transition-colors">Copy</button>
+									</div>
+									<div class="flex items-center gap-2">
+										<span class="text-zinc-600">Redirect:</span>
+										<span class="font-mono text-zinc-400 truncate">{ client.Domain }</span>
+									</div>
+									<div class="flex items-center gap-2">
+										<span class="text-zinc-600">Org:</span>
+										<a href={ templ.URL("/account/orgs/" + client.OrgSlug + "/clients") } class="font-medium text-zinc-300 hover:text-brand transition-colors">{ client.OrgName }</a>
+									</div>
+									<div>
+										<span class="text-zinc-600">Created:</span>
+										<span class="ml-1">{ client.CreatedAt.Format("2006-01-02") }</span>
+									</div>
+								</div>
+							</div>
+							<div class="shrink-0">
+								<a
+									href={ templ.URL("/account/orgs/" + client.OrgSlug + "/clients") }
+									class="inline-flex h-8 items-center rounded-md border border-zinc-700 px-3 text-xs text-zinc-400 hover:text-zinc-50 transition-colors duration-150"
+								>Manage →</a>
+							</div>
+						</div>
+					}
+				</div>
+			}
+		</div>
+	</div>
+
+	<!-- Register app dialog -->
+	<div id="register-app-dialog" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+		<div class="w-full max-w-md rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl">
+			<h2 class="mb-4 text-base font-semibold">Register new app</h2>
+			<form method="POST" action="/account/apps" class="space-y-4">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="flex flex-col gap-1.5">
+					<label class="text-sm font-medium">Organization</label>
+					<select
+						name="org_id"
+						required
+						class="h-9 w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-50 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+					>
+						<option value="">Select an organization…</option>
+						for _, item := range orgs {
+							if item.Role == "owner" || item.Role == "admin" {
+								<option value={ item.Org.ID }>{ item.Org.DisplayName } ({ item.Role })</option>
+							}
+						}
+					</select>
+					<p class="text-xs text-zinc-500">Only orgs where you're owner or admin are shown.</p>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label class="text-sm font-medium">App name</label>
+					<input
+						type="text"
+						name="name"
+						required
+						placeholder="My App"
+						maxlength="255"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+					/>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label class="text-sm font-medium">Redirect URI</label>
+					<input
+						type="url"
+						name="redirect_uri"
+						required
+						placeholder="https://myapp.example.com/callback"
+						class="h-9 w-full rounded-md border border-zinc-800 bg-transparent px-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none transition-colors focus:border-brand focus:ring-1 focus:ring-brand/50"
+					/>
+				</div>
+				<div class="flex items-center gap-3">
+					<label class="flex items-center gap-2 cursor-pointer">
+						<input type="checkbox" name="public" class="rounded border-zinc-700 bg-zinc-900 text-brand"/>
+						<span class="text-sm">Public client (PKCE)</span>
+					</label>
+					<label class="flex items-center gap-2 cursor-pointer">
+						<input type="checkbox" name="multi_org" class="rounded border-zinc-700 bg-zinc-900 text-brand"/>
+						<span class="text-sm">Multi-org</span>
+					</label>
+				</div>
+				<div class="flex gap-2 justify-end">
+					<button
+						type="button"
+						data-dialog-hide="register-app-dialog"
+						class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50"
+					>Cancel</button>
+					<button
+						type="submit"
+						class="h-9 rounded-md bg-brand px-4 text-sm font-medium text-zinc-950 hover:bg-brand-hover active:scale-[0.98]"
+					>Register</button>
+				</div>
+			</form>
+		</div>
 	</div>
 }

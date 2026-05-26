@@ -30,7 +30,7 @@ type mockUIUserStore struct {
 	calls   int
 }
 
-func (m *mockUIUserStore) GetByID(_ uuid.UUID) (*models.User, error) {
+func (m *mockUIUserStore) GetByID(_ string) (*models.User, error) {
 	m.calls++
 	return m.user, m.findErr
 }
@@ -101,9 +101,9 @@ func doUserInfo(t *testing.T, h *UserInfoHandler, method, authHeader string) *ht
 
 func TestUserInfo_ValidToken_OpenIDOnly(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -112,7 +112,7 @@ func TestUserInfo_ValidToken_OpenIDOnly(t *testing.T) {
 	}
 	var resp map[string]interface{}
 	json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["sub"] != userID.String() {
+	if resp["sub"] != userID {
 		t.Errorf("sub: expected %s, got %v", userID, resp["sub"])
 	}
 	if _, ok := resp["email"]; ok {
@@ -128,9 +128,9 @@ func TestUserInfo_ValidToken_OpenIDOnly(t *testing.T) {
 
 func TestUserInfo_ValidToken_EmailScope(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, Email: "user@example.com", IsVerified: true, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid email", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid email", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -149,10 +149,10 @@ func TestUserInfo_ValidToken_EmailScope(t *testing.T) {
 
 func TestUserInfo_ValidToken_ProfileScope(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	now := time.Now()
 	us.user = &models.User{ID: userID, Name: "Alice", UpdatedAt: now}
-	tok := makeToken(t, ks, userID.String(), "openid profile", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid profile", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -171,9 +171,9 @@ func TestUserInfo_ValidToken_ProfileScope(t *testing.T) {
 
 func TestUserInfo_ValidToken_AllScopes(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, Name: "Bob", Email: "bob@example.com", IsVerified: false, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid profile email", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid profile email", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -343,9 +343,9 @@ func TestUserInfo_RedisRevocationError_FailClosed(t *testing.T) {
 func TestUserInfo_DisabledUser(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
 	disabledAt := time.Now()
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, DisabledAt: &disabledAt}
-	tok := makeToken(t, ks, userID.String(), "openid", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -391,10 +391,10 @@ func TestUserInfo_UserNotFound(t *testing.T) {
 
 func TestUserInfo_ScopeExactMatch_EmailRead_NotEmail(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, Email: "user@example.com", UpdatedAt: time.Now()}
 	// "email_read" must NOT trigger email claim — exact word match only
-	tok := makeToken(t, ks, userID.String(), "openid email_read", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid email_read", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -410,9 +410,9 @@ func TestUserInfo_ScopeExactMatch_EmailRead_NotEmail(t *testing.T) {
 
 func TestUserInfo_EmptyScope(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -421,7 +421,7 @@ func TestUserInfo_EmptyScope(t *testing.T) {
 	}
 	var resp map[string]interface{}
 	json.NewDecoder(rr.Body).Decode(&resp)
-	if resp["sub"] != userID.String() {
+	if resp["sub"] != userID {
 		t.Errorf("sub must be present even with empty scope")
 	}
 	if len(resp) != 1 {
@@ -431,9 +431,9 @@ func TestUserInfo_EmptyScope(t *testing.T) {
 
 func TestUserInfo_EmptyName_ProfileScope(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, Name: "", UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid profile", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid profile", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -452,9 +452,9 @@ func TestUserInfo_EmptyName_ProfileScope(t *testing.T) {
 
 func TestUserInfo_QueryParamTokenRejected(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID}
-	tok := makeToken(t, ks, userID.String(), "openid", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
 
 	// Token in query param (not Authorization header) — must be rejected
 	req := httptest.NewRequest(http.MethodGet, "/userinfo?access_token="+tok, nil)
@@ -468,9 +468,9 @@ func TestUserInfo_QueryParamTokenRejected(t *testing.T) {
 
 func TestUserInfo_POST_AlsoWorks(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodPost, "Bearer "+tok)
 
@@ -481,9 +481,9 @@ func TestUserInfo_POST_AlsoWorks(t *testing.T) {
 
 func TestUserInfo_ContentType(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
-	tok := makeToken(t, ks, userID.String(), "openid", uuid.NewString(), time.Hour)
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
@@ -511,12 +511,12 @@ func TestUserInfo_RevokedToken_WithRealRedis(t *testing.T) {
 	keyID := base64.RawURLEncoding.EncodeToString(hash[:])
 	ks := &crypto.KeyStore{PrivateKey: privKey, PublicKey: &privKey.PublicKey, KeyID: keyID}
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	us := &mockUIUserStore{user: &models.User{ID: userID, UpdatedAt: time.Now()}}
 	h := NewUserInfoHandler(us, ks, revStore, rdb)
 
 	jti := uuid.NewString()
-	tok := makeToken(t, ks, userID.String(), "openid", jti, time.Hour)
+	tok := makeToken(t, ks, userID, "openid", jti, time.Hour)
 
 	// Revoke the JTI
 	if rErr := revStore.RevokeJTI(context.Background(), jti, time.Hour); rErr != nil {

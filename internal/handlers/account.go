@@ -8,7 +8,6 @@ import (
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
@@ -79,7 +78,7 @@ func (h *AccountHandler) render(w http.ResponseWriter, r *http.Request, name str
 }
 
 func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 
 	user, err := h.userStore.GetByID(userID)
 	if err != nil {
@@ -104,7 +103,7 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 }
 
 func (h *AccountHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 	newName := r.FormValue("name")
 
 	if newName == "" {
@@ -122,7 +121,7 @@ func (h *AccountHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, _
 }
 
 func (h *AccountHandler) UpdatePassword(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 
 	oldPassword := r.FormValue("old_password")
 	newPassword := r.FormValue("new_password")
@@ -172,7 +171,7 @@ const userDeletionTombstoneTTL = 2 * time.Hour
 
 // DeleteSelf handles POST /account/delete — self-service account deletion.
 func (h *AccountHandler) DeleteSelf(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	userID := r.Context().Value(types.UserContextKey).(uuid.UUID)
+	userID := r.Context().Value(types.UserContextKey).(string)
 
 	if err := h.userStore.DeleteUser(r.Context(), userID); err != nil {
 		if errors.Is(err, postgres.ErrUserOwnsOrg) {
@@ -188,14 +187,14 @@ func (h *AccountHandler) DeleteSelf(w http.ResponseWriter, r *http.Request, _ ht
 
 	// Tombstone for in-flight JWTs — checked by /userinfo.
 	if h.rdb != nil {
-		h.rdb.Set(r.Context(), "deleted:user:"+userID.String(), "1", userDeletionTombstoneTTL)
+		h.rdb.Set(r.Context(), "deleted:user:"+userID, "1", userDeletionTombstoneTTL)
 	}
 
 	// Audit log — fire-and-forget; deletion has already committed.
 	if h.auditStore != nil {
 		go func() {
 			_ = h.auditStore.Log(context.Background(), userID, postgres.AuditActionDeleteUser,
-				"user", userID.String(), "", "self")
+				"user", userID, "", "self")
 		}()
 	}
 

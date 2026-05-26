@@ -5,8 +5,6 @@ import (
 	"errors"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // PageCursor is an opaque continuation token for cursor-based pagination.
@@ -14,12 +12,12 @@ import (
 // a WHERE clause instead of OFFSET.
 type PageCursor struct {
 	CreatedAt time.Time
-	ID        uuid.UUID
+	ID        string
 }
 
 // EncodeCursor encodes a (created_at, id) pair as a URL-safe base64 string.
-func EncodeCursor(t time.Time, id uuid.UUID) string {
-	raw := t.UTC().Format(time.RFC3339Nano) + "|" + id.String()
+func EncodeCursor(t time.Time, id string) string {
+	raw := t.UTC().Format(time.RFC3339Nano) + "|" + id
 	return base64.URLEncoding.EncodeToString([]byte(raw))
 }
 
@@ -41,9 +39,5 @@ func DecodeCursor(s string) (*PageCursor, error) {
 	if err != nil {
 		return nil, errors.New("invalid cursor timestamp")
 	}
-	id, err := uuid.Parse(parts[1])
-	if err != nil {
-		return nil, errors.New("invalid cursor id")
-	}
-	return &PageCursor{CreatedAt: t, ID: id}, nil
+	return &PageCursor{CreatedAt: t, ID: parts[1]}, nil
 }

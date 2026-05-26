@@ -83,11 +83,11 @@ func adminNavClass(currentPath, target string) string {
 	return base + "text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900"
 }
 
-templ AdminDashboard(csrfToken string, userCount, orgCount, clientCount int, dbErr bool) {
-	@AdminLayout("Admin Dashboard - anekdote", "/admin", csrfToken, adminDashboardBody(userCount, orgCount, clientCount, dbErr))
+templ AdminDashboard(csrfToken string, userCount, orgCount, clientCount, grantCount int, dbErr bool) {
+	@AdminLayout("Admin Dashboard - anekdote", "/admin", csrfToken, adminDashboardBody(userCount, orgCount, clientCount, grantCount, dbErr))
 }
 
-templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
+templ adminDashboardBody(userCount, orgCount, clientCount, grantCount int, dbErr bool) {
 	<div class="space-y-6">
 		<div>
 			<h1 class="text-xl font-semibold tracking-tight">Platform Overview</h1>
@@ -98,7 +98,7 @@ templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 				One or more database queries failed — counts below may be inaccurate.
 			</div>
 		}
-		<div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+		<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			<a href="/admin/users" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
 				<p class="text-sm text-zinc-400">Total users</p>
 				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(userCount) }</p>
@@ -111,6 +111,10 @@ templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 				<p class="text-sm text-zinc-400">OAuth2 clients</p>
 				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(clientCount) }</p>
 			</a>
+			<a href="/admin/grants" class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-5 hover:border-zinc-700 transition-colors">
+				<p class="text-sm text-zinc-400">Active grants</p>
+				<p class="mt-1 text-3xl font-semibold tabular-nums">{ intToStr(grantCount) }</p>
+			</a>
 		</div>
 		<div class="rounded-lg border border-zinc-800 p-5 text-sm text-zinc-400 space-y-1">
 			<p class="font-medium text-zinc-300">Quick links</p>
@@ -118,6 +122,7 @@ templ adminDashboardBody(userCount, orgCount, clientCount int, dbErr bool) {
 				<li><a href="/admin/users" class="text-brand hover:underline">View all users →</a></li>
 				<li><a href="/admin/clients" class="text-brand hover:underline">View all OAuth clients →</a></li>
 				<li><a href="/admin/orgs" class="text-brand hover:underline">View all organizations →</a></li>
+				<li><a href="/admin/grants" class="text-brand hover:underline">View all grants →</a></li>
 			</ul>
 		</div>
 	</div>
@@ -202,7 +207,7 @@ templ adminAuditLogBody(entries []*postgres.AuditLogEntry, total int, cursor, ne
 							<td class="px-4 py-3 font-mono text-xs text-zinc-500">{ e.CreatedAt.Format("2006-01-02 15:04 UTC") }</td>
 							<td class="px-4 py-3 text-xs text-zinc-300">
 								if e.AdminID != nil {
-									<a href={ templ.SafeURL("/admin/users/" + e.AdminID.String()) } class="text-brand hover:underline font-mono">{ e.AdminID.String()[:8] }…</a>
+									<a href={ templ.SafeURL("/admin/users/" + *e.AdminID) } class="text-brand hover:underline font-mono">{ (*e.AdminID)[:8] }…</a>
 								} else {
 									<span class="text-zinc-600">—</span>
 								}
@@ -288,7 +293,7 @@ func auditExportURL(f postgres.AuditFilter) string {
 		params += "&action=" + f.Action
 	}
 	if f.AdminID != nil {
-		params += "&admin_id=" + f.AdminID.String()
+		params += "&admin_id=" + *f.AdminID
 	}
 	if f.From != nil {
 		params += "&from=" + f.From.Format("2006-01-02")
@@ -317,12 +322,7 @@ templ AdminGrantListBody(csrfToken string, grants []*postgres.AdminGrantRow, tot
 			<span class="text-sm text-zinc-500">{ fmt.Sprintf("%d total", total) }</span>
 		</div>
 
-		if errorMsg != "" {
-			<div class="rounded-md border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-400">{ errorMsg }</div>
-		}
-		if successMsg != "" {
-			<div class="rounded-md border border-emerald-800/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-400">{ successMsg }</div>
-		}
+		@AlertContainer(errorMsg, successMsg)
 
 		<div class="rounded-lg border border-zinc-800">
 			if len(grants) == 0 {
@@ -353,7 +353,7 @@ templ AdminGrantListBody(csrfToken string, grants []*postgres.AdminGrantRow, tot
 								<td class="px-4 py-3 text-right">
 									<button
 										type="button"
-										data-dialog-show={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" }
+										data-dialog-show={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID + "-dialog" }
 										class="h-7 rounded border border-red-800/50 px-2 text-xs text-red-400 hover:text-red-300 transition-colors"
 									>Revoke</button>
 								</td>
@@ -380,11 +380,11 @@ templ AdminGrantListBody(csrfToken string, grants []*postgres.AdminGrantRow, tot
 
 	<!-- Revoke confirmation dialogs -->
 	for _, g := range grants {
-		<div id={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+		<div id={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID + "-dialog" } class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
 			<div class="w-full max-w-sm rounded-lg border border-zinc-800 bg-zinc-950 p-6 shadow-xl space-y-4">
 				<h2 class="text-base font-semibold">Revoke { g.GrantedOrgName }'s access?</h2>
 				<p class="text-sm text-zinc-400">This will remove <strong>{ g.GrantedOrgName }</strong>'s access to <strong>{ g.ClientName }</strong> and invalidate their outstanding tokens.</p>
-				<form method="POST" action={ templ.URL("/admin/grants/" + g.ClientID + "/" + g.GrantedOrgID.String() + "/revoke") } class="space-y-3">
+				<form method="POST" action={ templ.URL("/admin/grants/" + g.ClientID + "/" + g.GrantedOrgID + "/revoke") } class="space-y-3">
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
 					<div class="flex flex-col gap-1.5">
 						<label class="text-xs font-medium text-zinc-400">Reason (optional)</label>
@@ -397,7 +397,7 @@ templ AdminGrantListBody(csrfToken string, grants []*postgres.AdminGrantRow, tot
 						/>
 					</div>
 					<div class="flex justify-end gap-2">
-						<button type="button" data-dialog-hide={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID.String() + "-dialog" } class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
+						<button type="button" data-dialog-hide={ "revoke-" + g.ClientID + "-" + g.GrantedOrgID + "-dialog" } class="h-9 rounded-md border border-zinc-800 px-3 text-sm text-zinc-400 hover:text-zinc-50">Cancel</button>
 						<button type="submit" class="h-9 rounded-md bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-500 transition-colors">Revoke access</button>
 					</div>
 				</form>

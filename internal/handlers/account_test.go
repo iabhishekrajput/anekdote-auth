@@ -37,7 +37,7 @@ func setupAccountMockedHandler(t *testing.T) (*AccountHandler, sqlmock.Sqlmock, 
 }
 
 // helper to wrap requests with user context
-func withUserContext(req *http.Request, userID uuid.UUID) *http.Request {
+func withUserContext(req *http.Request, userID string) *http.Request {
 	ctx := context.WithValue(req.Context(), types.UserContextKey, userID)
 	return req.WithContext(ctx)
 }
@@ -45,7 +45,7 @@ func withUserContext(req *http.Request, userID uuid.UUID) *http.Request {
 func TestViewAccount_Success(t *testing.T) {
 	handler, userMock, orgMock := setupAccountMockedHandler(t)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	req := httptest.NewRequest(http.MethodGet, "/account", nil)
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestViewAccount_Success(t *testing.T) {
 func TestViewAccount_OrgStoreFails(t *testing.T) {
 	handler, userMock, orgMock := setupAccountMockedHandler(t)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	req := httptest.NewRequest(http.MethodGet, "/account", nil)
 	req = withUserContext(req, userID)
 	rr := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestViewAccount_OrgStoreFails(t *testing.T) {
 func TestUpdateProfile_Success(t *testing.T) {
 	handler, mock, _ := setupAccountMockedHandler(t)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	formData := url.Values{}
 	formData.Set("name", "New Name")
 
@@ -134,7 +134,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 func TestUpdatePassword_Success(t *testing.T) {
 	handler, mock, _ := setupAccountMockedHandler(t)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	formData := url.Values{}
 
 	oldPass := "ValidOldPass123!"

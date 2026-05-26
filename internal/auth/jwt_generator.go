@@ -26,19 +26,22 @@ type OrgMembershipReader interface {
 	// GetMembership returns the user's active role in the org.
 	// Returns "", nil if the user has no active membership (not an error).
 	// Returns "", err for infrastructure failures (DB timeout, etc.).
-	GetMembership(ctx context.Context, orgID, userID uuid.UUID) (role string, err error)
+	GetMembership(ctx context.Context, orgID, userID string) (role string, err error)
 }
 
-// GrantChecker verifies that a multi-org client has been granted access to an org.
+// GrantChecker verifies that a multi-org client has been granted access to an org,
+// and provides the per-org scope restriction if one has been set.
 // Implemented by *postgres.ClientStore.
 type GrantChecker interface {
-	HasGrant(ctx context.Context, clientID string, orgID uuid.UUID) (bool, error)
+	HasGrant(ctx context.Context, clientID string, orgID string) (bool, error)
+	// GetGrantAllowedScopes returns the scope whitelist for a grant (nil = unrestricted).
+	GetGrantAllowedScopes(ctx context.Context, clientID string, orgID string) (*string, error)
 }
 
 // UserReader is the minimal interface JWTGenerator needs for scope-driven claims.
 // Implemented by *postgres.UserStore.
 type UserReader interface {
-	GetByID(id uuid.UUID) (*models.User, error)
+	GetByID(id string) (*models.User, error)
 }
 
 // JWTGenerator implements oauth2.AccessGenerate
@@ -76,14 +79,17 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		encodedOrgID = rawUserID[idx+1:]
 	}
 
+	// Effective scope may be narrowed by a per-org grant restriction (set later).
+	effectiveScope := data.TokenInfo.GetScope()
+
 	claims := jwt.MapClaims{
-		"iss":   g.issuer,
-		"sub":   subUserID,
-		"aud":   data.Client.GetID(),
-		"exp":   time.Now().Add(data.TokenInfo.GetAccessExpiresIn()).Unix(),
-		"iat":   time.Now().Unix(),
-		"jti":   jti,
-		"scope": data.TokenInfo.GetScope(),
+		"iss": g.issuer,
+		"sub": subUserID,
+		"aud": data.Client.GetID(),
+		"exp": time.Now().Add(data.TokenInfo.GetAccessExpiresIn()).Unix(),
+		"iat": time.Now().Unix(),
+		"jti": jti,
+		// "scope" is set after org resolution so the per-org restriction can narrow it.
 	}
 
 	// Inject org claims when:
@@ -91,22 +97,17 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 	//   (b) multi-org consent: encodedOrgID is set in the UserID field.
 	// Skip for client_credentials grants (data.UserID is empty).
 	if subUserID != "" {
-		var resolvedOrgID *uuid.UUID
+		var resolvedOrgID *string
 		if encodedOrgID != "" {
-			if id, parseErr := uuid.Parse(encodedOrgID); parseErr == nil {
-				resolvedOrgID = &id
-			}
+			eid := encodedOrgID
+			resolvedOrgID = &eid
 		} else if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
 			resolvedOrgID = oci.OrgID
 		}
 
 		if resolvedOrgID != nil {
-			userID, parseErr := uuid.Parse(subUserID)
-			if parseErr != nil {
-				return "", "", fmt.Errorf("invalid user_id in token data: %w", parseErr)
-			}
 			// Re-validate membership at token time (defends against tampering + membership removal between consent and exchange).
-			role, lookupErr := g.orgStore.GetMembership(ctx, *resolvedOrgID, userID)
+			role, lookupErr := g.orgStore.GetMembership(ctx, *resolvedOrgID, subUserID)
 			if lookupErr != nil {
 				return "", "", fmt.Errorf("org membership lookup failed: %w", lookupErr)
 			}
@@ -118,7 +119,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 			// org B from forging a token for a client that was never granted to org B.
 			if encodedOrgID != "" && g.grantChecker != nil {
 				needsGrantCheck := true
-				if oci, isOrgClient := data.Client.(*postgres.OrgClientInfo); isOrgClient && oci.OrgID != nil && oci.OrgID.String() == encodedOrgID {
+				if oci, isOrgClient := data.Client.(*postgres.OrgClientInfo); isOrgClient && oci.OrgID != nil && *oci.OrgID == encodedOrgID {
 					needsGrantCheck = false
 				}
 
@@ -130,20 +131,27 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 					if !ok {
 						return "", "", oauth2errors.ErrAccessDenied
 					}
+					// Enforce per-org scope restriction, if one has been set.
+					if allowedScopes, scopeErr := g.grantChecker.GetGrantAllowedScopes(ctx, data.Client.GetID(), *resolvedOrgID); scopeErr == nil && allowedScopes != nil {
+						effectiveScope = intersectScopes(effectiveScope, *allowedScopes)
+					}
 				}
 			}
-			claims["org_id"] = resolvedOrgID.String()
+			claims["org_id"] = *resolvedOrgID
 			claims["org_role"] = role
 
 			if g.rdb != nil {
-				g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+subUserID+":"+resolvedOrgID.String(), jti)
+				g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+subUserID+":"+*resolvedOrgID, jti)
 			}
 		}
 	}
 
+	claims["scope"] = effectiveScope
+
 	// Inject profile/email claims when scopes are granted (user-context tokens only).
+	// Use effectiveScope so per-org restrictions are respected in scope-driven claims.
 	if subUserID != "" && g.userStore != nil {
-		g.injectScopeClaims(ctx, claims, subUserID, data.TokenInfo.GetScope())
+		g.injectScopeClaims(ctx, claims, subUserID, effectiveScope)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -175,11 +183,7 @@ func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims,
 	if !scopeSet["profile"] && !scopeSet["email"] {
 		return
 	}
-	userID, err := uuid.Parse(userIDStr)
-	if err != nil {
-		return
-	}
-	user, err := g.userStore.GetByID(userID)
+	user, err := g.userStore.GetByID(userIDStr)
 	if err != nil {
 		slog.Warn("user lookup failed for scope claims; claims omitted", "user_id", userIDStr, "error", err)
 		return
@@ -194,6 +198,21 @@ func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims,
 		dst["email"] = user.Email
 		dst["email_verified"] = user.IsVerified
 	}
+}
+
+// intersectScopes returns only the scopes from requested that are present in allowed.
+func intersectScopes(requested, allowed string) string {
+	allowedSet := make(map[string]bool)
+	for _, s := range strings.Fields(allowed) {
+		allowedSet[s] = true
+	}
+	var result []string
+	for _, s := range strings.Fields(requested) {
+		if allowedSet[s] {
+			result = append(result, s)
+		}
+	}
+	return strings.Join(result, " ")
 }
 
 // GenerateIDToken creates a signed OIDC ID token for the authorization_code flow.

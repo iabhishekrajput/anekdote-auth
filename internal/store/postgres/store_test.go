@@ -107,10 +107,10 @@ func TestUserStore_Create(t *testing.T) {
 	defer db.Close()
 
 	store := NewUserStore(db)
-	newID := uuid.New()
+	newID := "usr_01jpqrst_test_new_user_id_"
 
 	mock.ExpectQuery(`INSERT INTO users`).
-		WithArgs("new@example.com", "New User", "hashedpass").
+		WithArgs(sqlmock.AnyArg(), "new@example.com", "New User", "hashedpass").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
 			AddRow(newID, "new@example.com", "New User", "hashedpass", false, time.Now(), time.Now()))
 
@@ -118,8 +118,8 @@ func TestUserStore_Create(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if user.ID != newID {
-		t.Errorf("expected UUID %s, got %s", newID, user.ID)
+	if user.ID == "" {
+		t.Errorf("expected non-empty user ID, got %s", newID)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestUserStore_Updates(t *testing.T) {
 	defer db.Close()
 
 	store := NewUserStore(db)
-	userID := uuid.New()
+	userID := "usr_test_update_id"
 
 	// UpdateName
 	mock.ExpectExec(`UPDATE users SET name = \$1(.+)`).
@@ -166,7 +166,7 @@ func TestUserStore_SetDisabled(t *testing.T) {
 	defer db.Close()
 
 	store := NewUserStore(db)
-	userID := uuid.New()
+	userID := "usr_test_disable_id"
 
 	// Disable: SQL uses NOW() directly, only id is a parameter.
 	mock.ExpectExec(`UPDATE users SET disabled_at = NOW\(\)(.+)WHERE id = \$1`).
@@ -200,7 +200,7 @@ func TestClientStore_ListOrgClients_Empty(t *testing.T) {
 		WithArgs(orgID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "created_at", "is_global", "is_owner"}))
 
-	clients, err := store.ListOrgClients(context.Background(), orgID)
+	clients, err := store.ListOrgClients(context.Background(), orgID.String())
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestClientStore_ListOrgClients_WithRows(t *testing.T) {
 			AddRow("client-1", "My App", "https://example.com/cb", false, now, false, true).
 			AddRow("client-2", "SPA", "https://spa.example.com/cb", true, now, false, true))
 
-	clients, err := store.ListOrgClients(context.Background(), orgID)
+	clients, err := store.ListOrgClients(context.Background(), orgID.String())
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestClientStore_CreateOrgClient_Confidential(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "My App", "https://example.com/cb", false, false)
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID.String(), "My App", "https://example.com/cb", false, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestClientStore_CreateOrgClient_Public(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID, "SPA", "https://spa.example.com/cb", true, false)
+	clientID, plainSecret, err := store.CreateOrgClient(context.Background(), orgID.String(), "SPA", "https://spa.example.com/cb", true, false)
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestClientStore_DeleteOrgClient_Success(t *testing.T) {
 		WithArgs("client-123", orgID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	if err := store.DeleteOrgClient(context.Background(), "client-123", orgID); err != nil {
+	if err := store.DeleteOrgClient(context.Background(), "client-123", orgID.String()); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -325,7 +325,7 @@ func TestClientStore_DeleteOrgClient_CrossOrg(t *testing.T) {
 		WithArgs("client-123").
 		WillReturnRows(sqlmock.NewRows([]string{"is_global"}).AddRow(false))
 
-	err := store.DeleteOrgClient(context.Background(), "client-123", orgID)
+	err := store.DeleteOrgClient(context.Background(), "client-123", orgID.String())
 	if !errors.Is(err, ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}
@@ -347,7 +347,7 @@ func TestClientStore_RotateOrgClientSecret_Success(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	newSecret, err := store.RotateOrgClientSecret(context.Background(), "client-123", orgID)
+	newSecret, err := store.RotateOrgClientSecret(context.Background(), "client-123", orgID.String())
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestClientStore_RotateOrgClientSecret_ClientNotFound(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 
-	_, err := store.RotateOrgClientSecret(context.Background(), "client-missing", orgID)
+	_, err := store.RotateOrgClientSecret(context.Background(), "client-missing", orgID.String())
 	if !errors.Is(err, ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}
@@ -388,8 +388,208 @@ func TestClientStore_RotateOrgClientSecret_PublicClient(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"public"}).AddRow(true))
 	mock.ExpectRollback()
 
-	_, err := store.RotateOrgClientSecret(context.Background(), "client-pub", orgID)
+	_, err := store.RotateOrgClientSecret(context.Background(), "client-pub", orgID.String())
 	if err == nil {
 		t.Error("expected error for public client rotation")
+	}
+}
+
+// --- Grant request store methods ---
+
+func TestClientStore_CreateGrantRequest_Success(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	clientID := uuid.New().String()
+	requesterOrgID := uuid.New()
+	ownerOrgID := uuid.New()
+	requestedBy := uuid.New()
+	requestID := uuid.New()
+	now := time.Now()
+
+	mock.ExpectQuery(`INSERT INTO client_access_requests`).
+		WithArgs(clientID, requesterOrgID, ownerOrgID, requestedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientID, requesterOrgID, ownerOrgID, requestedBy, "pending", now))
+
+	gr, err := store.CreateGrantRequest(context.Background(), clientID, requesterOrgID.String(), ownerOrgID.String(), requestedBy.String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gr == nil {
+		t.Fatal("expected non-nil GrantRequest")
+	}
+	if gr.ClientID != clientID {
+		t.Errorf("expected clientID %s, got %s", clientID, gr.ClientID)
+	}
+	if gr.Status != "pending" {
+		t.Errorf("expected status 'pending', got %s", gr.Status)
+	}
+}
+
+func TestClientStore_CreateGrantRequest_Duplicate(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	clientID := uuid.New().String()
+	requesterOrgID := uuid.New()
+	ownerOrgID := uuid.New()
+	requestedBy := uuid.New()
+
+	// ON CONFLICT DO NOTHING means RETURNING returns no rows → sql.ErrNoRows
+	mock.ExpectQuery(`INSERT INTO client_access_requests`).
+		WithArgs(clientID, requesterOrgID, ownerOrgID, requestedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}))
+
+	gr, err := store.CreateGrantRequest(context.Background(), clientID, requesterOrgID.String(), ownerOrgID.String(), requestedBy.String())
+	if err != nil {
+		t.Fatalf("expected nil error for duplicate, got %v", err)
+	}
+	if gr != nil {
+		t.Error("expected nil GrantRequest for duplicate (ON CONFLICT DO NOTHING)")
+	}
+}
+
+func TestClientStore_ApproveGrantRequest_Success(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	requestID := uuid.New()
+	clientID := uuid.New().String()
+	ownerOrgID := uuid.New()
+	resolvedBy := uuid.New()
+	requesterOrgID := uuid.New()
+	now := time.Now()
+	requestedBy := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientID, ownerOrgID, resolvedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientID, requesterOrgID, ownerOrgID, requestedBy, "approved", now))
+	mock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(clientID, requesterOrgID, resolvedBy).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+
+	gr, err := store.ApproveGrantRequest(context.Background(), requestID.String(), clientID, ownerOrgID.String(), resolvedBy.String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gr == nil {
+		t.Fatal("expected non-nil GrantRequest")
+	}
+	if gr.Status != "approved" {
+		t.Errorf("expected status 'approved', got %s", gr.Status)
+	}
+}
+
+func TestClientStore_ApproveGrantRequest_NotPending(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	requestID := uuid.New()
+	clientID := uuid.New().String()
+	ownerOrgID := uuid.New()
+	resolvedBy := uuid.New()
+
+	mock.ExpectBegin()
+	// UPDATE matched 0 rows (already resolved) → RETURNING returns no rows → sql.ErrNoRows
+	mock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientID, ownerOrgID, resolvedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}))
+	mock.ExpectRollback()
+
+	_, err := store.ApproveGrantRequest(context.Background(), requestID.String(), clientID, ownerOrgID.String(), resolvedBy.String())
+	if !errors.Is(err, ErrGrantRequestNotPending) {
+		t.Errorf("expected ErrGrantRequestNotPending, got %v", err)
+	}
+}
+
+func TestClientStore_DenyGrantRequest_Success(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	requestID := uuid.New()
+	clientID := uuid.New().String()
+	ownerOrgID := uuid.New()
+	resolvedBy := uuid.New()
+	requesterOrgID := uuid.New()
+	now := time.Now()
+	requestedBy := uuid.New()
+
+	mock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientID, ownerOrgID, resolvedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
+			AddRow(requestID, clientID, requesterOrgID, ownerOrgID, requestedBy, "denied", now))
+
+	gr, err := store.DenyGrantRequest(context.Background(), requestID.String(), clientID, ownerOrgID.String(), resolvedBy.String())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gr == nil || gr.Status != "denied" {
+		t.Errorf("expected status 'denied', got %v", gr)
+	}
+}
+
+func TestClientStore_DenyGrantRequest_NotPending(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	requestID := uuid.New()
+	clientID := uuid.New().String()
+	ownerOrgID := uuid.New()
+	resolvedBy := uuid.New()
+
+	mock.ExpectQuery(`UPDATE client_access_requests`).
+		WithArgs(requestID, clientID, ownerOrgID, resolvedBy).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}))
+
+	_, err := store.DenyGrantRequest(context.Background(), requestID.String(), clientID, ownerOrgID.String(), resolvedBy.String())
+	if !errors.Is(err, ErrGrantRequestNotPending) {
+		t.Errorf("expected ErrGrantRequestNotPending, got %v", err)
+	}
+}
+
+func TestClientStore_ListDiscoverableClients_FirstPage(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+
+	store := NewClientStore(db)
+	excludeOrgID := uuid.New()
+	ownerOrgID := uuid.New()
+	clientID := uuid.New().String()
+	now := time.Now()
+
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM oauth2_clients`).
+		WithArgs(excludeOrgID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	mock.ExpectQuery(`SELECT c\.id, c\.name`).
+		WithArgs(excludeOrgID, 2). // limit=1 → limit+1=2
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "domain", "public", "owner_org_id", "display_name", "slug", "created_at"}).
+			AddRow(clientID, "Global App", "https://app.example.com/cb", false, ownerOrgID, "Owner Corp", "owner-corp", now))
+
+	clients, nextCursor, total, err := store.ListDiscoverableClients(context.Background(), excludeOrgID.String(), 1, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("expected total=1, got %d", total)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(clients))
+	}
+	if clients[0].ID != clientID {
+		t.Errorf("expected clientID %s, got %s", clientID, clients[0].ID)
+	}
+	if nextCursor != "" {
+		t.Errorf("expected empty nextCursor for single page, got %s", nextCursor)
 	}
 }

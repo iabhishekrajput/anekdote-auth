@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/a-h/templ"
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
@@ -90,7 +89,7 @@ func TestConsentPage(t *testing.T) {
 
 func TestAccountPage(t *testing.T) {
 	user := &models.User{
-		ID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ID:    "11111111-1111-1111-1111-111111111111",
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
 	}
@@ -101,8 +100,8 @@ func TestAccountPage(t *testing.T) {
 }
 
 func TestAccountPage_WithOrgs_NonOwner(t *testing.T) {
-	ownerID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ownerID := "22222222-2222-2222-2222-222222222222"
+	userID := "11111111-1111-1111-1111-111111111111"
 	user := &models.User{ID: userID, Name: "Jane Doe", Email: "jane@example.com"}
 	orgs := []postgres.OrgListItem{
 		{
@@ -121,7 +120,7 @@ func TestAccountPage_WithOrgs_NonOwner(t *testing.T) {
 }
 
 func TestAccountPage_WithOrgs_Owner(t *testing.T) {
-	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	userID := "11111111-1111-1111-1111-111111111111"
 	user := &models.User{ID: userID, Name: "Jane Doe", Email: "jane@example.com"}
 	orgs := []postgres.OrgListItem{
 		{
@@ -138,7 +137,7 @@ func TestAccountPage_WithOrgs_Owner(t *testing.T) {
 
 func TestAccountPage_EmptyOrgs(t *testing.T) {
 	user := &models.User{
-		ID:    uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		ID:    "11111111-1111-1111-1111-111111111111",
 		Name:  "Jane Doe",
 		Email: "jane@example.com",
 	}

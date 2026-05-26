@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
@@ -78,7 +77,7 @@ func RequireRole(next httprouter.Handle, roles ...string) httprouter.Handle {
 func InjectAdminStatus(userStore *postgres.UserStore, next httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		isAdmin := false
-		if userID, ok := r.Context().Value(types.UserContextKey).(uuid.UUID); ok {
+		if userID, ok := r.Context().Value(types.UserContextKey).(string); ok {
 			if user, err := userStore.GetByID(userID); err == nil {
 				if user.DisabledAt != nil {
 					http.Redirect(w, r, "/login?error="+url.QueryEscape("Your account has been disabled"), http.StatusFound)

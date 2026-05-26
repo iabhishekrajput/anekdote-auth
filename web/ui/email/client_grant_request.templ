@@ -1,6 +1,6 @@
 package email
 
-templ ClientGrantRequestEmail(clientName, requesterOrgName, approveURL, denyURL string) {
+templ ClientGrantRequestEmail(clientName, requesterOrgName, requestsURL string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -78,14 +78,13 @@ templ ClientGrantRequestEmail(clientName, requesterOrgName, approveURL, denyURL 
 					</div>
 					<div class="content">
 						<p><strong>{ requesterOrgName }</strong> is requesting access to your OAuth2 client <strong>{ clientName }</strong> on anekdote.</p>
-						<p>Review this request and approve or deny it from your dashboard.</p>
+						<p>Review this request in your dashboard to approve or deny it.</p>
 					</div>
 					<div class="note">
-						<strong>Note:</strong> Clicking Approve or Deny will open your browser. You may be asked to log in if you are not already signed in.
+						<strong>Note:</strong> Clicking the button below will open your browser. You may be asked to log in if you are not already signed in.
 					</div>
 					<div class="actions">
-						<a href={ templ.URL(approveURL) } class="btn-approve">Approve access</a>
-						<a href={ templ.URL(denyURL) } class="btn-deny">Deny</a>
+						<a href={ templ.URL(requestsURL) } class="btn-approve">Review request</a>
 					</div>
 					<div class="footer">
 						<p>You are receiving this email because you are an owner or admin of the org that owns { clientName }.</p>

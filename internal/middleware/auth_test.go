@@ -58,7 +58,7 @@ func TestRequireAuth_ValidSession(t *testing.T) {
 	store, mr := setupMiddlewareTestenv(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := store.Create(context.Background(), userID)
 
 	handler := RequireAuth(store, mockHandler())
@@ -109,7 +109,7 @@ func TestRequireAdmin_NonAdminEmail(t *testing.T) {
 	}
 	userStore := pgstore.NewUserStore(db)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := store.Create(context.Background(), userID)
 
 	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
@@ -141,7 +141,7 @@ func TestRequireAdmin_ValidAdmin(t *testing.T) {
 	}
 	userStore := pgstore.NewUserStore(db)
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := store.Create(context.Background(), userID)
 
 	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
@@ -167,7 +167,7 @@ func TestRedirectIfAuthenticated_LoggedIn(t *testing.T) {
 	store, mr := setupMiddlewareTestenv(t)
 	defer mr.Close()
 
-	userID := uuid.New()
+	userID := uuid.New().String()
 	sessionID, _ := store.Create(context.Background(), userID)
 
 	handler := RedirectIfAuthenticated(store, mockHandler())

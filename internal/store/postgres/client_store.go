@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
-	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -38,10 +38,11 @@ type OrgGrantItem struct {
 
 // ClientGrantItem is a row from client_org_grants joined with org info.
 type ClientGrantItem struct {
-	OrgID     uuid.UUID
-	OrgSlug   string
-	OrgName   string
-	GrantedAt time.Time
+	OrgID         string
+	OrgSlug       string
+	OrgName       string
+	GrantedAt     time.Time
+	AllowedScopes *string // nil = no restriction; non-nil = space-separated allowed scope list
 }
 
 // DiscoverableClient represents a multi-org client available for connection.
@@ -50,7 +51,7 @@ type DiscoverableClient struct {
 	Name         string
 	Domain       string
 	Public       bool
-	OwnerOrgID   uuid.UUID
+	OwnerOrgID   string
 	OwnerOrgName string
 	OwnerOrgSlug string
 	CreatedAt    time.Time
@@ -61,7 +62,7 @@ type DiscoverableClient struct {
 // so the type assertion in JWTGenerator always succeeds; nil is the safe fallback.
 type OrgClientInfo struct {
 	oauth2.ClientInfo
-	OrgID *uuid.UUID
+	OrgID *string
 }
 
 // VerifyPassword implements oauth2.ClientPasswordVerifier, delegating to the
@@ -123,14 +124,14 @@ type OrgClient struct {
 
 // GrantRequest is a row from client_access_requests.
 type GrantRequest struct {
-	ID               uuid.UUID
+	ID               string
 	ClientID         string
 	ClientName       string
-	RequesterOrgID   uuid.UUID
+	RequesterOrgID   string
 	RequesterOrgSlug string
 	RequesterOrgName string
-	OwnerOrgID       uuid.UUID
-	RequestedBy      *uuid.UUID
+	OwnerOrgID       string
+	RequestedBy      *string
 	Status           string
 	RequestedAt      time.Time
 	ResolvedAt       *time.Time
@@ -153,7 +154,7 @@ func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo
 		secret string
 		domain string
 		public bool
-		orgID  *uuid.UUID
+		orgID  *string
 	)
 	err := s.db.QueryRowContext(ctx,
 		"SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = $1", id,
@@ -176,7 +177,7 @@ func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo
 
 // ListOrgClients returns all clients visible to an org: owned single-org clients plus
 // multi-org clients that have a grant for this org. Newest first.
-func (s *ClientStore) ListOrgClients(ctx context.Context, orgID uuid.UUID) ([]*OrgClient, error) {
+func (s *ClientStore) ListOrgClients(ctx context.Context, orgID string) ([]*OrgClient, error) {
 	const q = `
 		SELECT c.id, c.name, c.domain, c.public, c.created_at,
 		       (c.org_id IS NULL)        AS is_global,
@@ -213,14 +214,14 @@ func (s *ClientStore) ListOrgClients(ctx context.Context, orgID uuid.UUID) ([]*O
 // set via owner_org_id and an auto-grant row is created so the owner can use its own client.
 // When multiOrg=false org_id=orgID (single-org, existing behaviour).
 // For confidential clients it returns the plaintext secret; for public clients it returns "".
-func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID uuid.UUID, name, redirectURI string, public, multiOrg bool) (clientID, plainSecret string, err error) {
+func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID string, name, redirectURI string, public, multiOrg bool) (clientID, plainSecret string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", "", err
 	}
 	defer tx.Rollback()
 
-	clientID = uuid.New().String()
+	clientID = idgen.NewClientID()
 	var storedSecret string
 	if !public {
 		plainSecret = generateClientSecret()
@@ -231,7 +232,7 @@ func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID uuid.UUID, name
 		storedSecret = string(hash)
 	}
 
-	var orgIDVal *uuid.UUID
+	var orgIDVal *string
 	if !multiOrg {
 		orgIDVal = &orgID
 	}
@@ -264,7 +265,7 @@ func (s *ClientStore) CreateOrgClient(ctx context.Context, orgID uuid.UUID, name
 // Returns ErrGlobalClientUsesGrant when the client is a multi-org client (org_id IS NULL)
 // and the org has a grant — the caller should call RevokeOrgAccess instead.
 // Returns ErrClientNotFound when the client does not belong to this org at all.
-func (s *ClientStore) DeleteOrgClient(ctx context.Context, clientID string, orgID uuid.UUID) error {
+func (s *ClientStore) DeleteOrgClient(ctx context.Context, clientID string, orgID string) error {
 	res, err := s.db.ExecContext(ctx,
 		"DELETE FROM oauth2_clients WHERE id = $1 AND org_id = $2",
 		clientID, orgID,
@@ -296,7 +297,7 @@ func (s *ClientStore) DeleteOrgClient(ctx context.Context, clientID string, orgI
 
 // RotateOrgClientSecret generates and stores a new secret for a confidential org client.
 // Uses SELECT FOR UPDATE to prevent races. The secret is only returned after a successful commit.
-func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string, orgID uuid.UUID) (string, error) {
+func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string, orgID string) (string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -336,25 +337,48 @@ func (s *ClientStore) RotateOrgClientSecret(ctx context.Context, clientID string
 	return newSecret, nil
 }
 
-// ListDiscoverableClients returns public/multi-org clients that the given org does not yet have access to or pending requests for.
-func (s *ClientStore) ListDiscoverableClients(ctx context.Context, excludeOrgID uuid.UUID) ([]*DiscoverableClient, error) {
-	query := `
-		SELECT c.id, c.name, c.domain, c.public, c.owner_org_id, o.display_name, o.slug, c.created_at
-		FROM oauth2_clients c
-		JOIN organizations o ON c.owner_org_id = o.id
+// ListDiscoverableClients returns multi-org clients from other orgs that the given org
+// does not yet have access to or pending requests for, with cursor-based pagination.
+// Returns clients, next-page cursor (empty = last page), total count, and error.
+func (s *ClientStore) ListDiscoverableClients(ctx context.Context, excludeOrgID string, limit int, cursor *PageCursor) ([]*DiscoverableClient, string, int, error) {
+	const baseFilter = `
 		WHERE c.org_id IS NULL
 		AND c.owner_org_id != $1
-		AND NOT EXISTS (
-			SELECT 1 FROM client_org_grants g WHERE g.client_id = c.id AND g.org_id = $1
+		AND NOT EXISTS (SELECT 1 FROM client_org_grants g WHERE g.client_id = c.id AND g.org_id = $1)
+		AND NOT EXISTS (SELECT 1 FROM client_access_requests r WHERE r.client_id = c.id AND r.requester_org_id = $1 AND r.status = 'pending')`
+
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM oauth2_clients c`+baseFilter,
+		excludeOrgID,
+	).Scan(&total); err != nil {
+		return nil, "", 0, err
+	}
+
+	const selectCols = `
+		SELECT c.id, c.name, c.domain, c.public, c.owner_org_id, o.display_name, o.slug, c.created_at
+		FROM oauth2_clients c
+		JOIN organizations o ON c.owner_org_id = o.id`
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if cursor == nil {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+baseFilter+` ORDER BY c.created_at DESC, c.id DESC LIMIT $2`,
+			excludeOrgID, limit+1,
 		)
-		AND NOT EXISTS (
-			SELECT 1 FROM client_access_requests r WHERE r.client_id = c.id AND r.requester_org_id = $1 AND r.status = 'pending'
+	} else {
+		rows, err = s.db.QueryContext(ctx,
+			selectCols+baseFilter+
+				` AND (c.created_at < $2 OR (c.created_at = $2 AND c.id < $3))`+
+				` ORDER BY c.created_at DESC, c.id DESC LIMIT $4`,
+			excludeOrgID, cursor.CreatedAt, cursor.ID, limit+1,
 		)
-		ORDER BY c.created_at DESC
-	`
-	rows, err := s.db.QueryContext(ctx, query, excludeOrgID)
+	}
 	if err != nil {
-		return nil, err
+		return nil, "", total, err
 	}
 	defer rows.Close()
 
@@ -362,11 +386,21 @@ func (s *ClientStore) ListDiscoverableClients(ctx context.Context, excludeOrgID 
 	for rows.Next() {
 		c := &DiscoverableClient{}
 		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.OwnerOrgID, &c.OwnerOrgName, &c.OwnerOrgSlug, &c.CreatedAt); err != nil {
-			return nil, err
+			return nil, "", total, err
 		}
 		clients = append(clients, c)
 	}
-	return clients, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, "", total, err
+	}
+
+	nextCursor := ""
+	if len(clients) > limit {
+		last := clients[limit-1]
+		nextCursor = EncodeCursor(last.CreatedAt, last.ID)
+		clients = clients[:limit]
+	}
+	return clients, nextCursor, total, nil
 }
 
 // AdminClientItem is used by the admin panel for the client list view.
@@ -403,7 +437,7 @@ func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *Page
 		rows, err = s.db.QueryContext(ctx,
 			selectCols+` WHERE c.created_at < $1 OR (c.created_at = $1 AND c.id < $2)
 			 ORDER BY c.created_at DESC, c.id DESC LIMIT $3`,
-			cursor.CreatedAt, cursor.ID.String(), limit+1,
+			cursor.CreatedAt, cursor.ID, limit+1,
 		)
 	}
 	if err != nil {
@@ -426,10 +460,7 @@ func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *Page
 	nextCursor := ""
 	if len(clients) > limit {
 		last := clients[limit-1]
-		// client ID is a string UUID — parse for cursor encoding
-		if id, parseErr := uuid.Parse(last.ID); parseErr == nil {
-			nextCursor = EncodeCursor(last.CreatedAt, id)
-		}
+		nextCursor = EncodeCursor(last.CreatedAt, last.ID)
 		clients = clients[:limit]
 	}
 	return clients, nextCursor, total, nil
@@ -439,6 +470,13 @@ func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *Page
 func (s *ClientStore) CountAll(ctx context.Context) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth2_clients`).Scan(&count)
+	return count, err
+}
+
+// CountAllGrants returns the total number of active client_org_grants rows.
+func (s *ClientStore) CountAllGrants(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM client_org_grants`).Scan(&count)
 	return count, err
 }
 
@@ -460,7 +498,7 @@ func (s *ClientStore) DeleteAny(ctx context.Context, clientID string) error {
 
 // GrantOrgAccess adds a grant allowing clientID to be used by users of orgID.
 // Idempotent — if the grant already exists it is a no-op.
-func (s *ClientStore) GrantOrgAccess(ctx context.Context, clientID string, orgID, grantedBy uuid.UUID) error {
+func (s *ClientStore) GrantOrgAccess(ctx context.Context, clientID string, orgID, grantedBy string) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO client_org_grants (client_id, org_id, granted_by, granted_at)
 		 VALUES ($1, $2, $3, NOW())
@@ -472,7 +510,7 @@ func (s *ClientStore) GrantOrgAccess(ctx context.Context, clientID string, orgID
 
 // RevokeOrgAccess removes a grant row. The caller is responsible for blocklisting
 // outstanding JTIs via the redis token index (oauth:user-org-tokens:{userID}:{orgID}).
-func (s *ClientStore) RevokeOrgAccess(ctx context.Context, clientID string, orgID uuid.UUID) error {
+func (s *ClientStore) RevokeOrgAccess(ctx context.Context, clientID string, orgID string) error {
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM client_org_grants WHERE client_id = $1 AND org_id = $2`,
 		clientID, orgID,
@@ -493,7 +531,7 @@ func (s *ClientStore) RevokeOrgAccess(ctx context.Context, clientID string, orgI
 // ListOrgsGrantedClient returns all orgs that have granted access to clientID.
 func (s *ClientStore) ListOrgsGrantedClient(ctx context.Context, clientID string) ([]*ClientGrantItem, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT g.org_id, o.slug, o.display_name, g.granted_at
+		`SELECT g.org_id, o.slug, o.display_name, g.granted_at, g.allowed_scopes
 		 FROM client_org_grants g
 		 JOIN organizations o ON o.id = g.org_id AND o.deleted_at IS NULL
 		 WHERE g.client_id = $1
@@ -508,7 +546,7 @@ func (s *ClientStore) ListOrgsGrantedClient(ctx context.Context, clientID string
 	var items []*ClientGrantItem
 	for rows.Next() {
 		item := &ClientGrantItem{}
-		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt); err != nil {
+		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt, &item.AllowedScopes); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -517,7 +555,7 @@ func (s *ClientStore) ListOrgsGrantedClient(ctx context.Context, clientID string
 }
 
 // ListOrgGrantedClients returns all clients that have been granted access to orgID.
-func (s *ClientStore) ListOrgGrantedClients(ctx context.Context, orgID uuid.UUID) ([]*OrgGrantItem, error) {
+func (s *ClientStore) ListOrgGrantedClients(ctx context.Context, orgID string) ([]*OrgGrantItem, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT g.client_id, c.name, g.granted_at, COALESCE(u.email, '')
 		 FROM client_org_grants g
@@ -546,9 +584,9 @@ func (s *ClientStore) ListOrgGrantedClients(ctx context.Context, orgID uuid.UUID
 // ListUserEligibleOrgsForClient returns orgs where:
 //  1. The client has a grant for the org (client_org_grants)
 //  2. The user is an active member of the org
-func (s *ClientStore) ListUserEligibleOrgsForClient(ctx context.Context, clientID string, userID uuid.UUID) ([]*ClientGrantItem, error) {
+func (s *ClientStore) ListUserEligibleOrgsForClient(ctx context.Context, clientID string, userID string) ([]*ClientGrantItem, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT g.org_id, o.slug, o.display_name, g.granted_at
+		`SELECT g.org_id, o.slug, o.display_name, g.granted_at, g.allowed_scopes
 		 FROM client_org_grants g
 		 JOIN organizations o ON o.id = g.org_id AND o.deleted_at IS NULL
 		 JOIN org_memberships m ON m.org_id = g.org_id AND m.user_id = $2 AND m.removed_at IS NULL
@@ -564,7 +602,87 @@ func (s *ClientStore) ListUserEligibleOrgsForClient(ctx context.Context, clientI
 	var items []*ClientGrantItem
 	for rows.Next() {
 		item := &ClientGrantItem{}
-		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt); err != nil {
+		if err := rows.Scan(&item.OrgID, &item.OrgSlug, &item.OrgName, &item.GrantedAt, &item.AllowedScopes); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+// GetGrantAllowedScopes returns the allowed_scopes restriction for a specific grant.
+// Returns nil when no restriction is set (all scopes are allowed).
+func (s *ClientStore) GetGrantAllowedScopes(ctx context.Context, clientID string, orgID string) (*string, error) {
+	var scopes *string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT allowed_scopes FROM client_org_grants WHERE client_id = $1 AND org_id = $2`,
+		clientID, orgID,
+	).Scan(&scopes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return scopes, err
+}
+
+// SetGrantScopes sets the allowed_scopes restriction for a specific grant.
+// Pass an empty string to remove the restriction (set to NULL).
+func (s *ClientStore) SetGrantScopes(ctx context.Context, clientID string, orgID string, scopes string) error {
+	var scopesVal *string
+	if scopes != "" {
+		scopesVal = &scopes
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE client_org_grants SET allowed_scopes = $1 WHERE client_id = $2 AND org_id = $3`,
+		scopesVal, clientID, orgID,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrGrantNotFound
+	}
+	return nil
+}
+
+// UserClientItem represents an OAuth2 client attributed to the org that owns it.
+type UserClientItem struct {
+	ID        string
+	Name      string
+	Domain    string
+	Public    bool
+	IsGlobal  bool
+	CreatedAt time.Time
+	OrgID     string
+	OrgSlug   string
+	OrgName   string
+}
+
+// ListClientsForUser returns all OAuth2 clients owned by orgs where userID is owner or admin.
+func (s *ClientStore) ListClientsForUser(ctx context.Context, userID string) ([]*UserClientItem, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT c.id, c.name, c.domain, c.public, (c.org_id IS NULL) AS is_global, c.created_at,
+		        o.id, o.slug, o.display_name
+		 FROM oauth2_clients c
+		 JOIN organizations o ON o.id = c.owner_org_id AND o.deleted_at IS NULL
+		 JOIN org_memberships m ON m.org_id = c.owner_org_id AND m.user_id = $1 AND m.removed_at IS NULL
+		 WHERE m.role IN ('owner', 'admin')
+		 ORDER BY c.created_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*UserClientItem
+	for rows.Next() {
+		item := &UserClientItem{}
+		if err := rows.Scan(&item.ID, &item.Name, &item.Domain, &item.Public, &item.IsGlobal, &item.CreatedAt,
+			&item.OrgID, &item.OrgSlug, &item.OrgName); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -586,7 +704,7 @@ func (s *ClientStore) IsGlobalClient(ctx context.Context, clientID string) (bool
 }
 
 // HasGrant reports whether clientID has an active grant for orgID.
-func (s *ClientStore) HasGrant(ctx context.Context, clientID string, orgID uuid.UUID) (bool, error) {
+func (s *ClientStore) HasGrant(ctx context.Context, clientID string, orgID string) (bool, error) {
 	var ok bool
 	err := s.db.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM client_org_grants WHERE client_id = $1 AND org_id = $2)`,
@@ -596,8 +714,8 @@ func (s *ClientStore) HasGrant(ctx context.Context, clientID string, orgID uuid.
 }
 
 // GetClientOwnerOrgID returns the owner_org_id of a client. Returns nil when unset.
-func (s *ClientStore) GetClientOwnerOrgID(ctx context.Context, clientID string) (*uuid.UUID, error) {
-	var ownerOrgID *uuid.UUID
+func (s *ClientStore) GetClientOwnerOrgID(ctx context.Context, clientID string) (*string, error) {
+	var ownerOrgID *string
 	err := s.db.QueryRowContext(ctx,
 		`SELECT owner_org_id FROM oauth2_clients WHERE id = $1`,
 		clientID,
@@ -611,7 +729,7 @@ func (s *ClientStore) GetClientOwnerOrgID(ctx context.Context, clientID string) 
 // CreateGrantRequest inserts a pending client_access_requests row.
 // Returns the new request. If a pending request already exists for this client+org pair,
 // the conflict is ignored and nil,nil is returned (caller should redirect with "already pending").
-func (s *ClientStore) CreateGrantRequest(ctx context.Context, clientID string, requesterOrgID, ownerOrgID, requestedBy uuid.UUID) (*GrantRequest, error) {
+func (s *ClientStore) CreateGrantRequest(ctx context.Context, clientID string, requesterOrgID, ownerOrgID, requestedBy string) (*GrantRequest, error) {
 	gr := &GrantRequest{}
 	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO client_access_requests
@@ -631,7 +749,7 @@ func (s *ClientStore) CreateGrantRequest(ctx context.Context, clientID string, r
 }
 
 // GetGrantRequest fetches a single grant request by ID including client name and requester org info.
-func (s *ClientStore) GetGrantRequest(ctx context.Context, requestID uuid.UUID) (*GrantRequest, error) {
+func (s *ClientStore) GetGrantRequest(ctx context.Context, requestID string) (*GrantRequest, error) {
 	gr := &GrantRequest{}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT r.id, r.client_id, COALESCE(c.name,''), r.requester_org_id,
@@ -672,7 +790,7 @@ func (s *ClientStore) ListGrantRequestsForClient(ctx context.Context, clientID s
 }
 
 // ListGrantRequestsForOrg returns pending grant requests made by an org (requester's view).
-func (s *ClientStore) ListGrantRequestsForOrg(ctx context.Context, requesterOrgID uuid.UUID) ([]*GrantRequest, error) {
+func (s *ClientStore) ListGrantRequestsForOrg(ctx context.Context, requesterOrgID string) ([]*GrantRequest, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT r.id, r.client_id, COALESCE(c.name,''), r.requester_org_id,
 		        COALESCE(ro.slug,''), COALESCE(ro.display_name,''),
@@ -706,7 +824,7 @@ func scanGrantRequests(rows *sql.Rows) ([]*GrantRequest, error) {
 }
 
 // UpdateOrgClient updates the name and redirect URI of a client owned by ownerOrgID.
-func (s *ClientStore) UpdateOrgClient(ctx context.Context, clientID string, ownerOrgID uuid.UUID, name, domain string) error {
+func (s *ClientStore) UpdateOrgClient(ctx context.Context, clientID string, ownerOrgID string, name, domain string) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE oauth2_clients SET name = $1, domain = $2 WHERE id = $3 AND owner_org_id = $4`,
 		name, domain, clientID, ownerOrgID,
@@ -762,7 +880,7 @@ type AdminGrantRow struct {
 	ClientName     string
 	OwnerOrgName   string
 	GrantedOrgName string
-	GrantedOrgID   uuid.UUID
+	GrantedOrgID   string
 	GrantedAt      time.Time
 }
 
@@ -806,7 +924,7 @@ func (s *ClientStore) ListAllClientOrgGrants(ctx context.Context, limit, offset 
 // creates the client_org_grants row. Binds clientID and ownerOrgID in the WHERE clause
 // to prevent cross-client request hijacking. Returns the updated request row so the
 // handler can send notification email without an extra query.
-func (s *ClientStore) ApproveGrantRequest(ctx context.Context, requestID uuid.UUID, clientID string, ownerOrgID, resolvedBy uuid.UUID) (*GrantRequest, error) {
+func (s *ClientStore) ApproveGrantRequest(ctx context.Context, requestID string, clientID string, ownerOrgID, resolvedBy string) (*GrantRequest, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -845,7 +963,7 @@ func (s *ClientStore) ApproveGrantRequest(ctx context.Context, requestID uuid.UU
 
 // DenyGrantRequest transitions a pending request to 'denied'. Binds clientID and ownerOrgID
 // to prevent cross-client request hijacking. Returns the updated request row for notification email.
-func (s *ClientStore) DenyGrantRequest(ctx context.Context, requestID uuid.UUID, clientID string, ownerOrgID, resolvedBy uuid.UUID) (*GrantRequest, error) {
+func (s *ClientStore) DenyGrantRequest(ctx context.Context, requestID string, clientID string, ownerOrgID, resolvedBy string) (*GrantRequest, error) {
 	gr := &GrantRequest{}
 	err := s.db.QueryRowContext(ctx,
 		`UPDATE client_access_requests
