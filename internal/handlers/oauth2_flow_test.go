@@ -106,6 +106,10 @@ func TestOAuth2FullFlow(t *testing.T) {
 		WithArgs(clientID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Flow Client", "", redirectURI, true, nil))
+	// JWTGenerator.Token calls GetCustomClaims for the access token.
+	mock.ExpectQuery(`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")

@@ -26,6 +26,7 @@ const (
 	AuditActionDeleteOrg            AuditAction = "delete_org"
 	AuditActionGrantOrgClient       AuditAction = "grant_org_client"
 	AuditActionRevokeOrgClient      AuditAction = "revoke_org_client"
+	AuditActionSetCustomClaims      AuditAction = "set_custom_claims"
 )
 
 // AuditLogEntry is a single row from admin_audit_log.

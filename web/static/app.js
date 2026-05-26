@@ -60,6 +60,37 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // Add claim row — clones the hidden template <tr data-claims-template> into the table.
+  document.addEventListener('click', function (e) {
+    var addBtn = e.target.closest('[data-add-claim-row]');
+    if (!addBtn) return;
+    var table = document.getElementById('claims-table');
+    if (!table) return;
+    var template = table.querySelector('[data-claims-template]');
+    if (!template) return;
+    var visibleRows = table.querySelectorAll('tbody tr:not([data-claims-template]):not([aria-hidden])');
+    if (visibleRows.length >= 20) return;
+
+    // Remove empty-state row if present.
+    var emptyRow = document.getElementById('empty-state-row');
+    if (emptyRow) emptyRow.remove();
+
+    var clone = template.cloneNode(true);
+    clone.removeAttribute('data-claims-template');
+    clone.removeAttribute('aria-hidden');
+    clone.classList.remove('hidden');
+    clone.querySelectorAll('input').forEach(function (inp) { inp.value = ''; });
+
+    template.parentNode.insertBefore(clone, template);
+
+    var allRows = table.querySelectorAll('tbody tr:not([data-claims-template]):not([aria-hidden])');
+    var maxNotice = document.getElementById('max-claims-notice');
+    if (allRows.length >= 20) {
+      addBtn.classList.add('hidden');
+      if (maxNotice) maxNotice.classList.remove('hidden');
+    }
+  });
+
   // Auto-submit select elements (replaces inline onchange blocked by CSP).
   // form.submit() bypasses the submit event, so loading state is set manually here.
   // NOTE: do NOT set disabled — disabled fields are excluded from the POST body.
@@ -69,6 +100,34 @@ document.addEventListener('DOMContentLoaded', function () {
       sel.style.opacity = '0.6';
       sel.style.pointerEvents = 'none';
       sel.closest('form').submit();
+    }
+
+    // Type select on claims table — swap value input ↔ boolean select.
+    var typeSelect = e.target.closest('[data-type-select]');
+    if (typeSelect) {
+      var row = typeSelect.closest('tr');
+      if (!row) return;
+      var valueCell = row.cells[2];
+      if (!valueCell) return;
+      var currentInput = valueCell.querySelector('input[name="value[]"]');
+      var currentSelect = valueCell.querySelector('select[name="value[]"]');
+      if (typeSelect.value === 'boolean') {
+        if (currentInput) {
+          var boolSel = document.createElement('select');
+          boolSel.name = 'value[]';
+          boolSel.className = currentInput.className;
+          boolSel.innerHTML = '<option value="true">true</option><option value="false">false</option>';
+          currentInput.replaceWith(boolSel);
+        }
+      } else {
+        if (currentSelect) {
+          var textIn = document.createElement('input');
+          textIn.type = 'text';
+          textIn.name = 'value[]';
+          textIn.className = currentSelect.className;
+          currentSelect.replaceWith(textIn);
+        }
+      }
     }
   });
 

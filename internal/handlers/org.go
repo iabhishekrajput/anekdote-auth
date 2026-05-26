@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -29,6 +30,22 @@ const clientSecretFlashTTL = 60 * time.Second
 
 var (
 	slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
+
+	claimKeyRegex = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_:\-./]*$`)
+
+	reservedClaimKeys = func() map[string]struct{} {
+		keys := []string{
+			"sub", "iss", "aud", "exp", "iat", "jti", "nbf",
+			"scope", "org_id", "org_role", "name", "email",
+			"email_verified", "updated_at", "at_hash",
+			"auth_time", "nonce", "acr", "amr", "azp", "client_id",
+		}
+		m := make(map[string]struct{}, len(keys))
+		for _, k := range keys {
+			m[k] = struct{}{}
+		}
+		return m
+	}()
 
 	reservedSlugs = map[string]bool{
 		"accept": true, "admin": true, "api": true, "account": true,
@@ -1475,4 +1492,143 @@ func validateRedirectURI(rawURI string) error {
 		return errors.New("redirect URI must not contain wildcards")
 	}
 	return nil
+}
+
+// validateClaims parses and validates key[]/type[]/value[] form arrays into a claims map.
+// Called by both ClientClaimsPost and AdminClientClaimsPost.
+func validateClaims(keys, types, values []string) (map[string]any, error) {
+	if len(keys) != len(types) || len(keys) != len(values) {
+		return nil, errors.New("malformed submission: key, type, and value arrays must have equal length")
+	}
+	if len(keys) > 20 {
+		return nil, errors.New("maximum 20 claims per client")
+	}
+
+	claims := make(map[string]any, len(keys))
+	for i, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		if len(k) > 100 {
+			return nil, errors.New("claim key must be 100 characters or fewer")
+		}
+		if !claimKeyRegex.MatchString(k) {
+			return nil, errors.New("claim key \"" + k + "\" contains invalid characters")
+		}
+		if _, reserved := reservedClaimKeys[strings.ToLower(k)]; reserved {
+			return nil, errors.New("\"" + k + "\" is a reserved claim name and cannot be overridden")
+		}
+
+		rawVal := strings.TrimSpace(values[i])
+		var claimVal any
+		switch types[i] {
+		case "string":
+			claimVal = rawVal
+		case "number":
+			lower := strings.ToLower(rawVal)
+			if lower == "nan" || lower == "inf" || lower == "+inf" || lower == "-inf" || lower == "infinity" || lower == "-infinity" {
+				return nil, errors.New("claim \"" + k + "\": number value must be finite")
+			}
+			var f float64
+			if _, err := fmt.Sscanf(rawVal, "%g", &f); err != nil {
+				return nil, errors.New("claim \"" + k + "\": invalid number value")
+			}
+			claimVal = f
+		case "boolean":
+			claimVal = rawVal == "true"
+		default:
+			return nil, errors.New("claim \"" + k + "\": unknown type \"" + types[i] + "\"")
+		}
+		claims[k] = claimVal
+	}
+
+	encoded, err := json.Marshal(claims)
+	if err != nil {
+		return nil, errors.New("failed to encode claims")
+	}
+	if len(encoded) > 4096 {
+		return nil, errors.New("total custom claims JSON must be 4 KB or less")
+	}
+
+	return claims, nil
+}
+
+// ClientClaimsPage handles GET /account/orgs/:slug/clients/:clientID/claims
+func (h *OrgHandler) ClientClaimsPage(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(string)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+	redirectBase := "/account/orgs/" + slug + "/clients"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	ownerOrgID, err := h.clientStore.GetClientOwnerOrgID(r.Context(), clientID)
+	if err != nil || ownerOrgID == nil || *ownerOrgID != org.ID {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client not found"), http.StatusFound)
+		return
+	}
+
+	clientName, _ := h.clientStore.GetClientName(r.Context(), clientID)
+	existing, _ := h.clientStore.GetCustomClaims(r.Context(), clientID)
+	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ui.ClientClaimsPage(nosurf.Token(r), org, clientID, clientName, existing, isAdmin,
+		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
+// ClientClaimsPost handles POST /account/orgs/:slug/clients/:clientID/claims
+func (h *OrgHandler) ClientClaimsPost(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	userID := r.Context().Value(types.UserContextKey).(string)
+	slug := ps.ByName("slug")
+	clientID := ps.ByName("clientID")
+	redirectBase := "/account/orgs/" + slug + "/clients/" + clientID + "/claims"
+
+	org, err := h.orgStore.GetOrgBySlug(r.Context(), slug)
+	if err != nil || org == nil {
+		http.Redirect(w, r, "/account/orgs?error="+url.QueryEscape("Organization not found"), http.StatusFound)
+		return
+	}
+	role, _ := h.orgStore.GetMembership(r.Context(), org.ID, userID)
+	if role != "owner" && role != "admin" {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Access denied"), http.StatusFound)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid form data"), http.StatusFound)
+		return
+	}
+
+	keys := r.Form["key[]"]
+	claimTypes := r.Form["type[]"]
+	values := r.Form["value[]"]
+
+	claims, err := validateClaims(keys, claimTypes, values)
+	if err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	if err := h.clientStore.SetCustomClaims(r.Context(), clientID, org.ID, claims); err != nil {
+		msg := "Failed to save claims"
+		if errors.Is(err, postgres.ErrClientNotFound) {
+			msg = "Client not found"
+		}
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(msg), http.StatusFound)
+		return
+	}
+
+	_ = h.auditStore.Log(r.Context(), userID, postgres.AuditActionSetCustomClaims, "client", clientID, r.RemoteAddr, r.UserAgent())
+	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Claims saved"), http.StatusFound)
 }

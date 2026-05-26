@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -979,6 +980,100 @@ func (s *ClientStore) DenyGrantRequest(ctx context.Context, requestID string, cl
 		return nil, err
 	}
 	return gr, nil
+}
+
+// GetCustomClaims returns the custom JWT claims for a client as a map.
+// Returns an empty map (not an error) when the client has no claims defined.
+func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID string) (map[string]any, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = $1`,
+		clientID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	claims := make(map[string]any)
+	for rows.Next() {
+		var key, valueType, rawValue string
+		if err := rows.Scan(&key, &valueType, &rawValue); err != nil {
+			return nil, err
+		}
+		switch valueType {
+		case "string":
+			claims[key] = rawValue
+		case "number":
+			var f float64
+			if _, err := fmt.Sscanf(rawValue, "%g", &f); err != nil {
+				return nil, fmt.Errorf("claim %q: invalid number value %q: %w", key, rawValue, err)
+			}
+			claims[key] = f
+		case "boolean":
+			claims[key] = rawValue == "true"
+		}
+	}
+	return claims, rows.Err()
+}
+
+// SetCustomClaims atomically replaces all claims for a client owned by ownerOrgID.
+// Returns ErrClientNotFound when clientID does not exist or is not owned by ownerOrgID.
+func (s *ClientStore) SetCustomClaims(ctx context.Context, clientID, ownerOrgID string, claims map[string]any) error {
+	ownerID, err := s.GetClientOwnerOrgID(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	if ownerID == nil || *ownerID != ownerOrgID {
+		return ErrClientNotFound
+	}
+	return s.replaceClaimRows(ctx, clientID, claims)
+}
+
+// SetCustomClaimsAdmin atomically replaces all claims for any client without an org ownership check.
+func (s *ClientStore) SetCustomClaimsAdmin(ctx context.Context, clientID string, claims map[string]any) error {
+	return s.replaceClaimRows(ctx, clientID, claims)
+}
+
+func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, claims map[string]any) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM client_claim_definitions WHERE client_id = $1`, clientID,
+	); err != nil {
+		return err
+	}
+
+	for key, val := range claims {
+		var valueType, rawValue string
+		switch v := val.(type) {
+		case string:
+			valueType, rawValue = "string", v
+		case float64:
+			valueType, rawValue = "number", fmt.Sprintf("%g", v)
+		case bool:
+			valueType = "boolean"
+			if v {
+				rawValue = "true"
+			} else {
+				rawValue = "false"
+			}
+		default:
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO client_claim_definitions (client_id, key, value_type, value)
+			 VALUES ($1, $2, $3, $4)`,
+			clientID, key, valueType, rawValue,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func generateClientSecret() string {

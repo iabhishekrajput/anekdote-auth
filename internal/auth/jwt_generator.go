@@ -44,17 +44,32 @@ type UserReader interface {
 	GetByID(id string) (*models.User, error)
 }
 
-// JWTGenerator implements oauth2.AccessGenerate
-type JWTGenerator struct {
-	keyStore     *crypto.KeyStore
-	issuer       string
-	orgStore     OrgMembershipReader
-	grantChecker GrantChecker
-	rdb          *goredis.Client
-	userStore    UserReader
+// CustomClaimsReader reads the per-client custom JWT claims.
+// Implemented by *postgres.ClientStore.
+type CustomClaimsReader interface {
+	GetCustomClaims(ctx context.Context, clientID string) (map[string]any, error)
 }
 
-func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, grantChecker GrantChecker, rdb *goredis.Client, userStore UserReader) *JWTGenerator {
+// reservedClaims is the lowercase set of claim names that may not be overridden.
+var reservedClaims = map[string]struct{}{
+	"sub": {}, "iss": {}, "aud": {}, "exp": {}, "iat": {}, "jti": {}, "nbf": {},
+	"scope": {}, "org_id": {}, "org_role": {}, "name": {}, "email": {},
+	"email_verified": {}, "updated_at": {}, "at_hash": {},
+	"auth_time": {}, "nonce": {}, "acr": {}, "amr": {}, "azp": {}, "client_id": {},
+}
+
+// JWTGenerator implements oauth2.AccessGenerate
+type JWTGenerator struct {
+	keyStore      *crypto.KeyStore
+	issuer        string
+	orgStore      OrgMembershipReader
+	grantChecker  GrantChecker
+	rdb           *goredis.Client
+	userStore     UserReader
+	claimsReader  CustomClaimsReader
+}
+
+func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, grantChecker GrantChecker, rdb *goredis.Client, userStore UserReader, claimsReader CustomClaimsReader) *JWTGenerator {
 	return &JWTGenerator{
 		keyStore:     keyStore,
 		issuer:       issuer,
@@ -62,6 +77,7 @@ func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembe
 		grantChecker: grantChecker,
 		rdb:          rdb,
 		userStore:    userStore,
+		claimsReader: claimsReader,
 	}
 }
 
@@ -154,6 +170,13 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		g.injectScopeClaims(ctx, claims, subUserID, effectiveScope)
 	}
 
+	// Inject per-client custom claims (fail-closed: error blocks token issuance).
+	if g.claimsReader != nil {
+		if err := g.injectCustomClaims(ctx, claims, data.Client.GetID()); err != nil {
+			return "", "", fmt.Errorf("custom claims read failed: %w", err)
+		}
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = g.keyStore.KeyID
 
@@ -236,6 +259,13 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 		g.injectScopeClaims(ctx, claims, sub, scope)
 	}
 
+	// Inject per-client custom claims into id_token for access_token/id_token parity.
+	if g.claimsReader != nil {
+		if err := g.injectCustomClaims(ctx, claims, aud); err != nil {
+			return "", fmt.Errorf("custom claims read failed for id_token: %w", err)
+		}
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = g.keyStore.KeyID
 
@@ -244,4 +274,27 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 		return "", errors.New("internal server error signing id_token")
 	}
 	return signed, nil
+}
+
+// injectCustomClaims reads per-client custom claims and merges them into dst.
+// Reserved keys are silently skipped with a warning (defensive guard).
+// Value types other than string/float64/bool are skipped silently.
+func (g *JWTGenerator) injectCustomClaims(ctx context.Context, dst jwt.MapClaims, clientID string) error {
+	custom, err := g.claimsReader.GetCustomClaims(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	for k, v := range custom {
+		if _, reserved := reservedClaims[strings.ToLower(k)]; reserved {
+			slog.Warn("custom claim key is reserved; skipping", "key", k, "client_id", clientID)
+			continue
+		}
+		switch v.(type) {
+		case string, float64, bool:
+			dst[k] = v
+		default:
+			slog.Warn("custom claim has unsupported value type; skipping", "key", k, "client_id", clientID)
+		}
+	}
+	return nil
 }

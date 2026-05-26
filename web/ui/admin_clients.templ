@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 )
 
@@ -74,5 +76,102 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 			</table>
 		</div>
 		@cursorPaginationControls("/admin/clients", cursor, nextCursor)
+	</div>
+}
+
+templ AdminClientClaimsPage(csrfToken string, clientID, clientName string, existing map[string]any, errorMsg, successMsg string) {
+	@AdminLayout(clientName+" — Custom Claims - Admin", "/admin/clients", csrfToken, adminClientClaimsBody(csrfToken, clientID, clientName, existing, errorMsg, successMsg))
+}
+
+templ adminClientClaimsBody(csrfToken string, clientID, clientName string, existing map[string]any, errorMsg, successMsg string) {
+	<div class="space-y-4">
+		<div class="flex items-center justify-between">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">Custom Claims</h1>
+				<p class="text-sm text-zinc-400 font-mono">{ clientName }</p>
+			</div>
+			<a href="/admin/clients" class="text-sm text-zinc-400 hover:text-zinc-50 transition-colors">← Back to clients</a>
+		</div>
+
+		@AlertContainer(errorMsg, successMsg)
+
+		<div class="rounded-lg border border-zinc-800">
+			<div class="border-b border-zinc-800 px-4 py-3">
+				<h2 class="text-sm font-semibold">Edit Claims</h2>
+				<p class="text-xs text-zinc-500 font-mono mt-0.5">{ clientID }</p>
+			</div>
+			<div class="p-4 space-y-4">
+				<form method="POST" action={ templ.SafeURL("/admin/clients/" + clientID + "/claims") } class="space-y-4">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="overflow-x-auto">
+						<table class="w-full text-sm" id="claims-table">
+							<thead>
+								<tr class="border-b border-zinc-800">
+									<th class="pb-2 text-left font-medium text-zinc-400 pr-3 w-2/5">Key</th>
+									<th class="pb-2 text-left font-medium text-zinc-400 pr-3 w-1/5">Type</th>
+									<th class="pb-2 text-left font-medium text-zinc-400 pr-3 w-2/5">Value</th>
+									<th class="pb-2 w-8"></th>
+								</tr>
+							</thead>
+							<tbody id="claims-rows">
+								if len(existing) == 0 {
+									<tr id="empty-state-row">
+										<td colspan="4" class="py-6 text-center text-sm text-zinc-500">No custom claims yet. Add your first claim below.</td>
+									</tr>
+								}
+								for k, v := range existing {
+									<tr class="border-b border-zinc-800/60 last:border-0">
+										<td class="py-2 pr-3">
+											<input type="text" name="key[]" value={ k } class="h-8 w-full rounded border border-zinc-800 bg-transparent px-2 text-sm font-mono text-zinc-50 outline-none focus:border-brand focus:ring-1 focus:ring-brand/50"/>
+										</td>
+										<td class="py-2 pr-3">
+											<select name="type[]" data-type-select class="h-8 w-full rounded border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none focus:border-brand">
+												<option value="string" selected?={ claimValueType(v) == "string" }>string</option>
+												<option value="number" selected?={ claimValueType(v) == "number" }>number</option>
+												<option value="boolean" selected?={ claimValueType(v) == "boolean" }>boolean</option>
+											</select>
+										</td>
+										<td class="py-2 pr-3">
+											<input type="text" name="value[]" value={ fmt.Sprintf("%v", v) } class="h-8 w-full rounded border border-zinc-800 bg-transparent px-2 text-sm font-mono text-zinc-50 outline-none focus:border-brand focus:ring-1 focus:ring-brand/50"/>
+										</td>
+										<td class="py-2">
+											<button type="button" data-dismiss-parent class="h-8 w-8 inline-flex items-center justify-center rounded border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-800 transition-colors">×</button>
+										</td>
+									</tr>
+								}
+								<tr data-claims-template aria-hidden="true" class="hidden border-b border-zinc-800/60">
+									<td class="py-2 pr-3">
+										<input type="text" name="key[]" value="" placeholder="e.g. myapp/tenant_id" class="h-8 w-full rounded border border-zinc-800 bg-transparent px-2 text-sm font-mono text-zinc-50 outline-none focus:border-brand focus:ring-1 focus:ring-brand/50"/>
+									</td>
+									<td class="py-2 pr-3">
+										<select name="type[]" data-type-select class="h-8 w-full rounded border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-50 outline-none focus:border-brand">
+											<option value="string" selected>string</option>
+											<option value="number">number</option>
+											<option value="boolean">boolean</option>
+										</select>
+									</td>
+									<td class="py-2 pr-3">
+										<input type="text" name="value[]" value="" class="h-8 w-full rounded border border-zinc-800 bg-transparent px-2 text-sm font-mono text-zinc-50 outline-none focus:border-brand focus:ring-1 focus:ring-brand/50"/>
+									</td>
+									<td class="py-2">
+										<button type="button" data-dismiss-parent class="h-8 w-8 inline-flex items-center justify-center rounded border border-zinc-800 text-zinc-500 hover:text-red-400 hover:border-red-800 transition-colors">×</button>
+									</td>
+								</tr>
+							</tbody>
+						</table>
+					</div>
+					<div class="flex items-center justify-between">
+						<div id="add-claim-area">
+							<button type="button" data-add-claim-row class="text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">+ Add claim</button>
+							<p id="max-claims-notice" class="hidden text-xs text-zinc-500">Maximum 20 claims reached.</p>
+						</div>
+						@PrimaryButton("Save claims", "")
+					</div>
+				</form>
+				<p class="text-xs text-amber-400/80 border border-amber-400/20 rounded px-3 py-2 bg-amber-400/5">
+					Changes apply to newly issued tokens only. Existing tokens retain their claims until expiry.
+				</p>
+			</div>
+		</div>
 	</div>
 }

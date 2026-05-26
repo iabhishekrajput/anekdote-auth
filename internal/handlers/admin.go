@@ -573,6 +573,54 @@ func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps ht
 	http.Redirect(w, r, "/admin/grants?message="+url.QueryEscape("Grant revoked"), http.StatusFound)
 }
 
+// AdminClientClaims handles GET /admin/clients/:id/claims
+func (h *AdminHandler) AdminClientClaims(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	clientID := ps.ByName("id")
+	existing, _ := h.clientStore.GetCustomClaims(r.Context(), clientID)
+	clientName, err := h.clientStore.GetClientName(r.Context(), clientID)
+	if err != nil {
+		http.Redirect(w, r, "/admin/clients?error="+url.QueryEscape("Client not found"), http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ui.AdminClientClaimsPage(nosurf.Token(r), clientID, clientName, existing,
+		r.URL.Query().Get("error"), r.URL.Query().Get("message")).Render(r.Context(), w)
+}
+
+// AdminClientClaimsPost handles POST /admin/clients/:id/claims
+func (h *AdminHandler) AdminClientClaimsPost(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	clientID := ps.ByName("id")
+	adminID, ok := r.Context().Value(types.UserContextKey).(string)
+	if !ok {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	redirectBase := "/admin/clients/" + clientID + "/claims"
+
+	if err := r.ParseForm(); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Invalid form data"), http.StatusFound)
+		return
+	}
+
+	keys := r.Form["key[]"]
+	claimTypes := r.Form["type[]"]
+	values := r.Form["value[]"]
+
+	claims, err := validateClaims(keys, claimTypes, values)
+	if err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
+		return
+	}
+
+	if err := h.clientStore.SetCustomClaimsAdmin(r.Context(), clientID, claims); err != nil {
+		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to save claims"), http.StatusFound)
+		return
+	}
+
+	_ = h.auditStore.Log(r.Context(), adminID, postgres.AuditActionSetCustomClaims, "client", clientID, extractIP(r), r.UserAgent())
+	http.Redirect(w, r, redirectBase+"?message="+url.QueryEscape("Claims saved"), http.StatusFound)
+}
+
 // extractIP returns the client IP from the request, checking proxy headers first.
 func extractIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {

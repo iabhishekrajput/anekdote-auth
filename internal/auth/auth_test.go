@@ -52,7 +52,7 @@ func TestJWTGenerator_Token(t *testing.T) {
 		PublicKey:  &privateKey.PublicKey,
 	}
 
-	gen := NewJWTGenerator(keyStore, "http://issuer", nil, nil, nil, nil)
+	gen := NewJWTGenerator(keyStore, "http://issuer", nil, nil, nil, nil, nil)
 
 	client := &models.Client{ID: "client-id"}
 	tokenInfo := &models.Token{
