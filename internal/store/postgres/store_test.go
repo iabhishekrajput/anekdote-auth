@@ -90,8 +90,8 @@ func TestUserStore_GetByEmail(t *testing.T) {
 	userID := uuid.New()
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("test@example.com").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
-			AddRow(userID, "test@example.com", "Test Name", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now()))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+			AddRow(userID, "test@example.com", "Test Name", nil, "hash", true, false, nil, true, nil, nil, time.Now(), time.Now()))
 
 	user, err := store.GetByEmail("test@example.com")
 	if err != nil {
@@ -110,11 +110,11 @@ func TestUserStore_Create(t *testing.T) {
 	newID := "usr_01jpqrst_test_new_user_id_"
 
 	mock.ExpectQuery(`INSERT INTO users`).
-		WithArgs(sqlmock.AnyArg(), "new@example.com", "New User", "hashedpass").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
-			AddRow(newID, "new@example.com", "New User", "hashedpass", false, time.Now(), time.Now()))
+		WithArgs(sqlmock.AnyArg(), "new@example.com", "New User", sqlmock.AnyArg(), "hashedpass").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "created_at", "updated_at"}).
+			AddRow(newID, "new@example.com", "New User", nil, "hashedpass", false, time.Now(), time.Now()))
 
-	user, err := store.Create("new@example.com", "New User", "hashedpass")
+	user, err := store.Create("new@example.com", "New User", "", "hashedpass")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

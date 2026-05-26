@@ -65,11 +65,11 @@ func TestRegisterFunc_Success(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	newID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "created_at", "updated_at"}).
-		AddRow(newID, "test@example.com", "Test User", "hashed_password_stub", false, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "created_at", "updated_at"}).
+		AddRow(newID, "test@example.com", "Test User", nil, "hashed_password_stub", false, time.Now(), time.Now())
 
 	mock.ExpectQuery(`INSERT INTO users`).
-		WithArgs(sqlmock.AnyArg(), "test@example.com", "Test User", sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "test@example.com", "Test User", sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(rows)
 
 	handler.RegisterFunc(rr, req, nil)
@@ -134,8 +134,8 @@ func TestLoginFunc_Success(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
-		AddRow(userID, "login@example.com", "Test User", string(hash), true, false, nil, true, nil, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "login@example.com", "Test User", nil, string(hash), true, false, nil, true, nil, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("login@example.com").
@@ -180,8 +180,8 @@ func TestLoginFunc_DisabledUser(t *testing.T) {
 	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
 	userID := uuid.New()
 	disabledAt := time.Now()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
-		AddRow(userID, "disabled@example.com", "Disabled User", string(hash), true, false, nil, true, disabledAt, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "disabled@example.com", "Disabled User", nil, string(hash), true, false, nil, true, disabledAt, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("disabled@example.com").
@@ -262,8 +262,8 @@ func TestForgotPasswordFunc_Success(t *testing.T) {
 	defer mr.Close()
 
 	userID := uuid.New()
-	rows := sqlmock.NewRows([]string{"id", "email", "name", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
-		AddRow(userID, "forgot@example.com", "Test User", "hash", true, false, nil, true, nil, nil, time.Now(), time.Now())
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "forgot@example.com", "Test User", nil, "hash", true, false, nil, true, nil, nil, time.Now(), time.Now())
 
 	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
 		WithArgs("forgot@example.com").

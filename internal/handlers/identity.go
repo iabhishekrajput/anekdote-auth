@@ -127,6 +127,7 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 	email := r.FormValue("email")
 	password := r.FormValue("password")
 	name := r.FormValue("name")
+	username := r.FormValue("username")
 	inviteToken := r.FormValue("invite_token")
 
 	inviteData := func(extra map[string]interface{}) map[string]interface{} {
@@ -156,7 +157,7 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 
-	user, err := h.userStore.Create(email, name, string(hash))
+	user, err := h.userStore.Create(email, name, username, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
 		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Error creating user (maybe email exists)"}))

@@ -6,6 +6,7 @@ type User struct {
 	ID              string
 	Email           string
 	Name            string
+	Username        string // optional; used for preferred_username OIDC claim
 	PasswordHash    string
 	IsVerified      bool
 	IsAdmin         bool

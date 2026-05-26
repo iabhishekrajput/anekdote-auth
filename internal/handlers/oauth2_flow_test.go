@@ -12,7 +12,19 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/iabhishekrajput/anekdote-auth/internal/auth"
 )
+
+// setupOAuth2HandlerWithIDToken is like setupOAuth2MockedHandler but wires the
+// JWTGenerator as the IDTokenGenerator so that id_token is emitted on /token.
+// The generator uses nil claimsReader so id_token generation requires no SQL.
+func setupOAuth2HandlerWithIDToken(t *testing.T) (*OAuth2Handler, sqlmock.Sqlmock, func()) {
+	t.Helper()
+	h, mock, mr := setupOAuth2MockedHandler(t)
+	jwtGen := auth.NewJWTGenerator(h.keyStore, "http://localhost:8080", nil, nil, nil, nil, nil)
+	h.idTokenGen = jwtGen
+	return h, mock, func() { mr.Close() }
+}
 
 // TestOAuth2FullFlow exercises the complete Authorization Code + PKCE flow:
 //
@@ -183,6 +195,137 @@ func TestOAuth2FullFlow(t *testing.T) {
 		t.Error("step 6: expected JTI to be in revocation blocklist after /revoke")
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sqlmock expectations: %v", err)
+	}
+}
+
+// runNonceFlow runs the authorize→token sequence with an optional nonce and returns
+// the parsed id_token claims.  The caller is responsible for setting up the mock
+// expectations on `mock` before calling.
+func runNonceFlow(t *testing.T, handler *OAuth2Handler, mock sqlmock.Sqlmock, nonce string) jwt.MapClaims {
+	t.Helper()
+
+	const (
+		clientID      = "nonce-client"
+		redirectURI   = "http://localhost/callback"
+		codeVerifier  = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+		codeChallenge = codeVerifier
+	)
+
+	userID := uuid.New().String()
+	sessionID, err := handler.sessionStore.Create(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// POST /authorize with accept=true
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Nonce Client", "", redirectURI, true, nil))
+
+	postForm := url.Values{}
+	postForm.Set("client_id", clientID)
+	postForm.Set("response_type", "code")
+	postForm.Set("redirect_uri", redirectURI)
+	postForm.Set("code_challenge", codeChallenge)
+	postForm.Set("code_challenge_method", "plain")
+	postForm.Set("scope", "openid profile")
+	postForm.Set("accept", "true")
+	if nonce != "" {
+		postForm.Set("nonce", nonce)
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/authorize", strings.NewReader(postForm.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
+	rr2 := httptest.NewRecorder()
+	handler.Authorize(rr2, req2, nil)
+
+	if rr2.Code != http.StatusFound {
+		t.Fatalf("POST /authorize: expected 302, got %d\nbody: %s", rr2.Code, rr2.Body.String())
+	}
+	locURL, _ := url.Parse(rr2.Header().Get("Location"))
+	code := locURL.Query().Get("code")
+	if code == "" {
+		t.Fatalf("POST /authorize: no code in Location %q", rr2.Header().Get("Location"))
+	}
+
+	// POST /token
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Nonce Client", "", redirectURI, true, nil))
+	// Access token custom claims — real jwtGen has clientStore as claimsReader.
+	mock.ExpectQuery(`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value"}))
+
+	tokenForm := url.Values{}
+	tokenForm.Set("grant_type", "authorization_code")
+	tokenForm.Set("client_id", clientID)
+	tokenForm.Set("code", code)
+	tokenForm.Set("redirect_uri", redirectURI)
+	tokenForm.Set("code_verifier", codeVerifier)
+
+	req3 := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(tokenForm.Encode()))
+	req3.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr3 := httptest.NewRecorder()
+	handler.Token(rr3, req3, nil)
+
+	if rr3.Code != http.StatusOK {
+		t.Fatalf("POST /token: expected 200, got %d\nbody: %s", rr3.Code, rr3.Body.String())
+	}
+
+	var tokenResp map[string]any
+	if err := json.Unmarshal(rr3.Body.Bytes(), &tokenResp); err != nil {
+		t.Fatalf("parse token response: %v", err)
+	}
+	idTokenStr, ok := tokenResp["id_token"].(string)
+	if !ok || idTokenStr == "" {
+		t.Fatalf("expected id_token in response, got: %v", tokenResp)
+	}
+
+	parser := jwt.NewParser()
+	parsed, _, parseErr := parser.ParseUnverified(idTokenStr, jwt.MapClaims{})
+	if parseErr != nil {
+		t.Fatalf("parse id_token: %v", parseErr)
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatal("unexpected claims type in id_token")
+	}
+	return claims
+}
+
+// TestOAuth2Nonce_HappyPath verifies that a nonce sent in /authorize is echoed
+// back in the id_token nonce claim after /token exchange.
+func TestOAuth2Nonce_HappyPath(t *testing.T) {
+	handler, mock, cleanup := setupOAuth2HandlerWithIDToken(t)
+	defer cleanup()
+
+	claims := runNonceFlow(t, handler, mock, "test-nonce-xyz")
+
+	if claims["nonce"] != "test-nonce-xyz" {
+		t.Errorf("expected nonce=test-nonce-xyz in id_token, got %v", claims["nonce"])
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sqlmock expectations: %v", err)
+	}
+}
+
+// TestOAuth2Nonce_NotPresent verifies that when no nonce is sent in /authorize,
+// the id_token contains no nonce claim.
+func TestOAuth2Nonce_NotPresent(t *testing.T) {
+	handler, mock, cleanup := setupOAuth2HandlerWithIDToken(t)
+	defer cleanup()
+
+	claims := runNonceFlow(t, handler, mock, "")
+
+	if _, has := claims["nonce"]; has {
+		t.Errorf("expected no nonce claim in id_token when none sent, got %v", claims["nonce"])
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("unfulfilled sqlmock expectations: %v", err)
 	}

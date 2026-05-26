@@ -32,3 +32,19 @@ func (s *RevocationStore) IsRevoked(ctx context.Context, jti string) (bool, erro
 	}
 	return val == "revoked", nil
 }
+
+// StoreNonce persists the OIDC nonce tied to an authorization code.
+// TTL should match the code's own expiry (typically 10 minutes).
+func (s *RevocationStore) StoreNonce(ctx context.Context, code, nonce string, ttl time.Duration) error {
+	return s.client.Set(ctx, "oidc_nonce:"+code, nonce, ttl).Err()
+}
+
+// ConsumeNonce retrieves and atomically deletes the nonce for a code (one-time read).
+// Returns ("", nil) when no nonce exists for the code.
+func (s *RevocationStore) ConsumeNonce(ctx context.Context, code string) (string, error) {
+	nonce, err := s.client.GetDel(ctx, "oidc_nonce:"+code).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return nonce, err
+}

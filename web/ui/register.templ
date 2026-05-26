@@ -23,6 +23,7 @@ templ RegisterPageBody(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg
 
 			<div class="flex flex-col gap-4">
 				@FormField("Full name", "name", "", TextInput("name", "name", "text", "Jane Doe", "", false))
+				@FormField("Username", "username", "", TextInput("username", "username", "text", "johndoe", "", false))
 				if inviteEmail != "" {
 					<div class="flex flex-col gap-1.5">
 						<label for="email" class="text-sm font-medium text-zinc-50">Email address</label>

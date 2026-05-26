@@ -31,11 +31,11 @@ func NewUserStore(db *sql.DB) *UserStore {
 
 func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 	u := &models.User{}
-	var adminRole sql.NullString
+	var adminRole, username sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
+		SELECT id, email, name, username, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
 		FROM users WHERE email = $1 AND deleted_at IS NULL`, email).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
+		Scan(&u.ID, &u.Email, &u.Name, &username, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -43,16 +43,17 @@ func (s *UserStore) GetByEmail(email string) (*models.User, error) {
 		return nil, err
 	}
 	u.AdminRole = adminRole.String
+	u.Username = username.String
 	return u, nil
 }
 
 func (s *UserStore) GetByID(id string) (*models.User, error) {
 	u := &models.User{}
-	var adminRole sql.NullString
+	var adminRole, username sql.NullString
 	err := s.db.QueryRow(`
-		SELECT id, email, name, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
+		SELECT id, email, name, username, password_hash, is_verified, is_admin, admin_role, password_changed, disabled_at, deleted_at, created_at, updated_at
 		FROM users WHERE id = $1 AND deleted_at IS NULL`, id).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
+		Scan(&u.ID, &u.Email, &u.Name, &username, &u.PasswordHash, &u.IsVerified, &u.IsAdmin, &adminRole, &u.PasswordChanged, &u.DisabledAt, &u.DeletedAt, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -60,6 +61,7 @@ func (s *UserStore) GetByID(id string) (*models.User, error) {
 		return nil, err
 	}
 	u.AdminRole = adminRole.String
+	u.Username = username.String
 	return u, nil
 }
 
@@ -245,19 +247,24 @@ func (s *UserStore) SetDisabled(ctx context.Context, id string, disabled bool) e
 	return err
 }
 
-func (s *UserStore) Create(email, name, passwordHash string) (*models.User, error) {
+func (s *UserStore) Create(email, name, username, passwordHash string) (*models.User, error) {
 	u := &models.User{}
 	id := idgen.NewUserID()
+	var usernameArg sql.NullString
+	if username != "" {
+		usernameArg = sql.NullString{String: username, Valid: true}
+	}
 	err := s.db.QueryRow(`
-		INSERT INTO users (id, email, name, password_hash, password_changed)
-		VALUES ($1, $2, $3, $4, TRUE)
-		RETURNING id, email, name, password_hash, is_verified, created_at, updated_at`,
-		id, email, name, passwordHash).
-		Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
+		INSERT INTO users (id, email, name, username, password_hash, password_changed)
+		VALUES ($1, $2, $3, $4, $5, TRUE)
+		RETURNING id, email, name, username, password_hash, is_verified, created_at, updated_at`,
+		id, email, name, usernameArg, passwordHash).
+		Scan(&u.ID, &u.Email, &u.Name, &usernameArg, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
 		return nil, err
 	}
+	u.Username = usernameArg.String
 	u.PasswordChanged = true
 	return u, nil
 }

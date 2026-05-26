@@ -837,7 +837,7 @@ templ OrgClientEditBody(csrfToken string, org *models.Org, client *postgres.OrgC
 					<p class="text-xs text-zinc-500 font-mono mt-0.5">{ client.ID }</p>
 				</div>
 				<div class="flex items-center gap-3">
-					<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/claims") } class="text-xs text-zinc-400 hover:text-zinc-50 transition-colors duration-150">Custom Claims →</a>
+					<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients/" + client.ID + "/claims") } class="inline-flex items-center gap-1 rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-zinc-50 transition-colors duration-150">Custom Claims →</a>
 					<a href={ templ.URL("/account/orgs/" + org.Slug + "/clients") } class="text-xs text-zinc-400 hover:text-zinc-50 transition-colors duration-150">← Back to clients</a>
 				</div>
 			</div>

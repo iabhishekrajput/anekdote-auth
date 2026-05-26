@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -23,6 +24,10 @@ import (
 	"github.com/justinas/nosurf"
 )
 
+// authCodeTTL mirrors the OAuth2 server's authorization code expiry (server.go).
+// The nonce is keyed by auth code and must not outlive it.
+const authCodeTTL = 10 * time.Minute
+
 // oauth2OrgStore extends OrgMembershipReader with org name lookup for the access-denied page.
 type oauth2OrgStore interface {
 	auth.OrgMembershipReader
@@ -37,7 +42,7 @@ type oauth2ClientGrantStore interface {
 // IDTokenGenerator generates OIDC ID tokens for successful authorization_code exchanges.
 // Implemented by *auth.JWTGenerator.
 type IDTokenGenerator interface {
-	GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration) (string, error)
+	GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration, nonce string) (string, error)
 }
 
 type OAuth2Handler struct {
@@ -93,6 +98,40 @@ func (rc *responseCapture) flush() {
 	rc.ResponseWriter.Write(rc.body.Bytes()) //nolint:errcheck
 }
 
+// authCodeCapture buffers the authorize response so we can persist the OIDC nonce
+// before the redirect reaches the client, eliminating any store-before-redirect race.
+type authCodeCapture struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+	code       string
+}
+
+func (ac *authCodeCapture) WriteHeader(status int) {
+	ac.statusCode = status
+	if status == http.StatusFound {
+		loc := ac.ResponseWriter.Header().Get("Location")
+		if u, err := url.Parse(loc); err == nil {
+			ac.code = u.Query().Get("code")
+		}
+	}
+}
+
+func (ac *authCodeCapture) Write(b []byte) (int, error) {
+	if ac.statusCode == 0 {
+		ac.statusCode = http.StatusOK
+	}
+	return ac.body.Write(b)
+}
+
+func (ac *authCodeCapture) flush() {
+	if ac.statusCode != 0 {
+		ac.ResponseWriter.Header().Del("Content-Length")
+		ac.ResponseWriter.WriteHeader(ac.statusCode)
+	}
+	ac.ResponseWriter.Write(ac.body.Bytes()) //nolint:errcheck
+}
+
 // Authorize handles the initial redirect from the client
 func (h *OAuth2Handler) Authorize(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	// 1. Check if the user is logged in
@@ -110,11 +149,24 @@ func (h *OAuth2Handler) Authorize(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
-	err = h.server.HandleAuthorizeRequest(w, r)
+	nonce := r.FormValue("nonce")
+	ac := &authCodeCapture{ResponseWriter: w}
+	err = h.server.HandleAuthorizeRequest(ac, r)
 	if err != nil {
 		slog.Error("Authorize Request Error", "error", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
+	// Store nonce BEFORE flushing the redirect. This eliminates the race where a fast
+	// client exchanges the code before the nonce is persisted.
+	if nonce != "" && ac.code != "" && h.revocStore != nil {
+		if storeErr := h.revocStore.StoreNonce(r.Context(), ac.code, nonce, authCodeTTL); storeErr != nil {
+			slog.Error("authorize: failed to store nonce; aborting redirect", "error", storeErr)
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+	}
+	ac.flush()
 }
 
 func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Request) (userID string, err error) {
@@ -256,23 +308,34 @@ func (h *OAuth2Handler) userAuthorizeHandler(w http.ResponseWriter, r *http.Requ
 // When the openid scope is granted and an IDTokenGenerator is configured, an id_token is
 // injected into the response JSON.
 func (h *OAuth2Handler) Token(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	// Capture the authorization code before HandleTokenRequest consumes the body.
+	// r.FormValue parses and caches the form; subsequent calls by go-oauth2 reuse the cache.
+	code := r.FormValue("code")
 	rc := &responseCapture{ResponseWriter: w}
 	err := h.server.HandleTokenRequest(rc, r)
 	if err != nil {
 		slog.Error("Token Request Error", "error", err)
 	}
 	if rc.statusCode == http.StatusOK && h.idTokenGen != nil {
-		h.tryInjectIDToken(r.Context(), rc)
+		if err := h.tryInjectIDToken(r.Context(), rc, code); err != nil {
+			slog.Error("id_token injection failed; returning server error", "error", err)
+			rc.statusCode = http.StatusInternalServerError
+			rc.body.Reset()
+			rc.body.Write([]byte(`{"error":"server_error","error_description":"internal server error"}`)) //nolint:errcheck
+		}
 	}
 	rc.flush()
 }
 
 // tryInjectIDToken parses the buffered token response and injects an id_token when the
 // openid scope is present and the token has a user subject (not client_credentials).
-func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCapture) {
+// code is the authorization code from the request; used to retrieve a stored nonce.
+// Returns an error if nonce retrieval fails (fail-closed: a Redis error on the nonce
+// store aborts id_token generation rather than silently omitting the nonce).
+func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCapture, code string) error {
 	var resp map[string]interface{}
 	if err := json.Unmarshal(rc.body.Bytes(), &resp); err != nil {
-		return
+		return nil
 	}
 	scope, _ := resp["scope"].(string)
 	scopeSet := make(map[string]bool)
@@ -280,25 +343,25 @@ func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCaptur
 		scopeSet[s] = true
 	}
 	if !scopeSet["openid"] {
-		return
+		return nil
 	}
 	accessToken, _ := resp["access_token"].(string)
 	if accessToken == "" {
-		return
+		return nil
 	}
 	// ParseUnverified to extract sub/aud/exp from our own just-issued token without re-verifying.
 	parser := jwt.NewParser()
 	parsed, _, parseErr := parser.ParseUnverified(accessToken, jwt.MapClaims{})
 	if parseErr != nil {
-		return
+		return nil
 	}
 	claims, ok := parsed.Claims.(jwt.MapClaims)
 	if !ok {
-		return
+		return nil
 	}
 	sub, _ := claims["sub"].(string)
 	if sub == "" {
-		return // client_credentials token — no user to describe
+		return nil // client_credentials token — no user to describe
 	}
 	aud, _ := claims["aud"].(string)
 
@@ -312,19 +375,29 @@ func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCaptur
 		expiry = time.Hour
 	}
 
-	idToken, err := h.idTokenGen.GenerateIDToken(ctx, sub, aud, scope, accessToken, expiry)
+	var nonce string
+	if code != "" && h.revocStore != nil {
+		n, err := h.revocStore.ConsumeNonce(ctx, code)
+		if err != nil {
+			return fmt.Errorf("nonce retrieval failed: %w", err)
+		}
+		nonce = n
+	}
+
+	idToken, err := h.idTokenGen.GenerateIDToken(ctx, sub, aud, scope, accessToken, expiry, nonce)
 	if err != nil {
 		slog.Warn("id_token generation failed; omitting from response", "error", err)
-		return
+		return nil
 	}
 	resp["id_token"] = idToken
 
 	newBody, err := json.Marshal(resp)
 	if err != nil {
-		return
+		return nil
 	}
 	rc.body.Reset()
 	rc.body.Write(newBody) //nolint:errcheck
+	return nil
 }
 
 // Revoke handles invalidating a specific JWT by its JTI blocklist, or deleting a refresh token

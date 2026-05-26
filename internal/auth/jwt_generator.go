@@ -56,6 +56,7 @@ var reservedClaims = map[string]struct{}{
 	"scope": {}, "org_id": {}, "org_role": {}, "name": {}, "email": {},
 	"email_verified": {}, "updated_at": {}, "at_hash": {},
 	"auth_time": {}, "nonce": {}, "acr": {}, "amr": {}, "azp": {}, "client_id": {},
+	"preferred_username": {},
 }
 
 // JWTGenerator implements oauth2.AccessGenerate
@@ -215,6 +216,9 @@ func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims,
 		if user.Name != "" {
 			dst["name"] = user.Name
 		}
+		if user.Username != "" {
+			dst["preferred_username"] = user.Username
+		}
 		dst["updated_at"] = user.UpdatedAt.Unix()
 	}
 	if scopeSet["email"] {
@@ -240,7 +244,8 @@ func intersectScopes(requested, allowed string) string {
 
 // GenerateIDToken creates a signed OIDC ID token for the authorization_code flow.
 // sub is the user UUID string, aud is the client_id, accessToken is the just-issued access token.
-func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration) (string, error) {
+// nonce is echoed back when non-empty (OIDC Core §3.1.3.6).
+func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration, nonce string) (string, error) {
 	// at_hash: left half of SHA256 of the access token, base64url-encoded (OIDC Core §3.3.2.9)
 	h := sha256.Sum256([]byte(accessToken))
 	atHash := base64.RawURLEncoding.EncodeToString(h[:len(h)/2])
@@ -253,6 +258,10 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 		"exp":     now.Add(expiry).Unix(),
 		"iat":     now.Unix(),
 		"at_hash": atHash,
+	}
+
+	if nonce != "" {
+		claims["nonce"] = nonce
 	}
 
 	if g.userStore != nil {
