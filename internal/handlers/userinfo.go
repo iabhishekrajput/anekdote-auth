@@ -190,7 +190,13 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		if clientID != "" {
 			custom, claimsErr := h.claimsReader.GetCustomClaims(r.Context(), clientID, scope, "userinfo")
 			if claimsErr != nil {
-				h.writeTokenError(w, "server_error", "failed to load custom claims")
+				// OIDC Core §5.3: server_error maps to 500, not 401.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":             "server_error",
+					"error_description": "failed to load custom claims",
+				})
 				return
 			}
 			for k, v := range custom {

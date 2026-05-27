@@ -592,8 +592,9 @@ func TestManagement_PutClaims_StoreError(t *testing.T) {
 
 	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
 
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 when store.GetClientOrgID errors, got %d: %s", rr.Code, rr.Body.String())
+	// Returns 403 (not 404) to prevent client ID enumeration.
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when store.GetClientOrgID errors (anti-enumeration), got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -652,8 +653,9 @@ func TestManagement_GetClaims_ClientNotFound(t *testing.T) {
 
 	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
 
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for client not found, got %d: %s", rr.Code, rr.Body.String())
+	// Returns 403 (not 404) to prevent client ID enumeration.
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for client not found (anti-enumeration), got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -693,8 +695,9 @@ func TestManagement_GetClaims_StoreError(t *testing.T) {
 
 	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
 
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 when GetClientOrgID errors, got %d: %s", rr.Code, rr.Body.String())
+	// Returns 403 (not 404) to prevent client ID enumeration.
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when GetClientOrgID errors (anti-enumeration), got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -812,8 +815,10 @@ func TestManagement_WWWAuthenticate_On401(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rr.Code)
 	}
-	if wwwAuth := rr.Header().Get("WWW-Authenticate"); wwwAuth != `Bearer realm="anekdote-auth"` {
-		t.Errorf("expected WWW-Authenticate header, got %q", wwwAuth)
+	// RFC 6750: 401 must carry WWW-Authenticate with error code.
+	wwwAuth := rr.Header().Get("WWW-Authenticate")
+	if !strings.Contains(wwwAuth, "Bearer") || !strings.Contains(wwwAuth, "error=") {
+		t.Errorf("expected RFC 6750 WWW-Authenticate with error=, got %q", wwwAuth)
 	}
 }
 
@@ -860,6 +865,26 @@ func TestManagement_ScopeHasWord(t *testing.T) {
 		if got != c.want {
 			t.Errorf("scopeHasWord(%q, %q) = %v, want %v", c.scope, c.target, got, c.want)
 		}
+	}
+}
+
+// TestManagement_GetClaims_DuplicateClaimKey verifies that PUT with duplicate keys returns 422.
+func TestManagement_PutClaims_DuplicateKey(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	clientID := "cli_test"
+	h := newTestMgmtHandler(ks, &mockRevStore{}, &mockMgmtClientStore{orgID: &orgID})
+	tok := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+
+	body := `{"claims":[{"key":"https://example.com/role","type":"string","value":"a"},{"key":"https://example.com/role","type":"string","value":"b"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/"+clientID+"/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.PutClientClaims(rr, req, httprouterParams("id", clientID))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("duplicate key: expected 422, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

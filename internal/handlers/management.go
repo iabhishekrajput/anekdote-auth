@@ -33,6 +33,7 @@ type ManagementHandler struct {
 	revStore    ManagementRevStore
 	clientStore ManagementClientStore
 	mgmtAud     string // required aud claim value
+	appURL      string // required iss claim value
 }
 
 func NewManagementHandler(
@@ -49,6 +50,12 @@ func NewManagementHandler(
 	}
 }
 
+// WithIssuer sets the expected iss claim value for token validation.
+func (h *ManagementHandler) WithIssuer(issuer string) *ManagementHandler {
+	h.appURL = issuer
+	return h
+}
+
 // managementClaimInput is the JSON shape accepted by PUT /api/v1/clients/:id/claims.
 type managementClaimInput struct {
 	Key          string `json:"key"`
@@ -59,9 +66,10 @@ type managementClaimInput struct {
 }
 
 // managementClaimOutput is the JSON shape returned by GET /api/v1/clients/:id/claims.
+// Uses "type" (not "value_type") so GET responses can be round-tripped directly as PUT inputs.
 type managementClaimOutput struct {
 	Key          string `json:"key"`
-	Type         string `json:"value_type"`
+	Type         string `json:"type"`
 	Value        string `json:"value"`
 	Destinations string `json:"destinations"`
 	ScopeGate    string `json:"scope_gate,omitempty"`
@@ -71,7 +79,7 @@ type managementClaimOutput struct {
 func (h *ManagementHandler) GetClientClaims(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	claims, err := h.verifyManagementToken(r, "read:client_claims")
 	if err != nil {
-		h.writeError(w, http.StatusUnauthorized, err.Error())
+		h.writeAuthError(w, err)
 		return
 	}
 
@@ -82,11 +90,12 @@ func (h *ManagementHandler) GetClientClaims(w http.ResponseWriter, r *http.Reque
 			if tokenOrgID == "" {
 				h.writeError(w, http.StatusForbidden, "management API requires a service account token with org_id claim")
 			} else {
-				h.writeError(w, http.StatusForbidden, "caller is not owner of client "+clientID)
+				h.writeError(w, http.StatusForbidden, "access denied")
 			}
-			return
+		} else {
+			// Return 403 (not 404) to prevent client ID enumeration.
+			h.writeError(w, http.StatusForbidden, "access denied")
 		}
-		h.writeError(w, http.StatusNotFound, "client not found")
 		return
 	}
 
@@ -108,7 +117,7 @@ func (h *ManagementHandler) GetClientClaims(w http.ResponseWriter, r *http.Reque
 func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	claims, err := h.verifyManagementToken(r, "update:client_claims")
 	if err != nil {
-		h.writeError(w, http.StatusUnauthorized, err.Error())
+		h.writeAuthError(w, err)
 		return
 	}
 
@@ -119,11 +128,12 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 			if tokenOrgID == "" {
 				h.writeError(w, http.StatusForbidden, "management API requires a service account token with org_id claim")
 			} else {
-				h.writeError(w, http.StatusForbidden, "caller is not owner of client "+clientID)
+				h.writeError(w, http.StatusForbidden, "access denied")
 			}
-			return
+		} else {
+			// Return 403 (not 404) to prevent client ID enumeration.
+			h.writeError(w, http.StatusForbidden, "access denied")
 		}
-		h.writeError(w, http.StatusNotFound, "client not found")
 		return
 	}
 
@@ -147,6 +157,7 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(map[string]any{
 		"operation": "replace_all",
 		"count":     len(defs),
@@ -187,10 +198,26 @@ func (h *ManagementHandler) verifyManagementToken(r *http.Request, requiredScope
 		return nil, errors.New("invalid claims")
 	}
 
-	// Audience must exactly match the management audience.
-	aud, _ := claims["aud"].(string)
+	// Issuer must match the server's own URL.
+	if h.appURL != "" {
+		iss, _ := claims["iss"].(string)
+		if iss != h.appURL {
+			return nil, errors.New("invalid token")
+		}
+	}
+
+	// Audience must exactly match the management audience (string or single-element array).
+	var aud string
+	switch v := claims["aud"].(type) {
+	case string:
+		aud = v
+	case []interface{}:
+		if len(v) == 1 {
+			aud, _ = v[0].(string)
+		}
+	}
 	if aud != h.mgmtAud {
-		return nil, fmt.Errorf("token audience %q does not match management audience", aud)
+		return nil, errors.New("invalid token")
 	}
 
 	// Check revocation (fail closed).
@@ -203,10 +230,10 @@ func (h *ManagementHandler) verifyManagementToken(r *http.Request, requiredScope
 		return nil, errors.New("token revoked")
 	}
 
-	// Scope check.
+	// Scope check — opaque error to avoid leaking scope names.
 	scope, _ := claims["scope"].(string)
 	if !scopeHasWord(scope, requiredScope) {
-		return nil, fmt.Errorf("token missing required scope %q", requiredScope)
+		return nil, errors.New("insufficient scope")
 	}
 
 	return claims, nil
@@ -238,6 +265,7 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 	}
 
 	defs := make([]postgres.ClaimDefinition, 0, len(inputs))
+	seen := make(map[string]bool, len(inputs))
 	approxSize := 2
 	for _, inp := range inputs {
 		k := strings.TrimSpace(inp.Key)
@@ -256,6 +284,10 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 		if !strings.HasPrefix(k, "https://") {
 			return nil, errors.New("claim key \"" + k + "\" must be namespaced with an https:// prefix (e.g. https://example.com/tier)")
 		}
+		if seen[k] {
+			return nil, errors.New("duplicate claim key \"" + k + "\"")
+		}
+		seen[k] = true
 
 		rawVal := strings.TrimSpace(inp.Value)
 		var valueType, storedVal string
@@ -326,11 +358,35 @@ func managementDefsToOutput(defs []postgres.ClaimDefinition) []managementClaimOu
 
 func (h *ManagementHandler) writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	if status == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="anekdote-auth"`)
-	}
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// writeAuthError returns a 401 with RFC 6750 error fields. The error detail from
+// verifyManagementToken is mapped to opaque codes so internal details don't leak.
+func (h *ManagementHandler) writeAuthError(w http.ResponseWriter, err error) {
+	msg := err.Error()
+	code := "invalid_token"
+	desc := "token validation failed"
+	switch msg {
+	case "missing or malformed Authorization header":
+		code = "invalid_request"
+		desc = "Authorization header is required"
+	case "token revoked":
+		desc = "token has been revoked"
+	case "missing jti":
+		desc = "token validation failed"
+	case "insufficient scope":
+		code = "insufficient_scope"
+		desc = "token does not have the required scope"
+	}
+	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="%s" error_description="%s"`, code, desc))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":             code,
+		"error_description": desc,
+	})
 }
 
 // scopeHasWord reports whether scope contains the exact word target.

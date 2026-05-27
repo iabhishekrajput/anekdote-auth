@@ -102,7 +102,7 @@ func main() {
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, revocStore, mailSvc, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
 	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb).WithCustomClaimsReader(clientStore)
-	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience)
+	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience).WithIssuer(cfg.AppURL)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)

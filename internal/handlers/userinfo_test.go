@@ -641,7 +641,7 @@ func TestUserInfo_CustomClaims_ReservedKeyNotOverridden(t *testing.T) {
 	}
 }
 
-func TestUserInfo_CustomClaims_ReaderError_Returns401(t *testing.T) {
+func TestUserInfo_CustomClaims_ReaderError_Returns500(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
 	userID := uuid.New().String()
 	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
@@ -652,9 +652,9 @@ func TestUserInfo_CustomClaims_ReaderError_Returns401(t *testing.T) {
 
 	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
 
-	// writeTokenError always uses 401; server_error signals the cause
-	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 (server_error) when claims reader errors, got %d: %s", rr.Code, rr.Body.String())
+	// OIDC Core §5.3: server_error must use 500, not 401.
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 (server_error) when claims reader errors, got %d: %s", rr.Code, rr.Body.String())
 	}
 	var body map[string]string
 	json.NewDecoder(rr.Body).Decode(&body)
