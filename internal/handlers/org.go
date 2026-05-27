@@ -39,6 +39,7 @@ var (
 			"scope", "org_id", "org_role", "name", "email",
 			"email_verified", "updated_at", "at_hash",
 			"auth_time", "nonce", "acr", "amr", "azp", "client_id",
+			"preferred_username",
 		}
 		m := make(map[string]struct{}, len(keys))
 		for _, k := range keys {
@@ -1535,6 +1536,9 @@ func validateClaims(keys, types, values, destinations []string) ([]postgres.Clai
 		}
 		if _, reserved := reservedClaimKeys[strings.ToLower(k)]; reserved {
 			return nil, errors.New("\"" + k + "\" is a reserved claim name and cannot be overridden")
+		}
+		if !strings.HasPrefix(k, "https://") {
+			return nil, errors.New("claim key \"" + k + "\" must be namespaced with an https:// prefix (e.g. https://example.com/tier)")
 		}
 
 		rawVal := strings.TrimSpace(values[i])
