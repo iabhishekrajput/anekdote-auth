@@ -2,8 +2,10 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -63,6 +65,19 @@ func RateLimitMiddleware(client *redis.Client, prefix string, limit int, window 
 		}
 
 		if count > int64(limit) {
+			// API paths (bearer-auth, no session) get a JSON 429 with Retry-After.
+			// All other paths get the legacy redirect-with-error behaviour.
+			if strings.HasPrefix(r.URL.Path, "/api/") || r.Header.Get("Authorization") != "" {
+				ttl, _ := client.TTL(ctx, key).Result()
+				if ttl <= 0 {
+					ttl = window
+				}
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(ttl.Seconds()+0.5)))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusTooManyRequests)
+				fmt.Fprintf(w, `{"error":"rate limit exceeded","retry_after":%d}`, int(ttl.Seconds()+0.5))
+				return
+			}
 			redirectErr(w, r, "Rate limit exceeded. Please try again later.")
 			return
 		}

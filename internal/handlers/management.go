@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -77,7 +78,12 @@ func (h *ManagementHandler) GetClientClaims(w http.ResponseWriter, r *http.Reque
 	clientID := ps.ByName("id")
 	if err := h.checkOwnership(r.Context(), claims, clientID); err != nil {
 		if errors.Is(err, errOwnershipDenied) {
-			h.writeError(w, http.StatusForbidden, "token org_id does not match client org")
+			tokenOrgID, _ := claims["org_id"].(string)
+			if tokenOrgID == "" {
+				h.writeError(w, http.StatusForbidden, "management API requires a service account token with org_id claim")
+			} else {
+				h.writeError(w, http.StatusForbidden, "caller is not owner of client "+clientID)
+			}
 			return
 		}
 		h.writeError(w, http.StatusNotFound, "client not found")
@@ -90,16 +96,8 @@ func (h *ManagementHandler) GetClientClaims(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	out := make([]managementClaimOutput, 0, len(defs))
-	for _, d := range defs {
-		out = append(out, managementClaimOutput{
-			Key:          d.Key,
-			Type:         d.ValueType,
-			Value:        d.Value,
-			Destinations: d.Destinations,
-			ScopeGate:    d.ScopeGate,
-		})
-	}
+	out := managementDefsToOutput(defs)
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -117,7 +115,12 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 	clientID := ps.ByName("id")
 	if err := h.checkOwnership(r.Context(), claims, clientID); err != nil {
 		if errors.Is(err, errOwnershipDenied) {
-			h.writeError(w, http.StatusForbidden, "token org_id does not match client org")
+			tokenOrgID, _ := claims["org_id"].(string)
+			if tokenOrgID == "" {
+				h.writeError(w, http.StatusForbidden, "management API requires a service account token with org_id claim")
+			} else {
+				h.writeError(w, http.StatusForbidden, "caller is not owner of client "+clientID)
+			}
 			return
 		}
 		h.writeError(w, http.StatusNotFound, "client not found")
@@ -144,7 +147,11 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"claims": managementDefsToOutput(defs)})
+	json.NewEncoder(w).Encode(map[string]any{
+		"operation": "replace_all",
+		"count":     len(defs),
+		"claims":    managementDefsToOutput(defs),
+	})
 }
 
 var errOwnershipDenied = errors.New("ownership denied")
