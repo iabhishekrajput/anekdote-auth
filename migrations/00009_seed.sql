@@ -26,7 +26,7 @@ VALUES (
     TRUE,
     TRUE,
     'superadmin'
-) ON CONFLICT (email) DO NOTHING;
+) ON CONFLICT (email) WHERE email IS NOT NULL DO NOTHING;
 
 -- +goose StatementEnd
 
