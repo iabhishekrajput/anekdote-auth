@@ -201,12 +201,20 @@ func TestUserInfo_MissingAuthHeader(t *testing.T) {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
-	if wwwAuth == "" {
-		t.Error("WWW-Authenticate header must be present on 401")
-	}
-	// Missing token: no error= parameter, just realm (RFC 6750 §3.1)
+	// Missing token: realm-only challenge, no error= parameter (RFC 6750 §3.1)
 	if wwwAuth != `Bearer realm="anekdote-auth"` {
 		t.Errorf("WWW-Authenticate: expected realm-only, got %q", wwwAuth)
+	}
+	// Body must include RFC 6750 error fields
+	var body map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "invalid_request" {
+		t.Errorf("error: expected invalid_request, got %q", body["error"])
+	}
+	if body["error_description"] == "" {
+		t.Error("error_description must be non-empty")
 	}
 }
 

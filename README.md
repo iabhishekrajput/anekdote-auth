@@ -273,6 +273,114 @@ Redis or Valkey-compatible storage handles ephemeral state:
 - One-time encrypted OAuth2 client secret flashes at `oauth:client-secret-flash:*`.
 - Rate-limit counters.
 
+## Management API
+
+The Management API provides programmatic control over per-client custom claim definitions. It is designed for CI/CD pipelines and service accounts that need to configure JWT claims without using the admin UI.
+
+### Authentication
+
+All Management API requests require a Bearer JWT signed with the server's RSA private key and targeting the management audience (`MANAGEMENT_AUDIENCE`, default `<APP_URL>/api/v1/`).
+
+```
+Authorization: Bearer <signed-RS256-JWT>
+```
+
+Required JWT claims:
+
+| Claim | Description |
+|-------|-------------|
+| `iss` | Must equal `APP_URL` |
+| `aud` | Must equal `MANAGEMENT_AUDIENCE` |
+| `org_id` | Organization that owns the target client |
+| `scope` | Space-separated scopes (see below) |
+| `jti` | Unique token ID (prevents replay) |
+| `exp` | Expiry timestamp |
+
+### Scopes
+
+| Scope | Access |
+|-------|--------|
+| `read:client_claims` | `GET /api/v1/clients/:id/claims` |
+| `update:client_claims` | `PUT /api/v1/clients/:id/claims` |
+
+### Endpoints
+
+#### GET /api/v1/clients/:id/claims
+
+Returns the current custom claim definitions for a client. The caller's `org_id` must match the client's owning organization.
+
+```json
+{
+  "claims": [
+    {
+      "key": "https://example.com/role",
+      "type": "string",
+      "value": "admin",
+      "destinations": "access_token",
+      "scope_gate": "openid"
+    }
+  ]
+}
+```
+
+Claims are sorted by key. Results are filtered to claims owned by the caller's organization.
+
+#### PUT /api/v1/clients/:id/claims
+
+Replaces all custom claim definitions atomically (replace-all semantics). Accepts an array of claim objects.
+
+```json
+{
+  "claims": [
+    {
+      "key": "https://example.com/tier",
+      "type": "string",
+      "value": "pro",
+      "destinations": "access_token,id_token"
+    }
+  ]
+}
+```
+
+Response on success (`200 OK`):
+
+```json
+{
+  "operation": "replace_all",
+  "count": 1,
+  "claims": [...]
+}
+```
+
+### Claim Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `key` | Yes | Claim key — must start with `https://` (namespace-prefixed) |
+| `type` | Yes | `"string"`, `"number"`, or `"boolean"` |
+| `value` | Yes | Claim value as a string; coerced to the declared type at token issuance |
+| `destinations` | No | Comma-separated destination list (default: `token`). Valid values: `token`, `access_token`, `id_token`, `userinfo`, `access_token,id_token,userinfo`, and combinations |
+| `scope_gate` | No | Space-separated scope string. Claim is only injected when all listed scopes are present in the token |
+
+Up to 20 claims per client. Keys longer than 256 characters are rejected.
+
+### Rate Limiting
+
+Management API routes are rate-limited to 20 requests per minute per IP. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
+
+### Error Responses
+
+Errors follow RFC 6750 format:
+
+```json
+{
+  "error": "invalid_token",
+  "error_description": "token validation failed"
+}
+```
+
+The `WWW-Authenticate` header is set on `401` responses with the appropriate `error` and `error_description` challenge parameters.
+
 ## Contributing
 
 Pull requests are welcome. Before opening a PR, please run the relevant local checks:

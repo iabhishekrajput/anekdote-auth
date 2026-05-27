@@ -72,10 +72,14 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 	// 1. Extract Bearer token per RFC 6750
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
+		// RFC 6750 §3.1: realm-only challenge when no token is present; no error= parameter.
 		w.Header().Set("WWW-Authenticate", `Bearer realm="anekdote-auth"`)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no_token"})
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_request",
+			"error_description": "Authorization header is required",
+		})
 		return
 	}
 	const prefix = "Bearer "
