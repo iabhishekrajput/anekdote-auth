@@ -30,11 +30,26 @@ type UserInfoTombstoneStore interface {
 	Exists(ctx context.Context, keys ...string) *goredis.IntCmd
 }
 
+// UserInfoCustomClaimsReader reads per-client custom claims for /userinfo injection.
+type UserInfoCustomClaimsReader interface {
+	GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error)
+}
+
+// reservedUserInfoClaims is the set of claim names that custom claims cannot override in /userinfo.
+var reservedUserInfoClaims = map[string]struct{}{
+	"sub": {}, "iss": {}, "aud": {}, "exp": {}, "iat": {}, "jti": {}, "nbf": {},
+	"scope": {}, "org_id": {}, "org_role": {}, "name": {}, "email": {},
+	"email_verified": {}, "updated_at": {}, "at_hash": {},
+	"auth_time": {}, "nonce": {}, "acr": {}, "amr": {}, "azp": {}, "client_id": {},
+	"preferred_username": {},
+}
+
 type UserInfoHandler struct {
-	keyStore    *crypto.KeyStore
-	userStore   UserInfoUserStore
-	revStore    UserInfoRevStore
-	tombstoneDB UserInfoTombstoneStore
+	keyStore     *crypto.KeyStore
+	userStore    UserInfoUserStore
+	revStore     UserInfoRevStore
+	tombstoneDB  UserInfoTombstoneStore
+	claimsReader UserInfoCustomClaimsReader
 }
 
 func NewUserInfoHandler(userStore UserInfoUserStore, keyStore *crypto.KeyStore, revStore UserInfoRevStore, rdb UserInfoTombstoneStore) *UserInfoHandler {
@@ -44,6 +59,12 @@ func NewUserInfoHandler(userStore UserInfoUserStore, keyStore *crypto.KeyStore, 
 		revStore:    revStore,
 		tombstoneDB: rdb,
 	}
+}
+
+// WithCustomClaimsReader wires in a claims reader for /userinfo custom claim injection.
+func (h *UserInfoHandler) WithCustomClaimsReader(r UserInfoCustomClaimsReader) *UserInfoHandler {
+	h.claimsReader = r
+	return h
 }
 
 // UserInfo serves GET and POST /userinfo per OIDC Core §5.3.
@@ -159,7 +180,25 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		resp["email_verified"] = user.IsVerified
 	}
 
-	// 8. Write response with required OIDC/RFC 6749 headers
+	// 8. Inject custom claims for destination="userinfo"
+	if h.claimsReader != nil {
+		clientID, _ := claims["aud"].(string)
+		if clientID != "" {
+			custom, claimsErr := h.claimsReader.GetCustomClaims(r.Context(), clientID, scope, "userinfo")
+			if claimsErr != nil {
+				h.writeTokenError(w, "server_error", "failed to load custom claims")
+				return
+			}
+			for k, v := range custom {
+				if _, reserved := reservedUserInfoClaims[strings.ToLower(k)]; reserved {
+					continue
+				}
+				resp[k] = v
+			}
+		}
+	}
+
+	// Write response with required OIDC/RFC 6749 headers
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(resp)
