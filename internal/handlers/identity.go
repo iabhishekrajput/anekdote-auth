@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -79,7 +80,9 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 	case "register.tmpl":
 		inviteEmail, _ := data["InviteEmail"].(string)
 		inviteToken, _ := data["InviteToken"].(string)
-		component := ui.RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg)
+		usernameError, _ := data["UsernameError"].(string)
+		emailError, _ := data["EmailError"].(string)
+		component := ui.RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, usernameError, emailError, successMsg)
 		_ = component.Render(r.Context(), w)
 	case "login.tmpl":
 		req, _ := data["Req"].(string)
@@ -160,7 +163,16 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 	user, err := h.userStore.Create(email, name, username, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
-		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Error creating user (maybe email exists)"}))
+		data := inviteData(map[string]interface{}{})
+		switch {
+		case errors.Is(err, postgres.ErrEmailTaken):
+			data["EmailError"] = "Email already registered"
+		case errors.Is(err, postgres.ErrUsernameTaken):
+			data["UsernameError"] = "Username already taken — choose a different one"
+		default:
+			data["Error"] = "Error creating user"
+		}
+		h.render(w, r, "register.tmpl", data)
 		return
 	}
 

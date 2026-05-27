@@ -8,11 +8,14 @@ import (
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/lib/pq"
 )
 
 var (
-	ErrUserNotFound = errors.New("user not found")
-	ErrLastAdmin    = errors.New("cannot remove the last admin")
+	ErrUserNotFound  = errors.New("user not found")
+	ErrLastAdmin     = errors.New("cannot remove the last admin")
+	ErrEmailTaken    = errors.New("email already registered")
+	ErrUsernameTaken = errors.New("username already taken")
 )
 
 var validAdminRoles = map[string]bool{
@@ -262,6 +265,14 @@ func (s *UserStore) Create(email, name, username, passwordHash string) (*models.
 		Scan(&u.ID, &u.Email, &u.Name, &usernameArg, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			switch pqErr.Constraint {
+			case "uq_idx_users_email":
+				return nil, ErrEmailTaken
+			case "uq_idx_users_username":
+				return nil, ErrUsernameTaken
+			}
+		}
 		return nil, err
 	}
 	u.Username = usernameArg.String

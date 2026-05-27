@@ -150,6 +150,9 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		if user.Name != "" {
 			resp["name"] = user.Name
 		}
+		if user.Username != "" {
+			resp["preferred_username"] = user.Username
+		}
 	}
 	if scopeSet["email"] {
 		resp["email"] = user.Email
