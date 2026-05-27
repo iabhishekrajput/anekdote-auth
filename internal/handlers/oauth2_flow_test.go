@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -330,3 +331,100 @@ func TestOAuth2Nonce_NotPresent(t *testing.T) {
 		t.Errorf("unfulfilled sqlmock expectations: %v", err)
 	}
 }
+
+// failingNonceStore wraps a real NonceRevokeStore and replaces ConsumeNonce with
+// a hard error, simulating a Redis failure during nonce retrieval at /token time.
+type failingNonceStore struct {
+	NonceRevokeStore
+}
+
+func (f *failingNonceStore) ConsumeNonce(_ context.Context, _ string) (string, error) {
+	return "", errors.New("redis unavailable")
+}
+
+// TestOAuth2Nonce_FailClosed verifies that a Redis failure during ConsumeNonce at
+// /token time causes the entire token response to fail (fail-closed), rather than
+// silently omitting the nonce and issuing an id_token without nonce binding.
+func TestOAuth2Nonce_FailClosed(t *testing.T) {
+	handler, mock, cleanup := setupOAuth2HandlerWithIDToken(t)
+	defer cleanup()
+
+	// Replace the revoc store with one whose ConsumeNonce always errors.
+	handler.revocStore = &failingNonceStore{handler.revocStore}
+
+	const (
+		clientID      = "nonce-client"
+		redirectURI   = "http://localhost/callback"
+		codeVerifier  = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+		codeChallenge = codeVerifier
+	)
+
+	userID := uuid.New().String()
+	sessionID, err := handler.sessionStore.Create(context.Background(), userID)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	// POST /authorize with accept=true to get an auth code.
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Nonce Client", "", redirectURI, true, nil))
+
+	postForm := url.Values{}
+	postForm.Set("client_id", clientID)
+	postForm.Set("response_type", "code")
+	postForm.Set("redirect_uri", redirectURI)
+	postForm.Set("code_challenge", codeChallenge)
+	postForm.Set("code_challenge_method", "plain")
+	postForm.Set("scope", "openid profile")
+	postForm.Set("accept", "true")
+	postForm.Set("nonce", "fail-closed-nonce")
+
+	req := httptest.NewRequest(http.MethodPost, "/authorize", strings.NewReader(postForm.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: "auth_session", Value: sessionID})
+	rr := httptest.NewRecorder()
+	handler.Authorize(rr, req, nil)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("POST /authorize: expected 302, got %d", rr.Code)
+	}
+	locURL, _ := url.Parse(rr.Header().Get("Location"))
+	code := locURL.Query().Get("code")
+	if code == "" {
+		t.Fatalf("no code in Location %q", rr.Header().Get("Location"))
+	}
+
+	// POST /token — ConsumeNonce errors, so the whole request must fail (non-200).
+	mock.ExpectQuery(`SELECT name, secret, domain, public, org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
+			AddRow("Nonce Client", "", redirectURI, true, nil))
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
+		WithArgs(clientID).
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
+
+	tokenForm := url.Values{}
+	tokenForm.Set("grant_type", "authorization_code")
+	tokenForm.Set("client_id", clientID)
+	tokenForm.Set("code", code)
+	tokenForm.Set("redirect_uri", redirectURI)
+	tokenForm.Set("code_verifier", codeVerifier)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(tokenForm.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr2 := httptest.NewRecorder()
+	handler.Token(rr2, req2, nil)
+
+	if rr2.Code == http.StatusOK {
+		t.Errorf("expected non-200 when ConsumeNonce fails (fail-closed), got 200; body: %s", rr2.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unfulfilled sqlmock expectations: %v", err)
+	}
+}
+
+// Ensure failingNonceStore compiles against the interface.
+var _ NonceRevokeStore = (*failingNonceStore)(nil)
