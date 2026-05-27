@@ -42,7 +42,6 @@ Items explicitly deferred during the autoplan review pipeline. Each entry notes 
 |------|-------------|-----------|
 | Separate OIDC state store for nonce keys (`oidc_nonce:*`) | Eng | Currently co-located in `RevocationStore` as MVP pragmatism; JTI revocation and nonce binding are different domains |
 | Username update in account settings | CEO | No UI to change username after registration; requires `UpdateUsername` store method + account form field |
-| `preferred_username` claim in `/userinfo` endpoint | Eng | `/userinfo` returns scope-driven claims from the bearer token but does not re-derive `preferred_username` from the DB; consistent with token claims but worth auditing |
 
 ## Playwright Tests (tests added 2026-05-26)
 
