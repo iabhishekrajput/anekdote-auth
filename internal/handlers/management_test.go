@@ -334,6 +334,556 @@ func TestManagement_ErrorFormat(t *testing.T) {
 	}
 }
 
+func TestManagement_PutClaims_InvalidJSON(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader("{not valid json"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid JSON, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_TooManyClaims(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+
+	// Build 21 valid claims (max is 20)
+	claimsJSON := `{"claims":[`
+	for i := 0; i < 21; i++ {
+		if i > 0 {
+			claimsJSON += ","
+		}
+		claimsJSON += fmt.Sprintf(`{"key":"https://example.com/claim%d","type":"string","value":"v"}`, i)
+	}
+	claimsJSON += `]}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(claimsJSON))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for too many claims, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_InvalidType(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"array","value":"[1,2,3]"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid type, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_InvalidNumber(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"number","value":"notanumber"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid number, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_NonFiniteNumber(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"number","value":"NaN"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for NaN number, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_InvalidBoolean(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"boolean","value":"yes"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid boolean, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_ValidBoolean(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/active","type":"boolean","value":"true"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid boolean, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(store.saved) != 1 || store.saved[0].ValueType != "boolean" || store.saved[0].Value != "true" {
+		t.Errorf("expected saved boolean claim, got %+v", store.saved)
+	}
+}
+
+func TestManagement_PutClaims_ValidNumber(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/count","type":"number","value":"42"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid number, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(store.saved) != 1 || store.saved[0].ValueType != "number" {
+		t.Errorf("expected saved number claim, got %+v", store.saved)
+	}
+}
+
+func TestManagement_PutClaims_InvalidDestinations(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"string","value":"v","destinations":"nowhere"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid destinations, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_MultiDestinations(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	// access_token,id_token should be valid (sorted form)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"string","value":"v","destinations":"id_token,access_token"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for multi-destination, got %d: %s", rr.Code, rr.Body.String())
+	}
+	// Destinations should be sorted canonically
+	if len(store.saved) != 1 || store.saved[0].Destinations != "access_token,id_token" {
+		t.Errorf("expected canonical sorted destinations, got %+v", store.saved)
+	}
+}
+
+func TestManagement_PutClaims_KeyTooLong(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	// Build a key that's 101 characters after "https://example.com/"
+	longKey := "https://example.com/" + strings.Repeat("a", 82) // 20+81=101 total
+	body := `{"claims":[{"key":"` + longKey + `","type":"string","value":"v"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for key too long, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_StoreError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID, err: fmt.Errorf("db unavailable")}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	// First call (GetClientOrgID) will fail — triggers 404 not found path
+	body := `{"claims":[{"key":"https://example.com/tier","type":"string","value":"v"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when store.GetClientOrgID errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_SetClaimsAdminError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	// OrgID lookup succeeds but SetCustomClaimsAdmin fails
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	// We need a store that succeeds on GetClientOrgID but fails on SetCustomClaimsAdmin.
+	// Use a dedicated mock.
+	failingStore := &failingSetStore{orgID: &orgID}
+	h2 := newTestMgmtHandler(ks, &mockRevStore{}, failingStore)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[{"key":"https://example.com/tier","type":"string","value":"v"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h2.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when SetCustomClaimsAdmin errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+	_ = h // suppress unused
+}
+
+type failingSetStore struct {
+	orgID *string
+}
+
+func (f *failingSetStore) GetClientOrgID(_ context.Context, _ string) (*string, error) {
+	return f.orgID, nil
+}
+func (f *failingSetStore) ListCustomClaims(_ context.Context, _ string) ([]postgres.ClaimDefinition, error) {
+	return nil, nil
+}
+func (f *failingSetStore) SetCustomClaimsAdmin(_ context.Context, _ string, _ []postgres.ClaimDefinition) error {
+	return fmt.Errorf("db write error")
+}
+
+func TestManagement_GetClaims_ClientNotFound(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	// orgID is returned but clientOrgID is nil (no org binding)
+	store := &mockMgmtClientStore{orgID: nil} // GetClientOrgID returns nil, nil → "client not found"
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "read:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for client not found, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_GetClaims_NoOrgIDInToken(t *testing.T) {
+	ks := newTestKeyStore(t)
+	store := &mockMgmtClientStore{}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	// Token with empty org_id — checkOwnership returns errOwnershipDenied with empty tokenOrgID
+	token := signMgmtToken(t, ks, "", "read:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when token has no org_id, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var body map[string]string
+	json.NewDecoder(rr.Body).Decode(&body)
+	if body["error"] != "management API requires a service account token with org_id claim" {
+		t.Errorf("unexpected error message: %v", body)
+	}
+}
+
+func TestManagement_GetClaims_StoreError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID, err: fmt.Errorf("db error")}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "read:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 when GetClientOrgID errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+type listFailStore struct {
+	orgID *string
+}
+
+func (f *listFailStore) GetClientOrgID(_ context.Context, _ string) (*string, error) {
+	return f.orgID, nil
+}
+func (f *listFailStore) ListCustomClaims(_ context.Context, _ string) ([]postgres.ClaimDefinition, error) {
+	return nil, fmt.Errorf("list db error")
+}
+func (f *listFailStore) SetCustomClaimsAdmin(_ context.Context, _ string, _ []postgres.ClaimDefinition) error {
+	return nil
+}
+
+func TestManagement_GetClaims_ListStoreError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &listFailStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "read:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when ListCustomClaims errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_GetClaims_RevocationStoreError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	// rev store errors → fail closed → 401
+	h := newTestMgmtHandler(ks, &mockRevStore{err: fmt.Errorf("redis down")}, store)
+
+	token := signMgmtToken(t, ks, orgID, "read:client_claims", testMgmtAud, time.Hour)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 (fail closed) when revocation store errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_BearerPrefixOnly(t *testing.T) {
+	ks := newTestKeyStore(t)
+	h := newTestMgmtHandler(ks, &mockRevStore{}, &mockMgmtClientStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for 'Bearer ' with no token, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_NonBearerScheme(t *testing.T) {
+	ks := newTestKeyStore(t)
+	h := newTestMgmtHandler(ks, &mockRevStore{}, &mockMgmtClientStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for Basic auth scheme, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PutClaims_WrongScope(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	// Token has read scope but PUT requires update scope
+	token := signMgmtToken(t, ks, orgID, "read:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for wrong scope on PUT, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_WWWAuthenticate_On401(t *testing.T) {
+	ks := newTestKeyStore(t)
+	h := newTestMgmtHandler(ks, &mockRevStore{}, &mockMgmtClientStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients/c1/claims", nil)
+	rr := httptest.NewRecorder()
+
+	h.GetClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+	if wwwAuth := rr.Header().Get("WWW-Authenticate"); wwwAuth != `Bearer realm="anekdote-auth"` {
+		t.Errorf("expected WWW-Authenticate header, got %q", wwwAuth)
+	}
+}
+
+func TestManagement_PutClaims_EmptyClaimsArray(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"claims":[]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for empty claims (replace-all with zero), got %d: %s", rr.Code, rr.Body.String())
+	}
+	var respBody map[string]any
+	json.NewDecoder(rr.Body).Decode(&respBody)
+	if v, _ := respBody["count"].(float64); v != 0 {
+		t.Errorf("expected count=0, got %v", respBody["count"])
+	}
+}
+
+func TestManagement_ScopeHasWord(t *testing.T) {
+	cases := []struct {
+		scope, target string
+		want          bool
+	}{
+		{"read:client_claims update:client_claims", "read:client_claims", true},
+		{"read:client_claims", "read", false},
+		{"", "read:client_claims", false},
+		{"read:client_claims", "", false},
+		{"openid profile email", "email", true},
+		{"openid profile email_extra", "email", false},
+		{"openid email_extra", "email", false},
+	}
+	for _, c := range cases {
+		got := scopeHasWord(c.scope, c.target)
+		if got != c.want {
+			t.Errorf("scopeHasWord(%q, %q) = %v, want %v", c.scope, c.target, got, c.want)
+		}
+	}
+}
+
+func TestManagement_NormalizeDestinationsHandler(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"token", "token"},
+		{"access_token", "access_token"},
+		{"id_token,access_token", "access_token,id_token"},
+		{"access_token,id_token", "access_token,id_token"},
+		{"userinfo,id_token,access_token", "access_token,id_token,userinfo"},
+		{"  access_token , id_token  ", "access_token,id_token"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := normalizeDestinationsHandler(c.input)
+		if got != c.want {
+			t.Errorf("normalizeDestinationsHandler(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
 // httprouterParams constructs a minimal httprouter.Params from k/v pairs.
 func httprouterParams(kvs ...string) httprouter.Params {
 	if len(kvs)%2 != 0 {

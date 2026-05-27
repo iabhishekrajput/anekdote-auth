@@ -593,3 +593,201 @@ func TestClientStore_ListDiscoverableClients_FirstPage(t *testing.T) {
 		t.Errorf("expected empty nextCursor for single page, got %s", nextCursor)
 	}
 }
+
+// ── normalizeDestinations (pure function) ─────────────────────────────────
+
+func TestNormalizeDestinations(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"", "token"},
+		{"token", "token"},
+		{"access_token", "access_token"},
+		{"id_token", "id_token"},
+		{"id_token,access_token", "access_token,id_token"},    // sorts alphabetically
+		{"access_token,id_token", "access_token,id_token"},    // already sorted
+		{"userinfo,id_token,access_token", "access_token,id_token,userinfo"},
+		{" access_token , id_token ", "access_token,id_token"}, // trimmed
+	}
+	for _, c := range cases {
+		got := normalizeDestinations(c.input)
+		if got != c.want {
+			t.Errorf("normalizeDestinations(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
+// ── scopeMatches (pure function) ──────────────────────────────────────────
+
+func TestScopeMatches(t *testing.T) {
+	cases := []struct {
+		scopeGate, grantedScope string
+		want                    bool
+	}{
+		{"", "openid profile email", true},      // empty gate always passes
+		{"", "", true},                           // empty gate, empty scope
+		{"email", "openid email profile", true},  // word boundary match
+		{"email", "openid email_extra", false},   // no substring match across word boundary
+		{"profile", "openid profile", true},
+		{"custom", "openid", false},              // not present
+		{"custom", "openid custom profile", true},
+	}
+	for _, c := range cases {
+		got := scopeMatches(c.scopeGate, c.grantedScope)
+		if got != c.want {
+			t.Errorf("scopeMatches(%q, %q) = %v, want %v", c.scopeGate, c.grantedScope, got, c.want)
+		}
+	}
+}
+
+// ── destMatches (pure function) ───────────────────────────────────────────
+
+func TestDestMatches(t *testing.T) {
+	cases := []struct {
+		rowDests, destination string
+		want                  bool
+	}{
+		{"token", "access_token", true},   // "token" alias covers access_token
+		{"token", "id_token", true},       // "token" alias covers id_token
+		{"token", "userinfo", false},      // "token" does NOT cover userinfo
+		{"access_token", "access_token", true},
+		{"access_token", "id_token", false},
+		{"id_token", "id_token", true},
+		{"id_token", "access_token", false},
+		{"userinfo", "userinfo", true},
+		{"userinfo", "access_token", false},
+		{"access_token,id_token", "access_token", true},
+		{"access_token,id_token", "id_token", true},
+		{"access_token,id_token", "userinfo", false},
+		{"access_token,id_token,userinfo", "userinfo", true},
+	}
+	for _, c := range cases {
+		got := destMatches(c.rowDests, c.destination)
+		if got != c.want {
+			t.Errorf("destMatches(%q, %q) = %v, want %v", c.rowDests, c.destination, got, c.want)
+		}
+	}
+}
+
+// ── GetCustomClaims with scope+destination filtering (sqlmock) ───────────
+
+func TestGetCustomClaims_ScopeAndDestFilter(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations"}).
+		AddRow("https://example.com/tier", "string", "enterprise", "", "token").           // no gate, "token" → matches any access/id
+		AddRow("https://example.com/secret", "string", "hidden", "custom_scope", "token"). // gate not in scope → filtered
+		AddRow("https://example.com/count", "number", "42", "", "id_token").               // dest id_token but query is access_token → filtered
+		AddRow("https://example.com/flag", "boolean", "true", "", "access_token")          // matches access_token
+
+	mock.ExpectQuery(`SELECT key, value_type, value`).
+		WithArgs("client-1").
+		WillReturnRows(rows)
+
+	claims, err := store.GetCustomClaims(context.Background(), "client-1", "openid profile", "access_token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// tier: matches (no gate, token→access_token ok)
+	if v, ok := claims["https://example.com/tier"]; !ok || v != "enterprise" {
+		t.Errorf("expected tier=enterprise, got %v", claims)
+	}
+	// secret: filtered out (gate=custom_scope not in "openid profile")
+	if _, ok := claims["https://example.com/secret"]; ok {
+		t.Error("secret should be filtered (scope gate not met)")
+	}
+	// count: filtered out (dest=id_token but request is access_token)
+	if _, ok := claims["https://example.com/count"]; ok {
+		t.Error("count should be filtered (dest=id_token not access_token)")
+	}
+	// flag: matches (dest=access_token)
+	if v, ok := claims["https://example.com/flag"]; !ok || v != true {
+		t.Errorf("expected flag=true, got %v", claims)
+	}
+}
+
+func TestGetCustomClaims_UserInfoDestination(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations"}).
+		AddRow("https://example.com/ui_only", "string", "ui-val", "", "userinfo").
+		AddRow("https://example.com/token_only", "string", "tok-val", "", "access_token")
+
+	mock.ExpectQuery(`SELECT key, value_type, value`).
+		WithArgs("client-1").
+		WillReturnRows(rows)
+
+	claims, err := store.GetCustomClaims(context.Background(), "client-1", "openid", "userinfo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := claims["https://example.com/ui_only"]; !ok {
+		t.Error("ui_only should be present for userinfo destination")
+	}
+	if _, ok := claims["https://example.com/token_only"]; ok {
+		t.Error("token_only should be filtered out for userinfo destination")
+	}
+}
+
+// ── GetClientOrgID (sqlmock) ──────────────────────────────────────────────
+
+func TestGetClientOrgID_Found(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	orgID := "org-xyz"
+	mock.ExpectQuery(`SELECT org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs("client-1").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(&orgID))
+
+	result, err := store.GetClientOrgID(context.Background(), "client-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil || *result != "org-xyz" {
+		t.Errorf("expected org_id=org-xyz, got %v", result)
+	}
+}
+
+func TestGetClientOrgID_NullOrgID(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	mock.ExpectQuery(`SELECT org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs("client-public").
+		WillReturnRows(sqlmock.NewRows([]string{"org_id"}).AddRow(nil))
+
+	result, err := store.GetClientOrgID(context.Background(), "client-public")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil org_id for public client, got %v", result)
+	}
+}
+
+func TestGetClientOrgID_NotFound(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	mock.ExpectQuery(`SELECT org_id FROM oauth2_clients WHERE id = \$1`).
+		WithArgs("missing-client").
+		WillReturnError(sql.ErrNoRows)
+
+	result, err := store.GetClientOrgID(context.Background(), "missing-client")
+	if err != nil {
+		t.Fatalf("expected nil error for not found, got %v", err)
+	}
+	if result != nil {
+		t.Errorf("expected nil result for not found, got %v", result)
+	}
+}
