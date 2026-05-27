@@ -38,6 +38,12 @@ type Config struct {
 	// Entries older than this are deleted on startup and daily thereafter.
 	// Default: 90. Set AUDIT_RETENTION_DAYS to override.
 	AuditRetentionDays int
+
+	// ManagementAudience is the expected `aud` claim for Management API tokens
+	// (e.g. https://auth.example.com/api/v1/). Tokens without this exact audience
+	// are rejected by the Management API. Defaults to AppURL+"/api/v1/".
+	// Set MANAGEMENT_AUDIENCE to override.
+	ManagementAudience string
 }
 
 func Load() *Config {
@@ -75,6 +81,8 @@ func Load() *Config {
 		retentionDays = v
 	}
 
+	mgmtAudience := getEnvOrDefault("MANAGEMENT_AUDIENCE", appURL+"/api/v1/")
+
 	slog.Info("Configuration loaded", "port", port, "env", appEnv)
 
 	return &Config{
@@ -95,6 +103,7 @@ func Load() *Config {
 		CORSAllowedOrigins:     corsAllowed,
 		RedisEncryptionKey:     encKey,
 		AuditRetentionDays:     retentionDays,
+		ManagementAudience:     mgmtAudience,
 	}
 }
 

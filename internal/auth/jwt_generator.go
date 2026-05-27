@@ -163,6 +163,14 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		}
 	}
 
+	// Service account: client_credentials grant with org_id binding on the client record.
+	// Inject org_id so the Management API can enforce org ownership without a user session.
+	if subUserID == "" {
+		if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
+			claims["org_id"] = *oci.OrgID
+		}
+	}
+
 	claims["scope"] = effectiveScope
 
 	// Inject profile/email claims when scopes are granted (user-context tokens only).
