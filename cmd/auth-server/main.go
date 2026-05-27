@@ -130,7 +130,7 @@ func main() {
 	csrfHandler.ExemptPath("/token")
 	csrfHandler.ExemptPath("/revoke")
 	csrfHandler.ExemptPath("/userinfo")
-	csrfHandler.ExemptGlob("/api/*")
+	csrfHandler.ExemptRegexp("^/api/") // path.Match(*) doesn't cross slashes; regexp is required for deep paths
 
 	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		errStr := nosurf.Reason(r).Error()

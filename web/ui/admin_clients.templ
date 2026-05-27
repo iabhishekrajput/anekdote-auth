@@ -146,6 +146,9 @@ templ adminClientClaimsBody(csrfToken string, clientID, clientName string, exist
 												<option value="access_token" selected?={ d.Destinations == "access_token" }>Access token only</option>
 												<option value="id_token" selected?={ d.Destinations == "id_token" }>ID token only</option>
 												<option value="userinfo" selected?={ d.Destinations == "userinfo" }>UserInfo only</option>
+												<option value="access_token,userinfo" selected?={ d.Destinations == "access_token,userinfo" }>Access token + UserInfo</option>
+												<option value="id_token,userinfo" selected?={ d.Destinations == "id_token,userinfo" }>ID token + UserInfo</option>
+												<option value="token,userinfo" selected?={ d.Destinations == "token,userinfo" }>Both tokens + UserInfo</option>
 												<option value="access_token,id_token,userinfo" selected?={ d.Destinations == "access_token,id_token,userinfo" }>All</option>
 											</select>
 										</td>
@@ -174,6 +177,9 @@ templ adminClientClaimsBody(csrfToken string, clientID, clientName string, exist
 											<option value="access_token">Access token only</option>
 											<option value="id_token">ID token only</option>
 											<option value="userinfo">UserInfo only</option>
+											<option value="access_token,userinfo">Access token + UserInfo</option>
+											<option value="id_token,userinfo">ID token + UserInfo</option>
+											<option value="token,userinfo">Both tokens + UserInfo</option>
 											<option value="access_token,id_token,userinfo">All</option>
 										</select>
 									</td>
