@@ -187,6 +187,22 @@ func (s *ClientStore) GetByID(ctx context.Context, id string) (oauth2.ClientInfo
 	}, OrgID: orgID}, nil
 }
 
+// GetClientOrgID returns the org_id binding for a client, or nil if the client is not
+// bound to any org (multi-org / public client). Returns sql.ErrNoRows if not found.
+func (s *ClientStore) GetClientOrgID(ctx context.Context, clientID string) (*string, error) {
+	var orgID *string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT org_id FROM oauth2_clients WHERE id = $1", clientID,
+	).Scan(&orgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return orgID, nil
+}
+
 // ListOrgClients returns all clients visible to an org: owned single-org clients plus
 // multi-org clients that have a grant for this org. Newest first.
 func (s *ClientStore) ListOrgClients(ctx context.Context, orgID string) ([]*OrgClient, error) {

@@ -102,6 +102,7 @@ func main() {
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, revocStore, mailSvc, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
 	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb).WithCustomClaimsReader(clientStore)
+	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)
@@ -114,7 +115,7 @@ func main() {
 	}()
 
 	// 8. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, sessionStore, userStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, mgmtH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{
@@ -129,6 +130,7 @@ func main() {
 	csrfHandler.ExemptPath("/token")
 	csrfHandler.ExemptPath("/revoke")
 	csrfHandler.ExemptPath("/userinfo")
+	csrfHandler.ExemptGlob("/api/*")
 
 	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		errStr := nosurf.Reason(r).Error()
