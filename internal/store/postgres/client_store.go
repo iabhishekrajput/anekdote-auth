@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
@@ -17,6 +19,15 @@ import (
 
 // ErrClientNotFound is returned when a client does not exist or does not belong to the given org.
 var ErrClientNotFound = errors.New("client not found or not in org")
+
+// ClaimDefinition is a structured custom claim row including policy metadata.
+type ClaimDefinition struct {
+	Key          string
+	ValueType    string // "string", "number", "boolean"
+	Value        string // raw string representation stored in DB
+	Destinations string // canonical sorted CSV (e.g. "access_token,id_token")
+	ScopeGate    string // empty = always inject; otherwise a single scope name
+}
 
 // ErrGrantNotFound is returned when a client_org_grant row does not exist.
 var ErrGrantNotFound = errors.New("grant not found")
@@ -982,11 +993,14 @@ func (s *ClientStore) DenyGrantRequest(ctx context.Context, requestID string, cl
 	return gr, nil
 }
 
-// GetCustomClaims returns the custom JWT claims for a client as a map.
-// Returns an empty map (not an error) when the client has no claims defined.
-func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID string) (map[string]any, error) {
+// GetCustomClaims returns filtered custom claims for a client.
+// grantedScope is the space-separated scope string from the token.
+// destination is one of "access_token", "id_token", "userinfo".
+// Returns an empty map (not an error) when the client has no matching claims.
+func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = $1`,
+		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token')
+		 FROM client_claim_definitions WHERE client_id = $1`,
 		clientID,
 	)
 	if err != nil {
@@ -996,9 +1010,15 @@ func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID string) (map
 
 	claims := make(map[string]any)
 	for rows.Next() {
-		var key, valueType, rawValue string
-		if err := rows.Scan(&key, &valueType, &rawValue); err != nil {
+		var key, valueType, rawValue, scopeGate, dests string
+		if err := rows.Scan(&key, &valueType, &rawValue, &scopeGate, &dests); err != nil {
 			return nil, err
+		}
+		if !scopeMatches(scopeGate, grantedScope) {
+			continue
+		}
+		if !destMatches(dests, destination) {
+			continue
 		}
 		switch valueType {
 		case "string":
@@ -1016,9 +1036,33 @@ func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID string) (map
 	return claims, rows.Err()
 }
 
+// ListCustomClaims returns all claim definitions for a client (unfiltered, for UI display).
+func (s *ClientStore) ListCustomClaims(ctx context.Context, clientID string) ([]ClaimDefinition, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token')
+		 FROM client_claim_definitions WHERE client_id = $1
+		 ORDER BY key ASC`,
+		clientID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var defs []ClaimDefinition
+	for rows.Next() {
+		var d ClaimDefinition
+		if err := rows.Scan(&d.Key, &d.ValueType, &d.Value, &d.ScopeGate, &d.Destinations); err != nil {
+			return nil, err
+		}
+		defs = append(defs, d)
+	}
+	return defs, rows.Err()
+}
+
 // SetCustomClaims atomically replaces all claims for a client owned by ownerOrgID.
 // Returns ErrClientNotFound when clientID does not exist or is not owned by ownerOrgID.
-func (s *ClientStore) SetCustomClaims(ctx context.Context, clientID, ownerOrgID string, claims map[string]any) error {
+func (s *ClientStore) SetCustomClaims(ctx context.Context, clientID, ownerOrgID string, defs []ClaimDefinition) error {
 	ownerID, err := s.GetClientOwnerOrgID(ctx, clientID)
 	if err != nil {
 		return err
@@ -1026,15 +1070,15 @@ func (s *ClientStore) SetCustomClaims(ctx context.Context, clientID, ownerOrgID 
 	if ownerID == nil || *ownerID != ownerOrgID {
 		return ErrClientNotFound
 	}
-	return s.replaceClaimRows(ctx, clientID, claims)
+	return s.replaceClaimRows(ctx, clientID, defs)
 }
 
 // SetCustomClaimsAdmin atomically replaces all claims for any client without an org ownership check.
-func (s *ClientStore) SetCustomClaimsAdmin(ctx context.Context, clientID string, claims map[string]any) error {
-	return s.replaceClaimRows(ctx, clientID, claims)
+func (s *ClientStore) SetCustomClaimsAdmin(ctx context.Context, clientID string, defs []ClaimDefinition) error {
+	return s.replaceClaimRows(ctx, clientID, defs)
 }
 
-func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, claims map[string]any) error {
+func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, defs []ClaimDefinition) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -1047,33 +1091,59 @@ func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, cla
 		return err
 	}
 
-	for key, val := range claims {
-		var valueType, rawValue string
-		switch v := val.(type) {
-		case string:
-			valueType, rawValue = "string", v
-		case float64:
-			valueType, rawValue = "number", fmt.Sprintf("%g", v)
-		case bool:
-			valueType = "boolean"
-			if v {
-				rawValue = "true"
-			} else {
-				rawValue = "false"
-			}
-		default:
-			continue
+	for _, d := range defs {
+		dest := normalizeDestinations(d.Destinations)
+		var sgArg sql.NullString
+		if d.ScopeGate != "" {
+			sgArg = sql.NullString{String: d.ScopeGate, Valid: true}
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO client_claim_definitions (client_id, key, value_type, value)
-			 VALUES ($1, $2, $3, $4)`,
-			clientID, key, valueType, rawValue,
+			`INSERT INTO client_claim_definitions (client_id, key, value_type, value, destinations, scope_gate, source_kind)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'static')`,
+			clientID, d.Key, d.ValueType, d.Value, dest, sgArg,
 		); err != nil {
 			return err
 		}
 	}
 
 	return tx.Commit()
+}
+
+// normalizeDestinations sorts the comma-separated destinations to a canonical form.
+func normalizeDestinations(d string) string {
+	if d == "" {
+		return "token"
+	}
+	parts := strings.Split(d, ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+// scopeMatches returns true when scopeGate is empty (always inject) or scopeGate is a
+// word-boundary match within grantedScope. Uses padding to avoid substring collisions
+// (e.g. scope_gate="file" must not match grantedScope="profile").
+func scopeMatches(scopeGate, grantedScope string) bool {
+	if scopeGate == "" {
+		return true
+	}
+	return strings.Contains(" "+grantedScope+" ", " "+scopeGate+" ")
+}
+
+// destMatches returns true when the row's destinations CSV includes the requested destination.
+// "token" is the legacy alias meaning both access_token and id_token.
+func destMatches(rowDests, destination string) bool {
+	for _, p := range strings.Split(rowDests, ",") {
+		if p == destination {
+			return true
+		}
+		if p == "token" && (destination == "access_token" || destination == "id_token") {
+			return true
+		}
+	}
+	return false
 }
 
 func generateClientSecret() string {

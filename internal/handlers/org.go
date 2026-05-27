@@ -1494,17 +1494,34 @@ func validateRedirectURI(rawURI string) error {
 	return nil
 }
 
-// validateClaims parses and validates key[]/type[]/value[] form arrays into a claims map.
+var validDestinations = map[string]bool{
+	"access_token":               true,
+	"id_token":                   true,
+	"token":                      true,
+	"userinfo":                   true,
+	"access_token,id_token":      true,
+	"access_token,userinfo":      true,
+	"id_token,userinfo":          true,
+	"token,userinfo":             true,
+	"access_token,id_token,userinfo": true,
+}
+
+// validateClaims parses and validates key[]/type[]/value[]/destination[] form arrays.
+// destinations may be nil when the form does not include a destinations column (defaults to "token").
 // Called by both ClientClaimsPost and AdminClientClaimsPost.
-func validateClaims(keys, types, values []string) (map[string]any, error) {
+func validateClaims(keys, types, values, destinations []string) ([]postgres.ClaimDefinition, error) {
 	if len(keys) != len(types) || len(keys) != len(values) {
 		return nil, errors.New("malformed submission: key, type, and value arrays must have equal length")
+	}
+	if destinations != nil && len(keys) != len(destinations) {
+		return nil, errors.New("malformed submission: destinations array length mismatch")
 	}
 	if len(keys) > 20 {
 		return nil, errors.New("maximum 20 claims per client")
 	}
 
-	claims := make(map[string]any, len(keys))
+	var defs []postgres.ClaimDefinition
+	approxSize := 2 // outer braces
 	for i, k := range keys {
 		k = strings.TrimSpace(k)
 		if k == "" {
@@ -1521,10 +1538,11 @@ func validateClaims(keys, types, values []string) (map[string]any, error) {
 		}
 
 		rawVal := strings.TrimSpace(values[i])
-		var claimVal any
+		var valueType, rawValue string
 		switch types[i] {
 		case "string":
-			claimVal = rawVal
+			valueType, rawValue = "string", rawVal
+			approxSize += len(k) + len(rawVal) + 6
 		case "number":
 			lower := strings.ToLower(rawVal)
 			if lower == "nan" || lower == "inf" || lower == "+inf" || lower == "-inf" || lower == "infinity" || lower == "-infinity" {
@@ -1534,24 +1552,41 @@ func validateClaims(keys, types, values []string) (map[string]any, error) {
 			if _, err := fmt.Sscanf(rawVal, "%g", &f); err != nil {
 				return nil, errors.New("claim \"" + k + "\": invalid number value")
 			}
-			claimVal = f
+			valueType, rawValue = "number", fmt.Sprintf("%g", f)
+			approxSize += len(k) + len(rawValue) + 4
 		case "boolean":
-			claimVal = rawVal == "true"
+			valueType = "boolean"
+			if rawVal == "true" {
+				rawValue = "true"
+			} else {
+				rawValue = "false"
+			}
+			approxSize += len(k) + 5 + 4
 		default:
 			return nil, errors.New("claim \"" + k + "\": unknown type \"" + types[i] + "\"")
 		}
-		claims[k] = claimVal
+
+		dest := "token"
+		if destinations != nil && i < len(destinations) {
+			dest = strings.TrimSpace(destinations[i])
+		}
+		if !validDestinations[dest] {
+			return nil, errors.New("claim \"" + k + "\": invalid destination \"" + dest + "\"")
+		}
+
+		defs = append(defs, postgres.ClaimDefinition{
+			Key:          k,
+			ValueType:    valueType,
+			Value:        rawValue,
+			Destinations: dest,
+		})
 	}
 
-	encoded, err := json.Marshal(claims)
-	if err != nil {
-		return nil, errors.New("failed to encode claims")
-	}
-	if len(encoded) > 4096 {
+	if approxSize > 4096 {
 		return nil, errors.New("total custom claims JSON must be 4 KB or less")
 	}
 
-	return claims, nil
+	return defs, nil
 }
 
 // ClientClaimsPage handles GET /account/orgs/:slug/clients/:clientID/claims
@@ -1579,7 +1614,7 @@ func (h *OrgHandler) ClientClaimsPage(w http.ResponseWriter, r *http.Request, ps
 	}
 
 	clientName, _ := h.clientStore.GetClientName(r.Context(), clientID)
-	existing, _ := h.clientStore.GetCustomClaims(r.Context(), clientID)
+	existing, _ := h.clientStore.ListCustomClaims(r.Context(), clientID)
 	isAdmin, _ := r.Context().Value(types.IsAdminContextKey).(bool)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1613,14 +1648,15 @@ func (h *OrgHandler) ClientClaimsPost(w http.ResponseWriter, r *http.Request, ps
 	keys := r.Form["key[]"]
 	claimTypes := r.Form["type[]"]
 	values := r.Form["value[]"]
+	destinations := r.Form["destination[]"]
 
-	claims, err := validateClaims(keys, claimTypes, values)
+	defs, err := validateClaims(keys, claimTypes, values, destinations)
 	if err != nil {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
 
-	if err := h.clientStore.SetCustomClaims(r.Context(), clientID, org.ID, claims); err != nil {
+	if err := h.clientStore.SetCustomClaims(r.Context(), clientID, org.ID, defs); err != nil {
 		msg := "Failed to save claims"
 		if errors.Is(err, postgres.ErrClientNotFound) {
 			msg = "Client not found"

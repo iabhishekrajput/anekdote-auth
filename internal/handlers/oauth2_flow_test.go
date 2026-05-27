@@ -119,9 +119,9 @@ func TestOAuth2FullFlow(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Flow Client", "", redirectURI, true, nil))
 	// JWTGenerator.Token calls GetCustomClaims for the access token.
-	mock.ExpectQuery(`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = \$1`).
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")
@@ -258,9 +258,9 @@ func runNonceFlow(t *testing.T, handler *OAuth2Handler, mock sqlmock.Sqlmock, no
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Nonce Client", "", redirectURI, true, nil))
 	// Access token custom claims — real jwtGen has clientStore as claimsReader.
-	mock.ExpectQuery(`SELECT key, value_type, value FROM client_claim_definitions WHERE client_id = \$1`).
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")
