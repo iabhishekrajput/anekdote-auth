@@ -1447,7 +1447,7 @@ func TestGrantClientAccess_MultiOrg_CreatesRequest(t *testing.T) {
 
 	// CreateGrantRequest
 	clientMock.ExpectQuery(`INSERT INTO client_access_requests`).
-		WithArgs(clientIDStr, orgID, ownerOrgID, userID).
+		WithArgs(sqlmock.AnyArg(), clientIDStr, orgID, ownerOrgID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
 			AddRow(requestID, clientIDStr, orgID, ownerOrgID, userID, "pending", time.Now()))
 

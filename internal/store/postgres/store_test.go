@@ -409,7 +409,7 @@ func TestClientStore_CreateGrantRequest_Success(t *testing.T) {
 	now := time.Now()
 
 	mock.ExpectQuery(`INSERT INTO client_access_requests`).
-		WithArgs(clientID, requesterOrgID, ownerOrgID, requestedBy).
+		WithArgs(sqlmock.AnyArg(), clientID, requesterOrgID, ownerOrgID, requestedBy).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}).
 			AddRow(requestID, clientID, requesterOrgID, ownerOrgID, requestedBy, "pending", now))
 
@@ -440,7 +440,7 @@ func TestClientStore_CreateGrantRequest_Duplicate(t *testing.T) {
 
 	// ON CONFLICT DO NOTHING means RETURNING returns no rows → sql.ErrNoRows
 	mock.ExpectQuery(`INSERT INTO client_access_requests`).
-		WithArgs(clientID, requesterOrgID, ownerOrgID, requestedBy).
+		WithArgs(sqlmock.AnyArg(), clientID, requesterOrgID, ownerOrgID, requestedBy).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "client_id", "requester_org_id", "owner_org_id", "requested_by", "status", "requested_at"}))
 
 	gr, err := store.CreateGrantRequest(context.Background(), clientID, requesterOrgID.String(), ownerOrgID.String(), requestedBy.String())

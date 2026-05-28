@@ -759,13 +759,14 @@ func (s *ClientStore) GetClientOwnerOrgID(ctx context.Context, clientID string) 
 // the conflict is ignored and nil,nil is returned (caller should redirect with "already pending").
 func (s *ClientStore) CreateGrantRequest(ctx context.Context, clientID string, requesterOrgID, ownerOrgID, requestedBy string) (*GrantRequest, error) {
 	gr := &GrantRequest{}
+	requestID := idgen.NewRequestID()
 	err := s.db.QueryRowContext(ctx,
 		`INSERT INTO client_access_requests
-		    (client_id, requester_org_id, owner_org_id, requested_by)
-		 VALUES ($1, $2, $3, $4)
+		    (id, client_id, requester_org_id, owner_org_id, requested_by)
+		 VALUES ($1, $2, $3, $4, $5)
 		 ON CONFLICT DO NOTHING
 		 RETURNING id, client_id, requester_org_id, owner_org_id, requested_by, status, requested_at`,
-		clientID, requesterOrgID, ownerOrgID, requestedBy,
+		requestID, clientID, requesterOrgID, ownerOrgID, requestedBy,
 	).Scan(&gr.ID, &gr.ClientID, &gr.RequesterOrgID, &gr.OwnerOrgID, &gr.RequestedBy, &gr.Status, &gr.RequestedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
