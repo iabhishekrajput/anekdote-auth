@@ -190,11 +190,16 @@ templ adminClientClaimsBody(csrfToken string, clientID, clientName string, exist
 							</tbody>
 						</table>
 					</div>
-					<div class="flex items-center justify-between">
+					<div class="flex items-center justify-between gap-4">
 						<p class="text-xs text-amber-400/80 border border-amber-400/20 rounded px-3 py-2 bg-amber-400/5">
 							Changes apply to newly issued tokens only. Existing tokens retain their claims until expiry.
 						</p>
-						@PrimaryButton("Save claims", "")
+						<div class="flex-none">
+							<button
+								type="submit"
+								class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-brand px-6 text-sm font-medium text-zinc-950 transition-all duration-150 hover:bg-brand-hover active:scale-[0.98]"
+							>Save claims</button>
+						</div>
 					</div>
 					<div id="add-claim-area">
 						<button type="button" data-add-claim-row class="text-sm text-zinc-400 hover:text-zinc-50 transition-colors duration-150">+ Add claim</button>
