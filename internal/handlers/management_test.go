@@ -299,6 +299,34 @@ func TestManagement_PutClaims_ScopeGate(t *testing.T) {
 	}
 }
 
+func TestManagement_PutClaims_InvalidScopeGate(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+
+	tests := []struct {
+		name      string
+		scopeGate string
+	}{
+		{"space in scope_gate", "profile email"},
+		{"too long", strings.Repeat("a", 65)},
+	}
+	for _, tc := range tests {
+		body := `{"claims":[{"key":"https://example.com/tier","type":"string","value":"v","scope_gate":"` + tc.scopeGate + `"}]}`
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
+		if rr.Code != http.StatusUnprocessableEntity {
+			t.Errorf("%s: expected 422, got %d: %s", tc.name, rr.Code, rr.Body.String())
+		}
+	}
+}
+
 func TestManagement_NoAuthHeader(t *testing.T) {
 	ks := newTestKeyStore(t)
 	h := newTestMgmtHandler(ks, &mockRevStore{}, &mockMgmtClientStore{})
@@ -815,10 +843,13 @@ func TestManagement_WWWAuthenticate_On401(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rr.Code)
 	}
-	// RFC 6750: 401 must carry WWW-Authenticate with error code.
+	// RFC 6750 §3.1: realm-only challenge when no credentials are present — no error= parameter.
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
-	if !strings.Contains(wwwAuth, "Bearer") || !strings.Contains(wwwAuth, "error=") {
-		t.Errorf("expected RFC 6750 WWW-Authenticate with error=, got %q", wwwAuth)
+	if !strings.Contains(wwwAuth, "Bearer") {
+		t.Errorf("expected WWW-Authenticate with Bearer, got %q", wwwAuth)
+	}
+	if strings.Contains(wwwAuth, "error=") {
+		t.Errorf("realm-only challenge must not contain error=, got %q", wwwAuth)
 	}
 }
 

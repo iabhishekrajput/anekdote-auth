@@ -84,6 +84,8 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 	}
 	const prefix = "Bearer "
 	if !strings.HasPrefix(authHeader, prefix) || len(authHeader) == len(prefix) {
+		// RFC 6750 §3.1/§3.2: 4xx responses from protected resources must include WWW-Authenticate.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="anekdote-auth"`)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{

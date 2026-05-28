@@ -137,6 +137,7 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 32*1024)
 	var body struct {
 		Claims []managementClaimInput `json:"claims"`
 	}
@@ -330,6 +331,14 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 		}
 
 		scopeGate := strings.TrimSpace(inp.ScopeGate)
+		if scopeGate != "" {
+			if len(scopeGate) > 64 {
+				return nil, errors.New("claim \"" + k + "\": scope_gate must be 64 characters or fewer")
+			}
+			if strings.ContainsAny(scopeGate, " \t\n\r") {
+				return nil, errors.New("claim \"" + k + "\": scope_gate must be a single scope identifier (no spaces)")
+			}
+		}
 
 		defs = append(defs, postgres.ClaimDefinition{
 			Key:          k,
@@ -370,8 +379,15 @@ func (h *ManagementHandler) writeAuthError(w http.ResponseWriter, err error) {
 	desc := "token validation failed"
 	switch msg {
 	case "missing or malformed Authorization header":
-		code = "invalid_request"
-		desc = "Authorization header is required"
+		// RFC 6750 §3.1: realm-only challenge when no credentials are present; no error= parameter.
+		w.Header().Set("WWW-Authenticate", `Bearer realm="anekdote-auth"`)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":             "invalid_request",
+			"error_description": "Authorization header is required",
+		})
+		return
 	case "token revoked":
 		desc = "token has been revoked"
 	case "missing jti":

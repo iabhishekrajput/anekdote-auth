@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -224,6 +225,10 @@ func TestUserInfo_MalformedAuthHeader(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for non-Bearer scheme, got %d", rr.Code)
+	}
+	// RFC 6750 §3.2: 4xx from protected resources must include WWW-Authenticate.
+	if wwwAuth := rr.Header().Get("WWW-Authenticate"); !strings.Contains(wwwAuth, "Bearer") {
+		t.Errorf("expected WWW-Authenticate with Bearer on 400, got %q", wwwAuth)
 	}
 }
 
