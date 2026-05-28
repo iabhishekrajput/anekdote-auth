@@ -5,6 +5,11 @@ export function uniqueEmail(): string {
   return `e2e-${crypto.randomUUID()}@example.com`;
 }
 
+/** Generates a unique username that cannot collide across runs. */
+export function uniqueUsername(): string {
+  return `user_${crypto.randomUUID().replace(/-/g, '').substring(0, 10)}`;
+}
+
 export class RegisterPage {
   constructor(private page: Page) {}
 
@@ -12,8 +17,9 @@ export class RegisterPage {
     await this.page.goto('/register');
   }
 
-  async fill(name: string, email: string, password: string) {
+  async fill(name: string, email: string, password: string, username = uniqueUsername()) {
     await this.page.fill('#name', name);
+    await this.page.fill('#username', username);
     await this.page.fill('#email', email);
     await this.page.fill('#password', password);
   }
@@ -22,9 +28,9 @@ export class RegisterPage {
     await this.page.click('[data-testid="submit-register"]');
   }
 
-  async register(name: string, email: string, password: string) {
+  async register(name: string, email: string, password: string, username = uniqueUsername()) {
     await this.goto();
-    await this.fill(name, email, password);
+    await this.fill(name, email, password, username);
     await this.submit();
   }
 

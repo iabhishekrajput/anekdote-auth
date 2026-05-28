@@ -11,7 +11,7 @@ $$ LANGUAGE plpgsql;
 CREATE TABLE users (
     id               TEXT         PRIMARY KEY,
     name             VARCHAR(255) NOT NULL,
-    username         VARCHAR(255),
+    username         VARCHAR(255) NOT NULL,
     email            VARCHAR(255) NOT NULL,
     password_hash    VARCHAR(255) NOT NULL,
     is_verified      BOOLEAN      NOT NULL DEFAULT FALSE,

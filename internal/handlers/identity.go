@@ -147,6 +147,12 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 
+	if username == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"UsernameError": "Username is required"}))
+		return
+	}
+
 	if err := validatePassword(password); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": err.Error()}))

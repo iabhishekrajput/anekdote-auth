@@ -59,6 +59,7 @@ func TestRegisterFunc_Success(t *testing.T) {
 	formData.Set("email", "test@example.com")
 	formData.Set("password", "StrongPassw0rd!")
 	formData.Set("name", "Test User")
+	formData.Set("username", "testuser")
 
 	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(formData.Encode()))
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
