@@ -296,6 +296,32 @@ func (s *UserStore) UpdateVerified(id string) error {
 }
 
 // ListOrgAdmins returns the emails of active owners and admins in the given org.
+func (s *UserStore) ListAllUsernames(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT username FROM users WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var usernames []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		usernames = append(usernames, u)
+	}
+	return usernames, rows.Err()
+}
+
+func (s *UserStore) IsUsernameTaken(ctx context.Context, username string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 AND deleted_at IS NULL)`,
+		username,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (s *UserStore) ListOrgAdmins(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT u.email FROM users u

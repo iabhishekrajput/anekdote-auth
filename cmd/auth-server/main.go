@@ -82,6 +82,15 @@ func main() {
 	revocStore := redis.NewRevocationStore(rdb)
 	tokenStore := redis.NewTokenStore(rdb)
 
+	bloom := redis.NewUsernameBloom(rdb)
+	if bloomUsernames, err := userStore.ListAllUsernames(context.Background()); err != nil {
+		slog.Warn("bloom: failed to load usernames for filter population", "error", err)
+	} else if err := bloom.LoadAll(context.Background(), bloomUsernames); err != nil {
+		slog.Warn("bloom: failed to populate filter", "error", err)
+	} else {
+		slog.Info("bloom: filter populated", "usernames", len(bloomUsernames))
+	}
+
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
 	oauth2Srv, jwtGen := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer, rdb, userStore)
@@ -94,7 +103,9 @@ func main() {
 
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc).
-		WithOrgSupport(orgStore, rdb)
+		WithOrgSupport(orgStore, rdb).
+		WithBloom(bloom)
+	usernameH := handlers.NewUsernameHandler(userStore, bloom)
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, clientStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
@@ -115,7 +126,7 @@ func main() {
 	}()
 
 	// 8. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, mgmtH, sessionStore, userStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, mgmtH, usernameH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{

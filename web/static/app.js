@@ -200,6 +200,103 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // Username suggestions (debounced on name field) + availability indicator (debounced on username field)
+  (function () {
+    var nameInput = document.getElementById('name');
+    var usernameInput = document.getElementById('username');
+    var suggestionsEl = document.getElementById('username-suggestions');
+    var statusEl = document.getElementById('username-status');
+    if (!nameInput || !usernameInput || !suggestionsEl || !statusEl) return;
+
+    var nameTimer, usernameTimer;
+
+    function debounce(fn, ms) {
+      return function () {
+        var args = arguments;
+        clearTimeout(this._t);
+        this._t = setTimeout(function () { fn.apply(null, args); }, ms);
+      };
+    }
+
+    function renderSuggestions(list) {
+      suggestionsEl.innerHTML = '';
+      if (!list || list.length === 0) {
+        suggestionsEl.style.display = 'none';
+        return;
+      }
+      list.forEach(function (u) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = u;
+        btn.className = 'px-2 py-0.5 text-xs rounded border border-zinc-700 text-zinc-300 hover:border-brand hover:text-brand transition-colors cursor-pointer bg-transparent';
+        btn.addEventListener('click', function () {
+          usernameInput.value = u;
+          suggestionsEl.style.display = 'none';
+          checkUsername(u);
+        });
+        suggestionsEl.appendChild(btn);
+      });
+      suggestionsEl.style.display = 'flex';
+    }
+
+    function setStatus(text, color) {
+      statusEl.textContent = text;
+      statusEl.className = 'text-xs ' + color;
+      statusEl.style.display = '';
+    }
+
+    function checkUsername(username) {
+      if (!username || username.length < 3) {
+        statusEl.style.display = 'none';
+        return;
+      }
+      fetch('/api/username-check?username=' + encodeURIComponent(username))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (usernameInput.value !== username) return;
+          if (data.available) {
+            setStatus('✓ Available', 'text-green-400');
+          } else if (data.reason === 'invalid') {
+            setStatus('Only lowercase letters, numbers and underscores (3–30 chars)', 'text-zinc-400');
+          } else {
+            setStatus('Username taken', 'text-red-400');
+          }
+        })
+        .catch(function () {});
+    }
+
+    var fetchSuggestions = (function () {
+      var t;
+      return function (name) {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          if (!name || name.length < 2) { suggestionsEl.style.display = 'none'; return; }
+          fetch('/api/username-suggestions?name=' + encodeURIComponent(name))
+            .then(function (r) { return r.json(); })
+            .then(function (data) { renderSuggestions(data.suggestions); })
+            .catch(function () {});
+        }, 400);
+      };
+    }());
+
+    var fetchCheck = (function () {
+      var t;
+      return function (username) {
+        clearTimeout(t);
+        statusEl.style.display = 'none';
+        t = setTimeout(function () { checkUsername(username); }, 400);
+      };
+    }());
+
+    nameInput.addEventListener('input', function () {
+      fetchSuggestions(nameInput.value.trim());
+    });
+
+    usernameInput.addEventListener('input', function () {
+      fetchCheck(usernameInput.value.trim());
+    });
+  }());
+
   // Confirm password match validation
   var confirmForm = document.querySelector('[data-confirm-form]');
   if (confirmForm) {

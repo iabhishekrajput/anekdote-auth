@@ -29,8 +29,9 @@ type IdentityHandler struct {
 	userStore    *postgres.UserStore
 	sessionStore *redis.SessionStore
 	mailer       *mailer.Mailer
-	orgStore     *postgres.OrgStore // optional; enables invite join on verify-email
-	rdb          *goredis.Client    // optional; required for invite Redis cleanup
+	orgStore     *postgres.OrgStore     // optional; enables invite join on verify-email
+	rdb          *goredis.Client        // optional; required for invite Redis cleanup
+	bloom        *redis.UsernameBloom   // optional; populated after Create to keep filter warm
 }
 
 func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *redis.SessionStore, mailSvc *mailer.Mailer) *IdentityHandler {
@@ -46,6 +47,12 @@ func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *
 func (h *IdentityHandler) WithOrgSupport(orgStore *postgres.OrgStore, rdb *goredis.Client) *IdentityHandler {
 	h.orgStore = orgStore
 	h.rdb = rdb
+	return h
+}
+
+// WithBloom attaches the username bloom filter so new registrations keep it warm.
+func (h *IdentityHandler) WithBloom(b *redis.UsernameBloom) *IdentityHandler {
+	h.bloom = b
 	return h
 }
 
@@ -172,14 +179,20 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		data := inviteData(map[string]interface{}{})
 		switch {
 		case errors.Is(err, postgres.ErrEmailTaken):
+			data["Error"] = "Email already registered"
 			data["EmailError"] = "Email already registered"
 		case errors.Is(err, postgres.ErrUsernameTaken):
+			data["Error"] = "Username already taken — choose a different one"
 			data["UsernameError"] = "Username already taken — choose a different one"
 		default:
 			data["Error"] = "Error creating user"
 		}
 		h.render(w, r, "register.tmpl", data)
 		return
+	}
+
+	if h.bloom != nil {
+		_ = h.bloom.Add(context.Background(), username)
 	}
 
 	// Generate 6-digit OTP

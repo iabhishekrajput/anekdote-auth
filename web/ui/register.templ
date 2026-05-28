@@ -23,7 +23,11 @@ templ RegisterPageBody(csrfToken, inviteEmail, inviteToken, errorMsg, usernameEr
 
 			<div class="flex flex-col gap-4">
 				@FormField("Full name", "name", "", TextInput("name", "name", "text", "Jane Doe", "", false))
-				@FormField("Username", "username", usernameError, TextInput("username", "username", "text", "johndoe", "", usernameError != ""))
+				<div id="username-suggestions" class="flex flex-wrap gap-1.5" style="display:none"></div>
+				<div class="flex flex-col gap-1.5">
+					@FormField("Username", "username", usernameError, TextInput("username", "username", "text", "johndoe", "", usernameError != ""))
+					<span id="username-status" class="text-xs" style="display:none"></span>
+				</div>
 				if inviteEmail != "" {
 					<div class="flex flex-col gap-1.5">
 						<label for="email" class="text-sm font-medium text-zinc-50">Email address</label>
