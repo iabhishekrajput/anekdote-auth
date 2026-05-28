@@ -45,17 +45,26 @@ type IDTokenGenerator interface {
 	GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration, nonce string) (string, error)
 }
 
+// NonceRevokeStore handles OIDC nonce binding and JWT revocation.
+// Implemented by *redis.RevocationStore.
+type NonceRevokeStore interface {
+	StoreNonce(ctx context.Context, code, nonce string, ttl time.Duration) error
+	ConsumeNonce(ctx context.Context, code string) (string, error)
+	RevokeJTI(ctx context.Context, jti string, duration time.Duration) error
+	IsRevoked(ctx context.Context, jti string) (bool, error)
+}
+
 type OAuth2Handler struct {
 	server       *server.Server
 	sessionStore *redis.SessionStore
-	revocStore   *redis.RevocationStore
+	revocStore   NonceRevokeStore
 	keyStore     *crypto.KeyStore
 	orgStore     oauth2OrgStore         // optional; enables org membership check and friendly denial page at /authorize
 	grantStore   oauth2ClientGrantStore // optional; enables multi-org client grants
 	idTokenGen   IDTokenGenerator       // optional; enables id_token in /token response when openid scope granted
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev *redis.RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev NonceRevokeStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,

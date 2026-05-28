@@ -177,3 +177,25 @@ func TestLoadDotEnv_EmptyLines(t *testing.T) {
 	}
 	os.Unsetenv("ANEKDOTE_TEST_EMPTY")
 }
+
+func TestLoad_ManagementAudience_Default(t *testing.T) {
+	os.Clearenv()
+	t.Setenv("APP_URL", "https://auth.example.com")
+
+	cfg := Load()
+
+	want := "https://auth.example.com/api/v1/"
+	if cfg.ManagementAudience != want {
+		t.Errorf("ManagementAudience default: expected %q, got %q", want, cfg.ManagementAudience)
+	}
+}
+
+func TestLoad_ManagementAudience_Override(t *testing.T) {
+	t.Setenv("MANAGEMENT_AUDIENCE", "https://custom.example.com/mgmt/")
+
+	cfg := Load()
+
+	if cfg.ManagementAudience != "https://custom.example.com/mgmt/" {
+		t.Errorf("ManagementAudience override: expected custom value, got %q", cfg.ManagementAudience)
+	}
+}

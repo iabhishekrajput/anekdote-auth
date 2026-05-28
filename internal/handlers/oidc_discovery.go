@@ -44,7 +44,7 @@ func (h *DiscoveryHandler) OpenIDConfiguration(w http.ResponseWriter, r *http.Re
 		ScopesSupported:                  []string{"openid", "profile", "email"},
 		ClaimsSupported: []string{
 			"sub", "iss", "aud", "exp", "iat", "jti", "scope",
-			"name", "updated_at", "email", "email_verified",
+			"name", "preferred_username", "updated_at", "email", "email_verified",
 			"org_id", "org_role", "at_hash",
 		},
 		GrantTypesSupported:           []string{"authorization_code"},

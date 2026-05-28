@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -28,8 +29,9 @@ type IdentityHandler struct {
 	userStore    *postgres.UserStore
 	sessionStore *redis.SessionStore
 	mailer       *mailer.Mailer
-	orgStore     *postgres.OrgStore // optional; enables invite join on verify-email
-	rdb          *goredis.Client    // optional; required for invite Redis cleanup
+	orgStore     *postgres.OrgStore     // optional; enables invite join on verify-email
+	rdb          *goredis.Client        // optional; required for invite Redis cleanup
+	bloom        *redis.UsernameBloom   // optional; populated after Create to keep filter warm
 }
 
 func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *redis.SessionStore, mailSvc *mailer.Mailer) *IdentityHandler {
@@ -45,6 +47,12 @@ func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *
 func (h *IdentityHandler) WithOrgSupport(orgStore *postgres.OrgStore, rdb *goredis.Client) *IdentityHandler {
 	h.orgStore = orgStore
 	h.rdb = rdb
+	return h
+}
+
+// WithBloom attaches the username bloom filter so new registrations keep it warm.
+func (h *IdentityHandler) WithBloom(b *redis.UsernameBloom) *IdentityHandler {
+	h.bloom = b
 	return h
 }
 
@@ -79,7 +87,9 @@ func (h *IdentityHandler) render(w http.ResponseWriter, r *http.Request, name st
 	case "register.tmpl":
 		inviteEmail, _ := data["InviteEmail"].(string)
 		inviteToken, _ := data["InviteToken"].(string)
-		component := ui.RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, successMsg)
+		usernameError, _ := data["UsernameError"].(string)
+		emailError, _ := data["EmailError"].(string)
+		component := ui.RegisterPage(csrfToken, inviteEmail, inviteToken, errorMsg, usernameError, emailError, successMsg)
 		_ = component.Render(r.Context(), w)
 	case "login.tmpl":
 		req, _ := data["Req"].(string)
@@ -144,6 +154,12 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 		return
 	}
 
+	if username == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"UsernameError": "Username is required"}))
+		return
+	}
+
 	if err := validatePassword(password); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": err.Error()}))
@@ -160,8 +176,23 @@ func (h *IdentityHandler) RegisterFunc(w http.ResponseWriter, r *http.Request, _
 	user, err := h.userStore.Create(email, name, username, string(hash))
 	if err != nil {
 		w.WriteHeader(http.StatusConflict)
-		h.render(w, r, "register.tmpl", inviteData(map[string]interface{}{"Error": "Error creating user (maybe email exists)"}))
+		data := inviteData(map[string]interface{}{})
+		switch {
+		case errors.Is(err, postgres.ErrEmailTaken):
+			data["Error"] = "Email already registered"
+			data["EmailError"] = "Email already registered"
+		case errors.Is(err, postgres.ErrUsernameTaken):
+			data["Error"] = "Username already taken — choose a different one"
+			data["UsernameError"] = "Username already taken — choose a different one"
+		default:
+			data["Error"] = "Error creating user"
+		}
+		h.render(w, r, "register.tmpl", data)
 		return
+	}
+
+	if h.bloom != nil {
+		_ = h.bloom.Add(context.Background(), username)
 	}
 
 	// Generate 6-digit OTP

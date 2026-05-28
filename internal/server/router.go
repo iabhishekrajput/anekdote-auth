@@ -24,6 +24,8 @@ func NewRouter(
 	adminH *handlers.AdminHandler,
 	probeH *handlers.ProbeHandler,
 	userInfoH *handlers.UserInfoHandler,
+	mgmtH *handlers.ManagementHandler,
+	usernameH *handlers.UsernameHandler,
 	sessionStore *redisstore.SessionStore,
 	userStore *pgstore.UserStore,
 	redisClient *redis.Client,
@@ -43,6 +45,12 @@ func NewRouter(
 	authRateLimit := func(h httprouter.Handle) httprouter.Handle {
 		return middleware.Chain(h, func(next httprouter.Handle) httprouter.Handle {
 			return middleware.RateLimitMiddleware(redisClient, "auth", 10, time.Minute, next)
+		})
+	}
+
+	apiRateLimit := func(h httprouter.Handle) httprouter.Handle {
+		return middleware.Chain(h, func(next httprouter.Handle) httprouter.Handle {
+			return middleware.RateLimitMiddleware(redisClient, "api", 20, time.Minute, next)
 		})
 	}
 
@@ -175,6 +183,17 @@ func NewRouter(
 	// 4. Health/Readiness Probes
 	router.GET("/healthz", probeH.Health)
 	router.GET("/readyz", probeH.Ready)
+
+	// 5. Management API (bearer JWT, management audience + scope required)
+	apiSecure := func(h httprouter.Handle) httprouter.Handle {
+		return secure(apiRateLimit(h))
+	}
+	router.GET("/api/v1/clients/:id/claims", apiSecure(mgmtH.GetClientClaims))
+	router.PUT("/api/v1/clients/:id/claims", apiSecure(mgmtH.PutClientClaims))
+
+	// 6. Username utilities (no auth required; CSRF-exempt via ^/api/ rule in main.go)
+	router.GET("/api/username-check", secure(apiRateLimit(usernameH.Check)))
+	router.GET("/api/username-suggestions", secure(apiRateLimit(usernameH.Suggestions)))
 
 	slog.Info("Router initialized with endpoints")
 	return router

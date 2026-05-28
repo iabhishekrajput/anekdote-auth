@@ -82,6 +82,15 @@ func main() {
 	revocStore := redis.NewRevocationStore(rdb)
 	tokenStore := redis.NewTokenStore(rdb)
 
+	bloom := redis.NewUsernameBloom(rdb)
+	if bloomUsernames, err := userStore.ListAllUsernames(context.Background()); err != nil {
+		slog.Warn("bloom: failed to load usernames for filter population", "error", err)
+	} else if err := bloom.LoadAll(context.Background(), bloomUsernames); err != nil {
+		slog.Warn("bloom: failed to populate filter", "error", err)
+	} else {
+		slog.Info("bloom: filter populated", "usernames", len(bloomUsernames))
+	}
+
 	// 4. Initialize Core Server
 	issuer := cfg.AppURL
 	oauth2Srv, jwtGen := auth.BuildServer(clientStore, tokenStore, revocStore, keys, orgStore, issuer, rdb, userStore)
@@ -94,14 +103,17 @@ func main() {
 
 	// 6. Initialize Handlers
 	identH := handlers.NewIdentityHandler(cfg, userStore, sessionStore, mailSvc).
-		WithOrgSupport(orgStore, rdb)
+		WithOrgSupport(orgStore, rdb).
+		WithBloom(bloom)
+	usernameH := handlers.NewUsernameHandler(userStore, bloom)
 	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, clientStore, jwtGen)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
 	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, revocStore, mailSvc, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
-	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb)
+	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb).WithCustomClaimsReader(clientStore)
+	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience).WithIssuer(cfg.AppURL)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)
@@ -114,7 +126,7 @@ func main() {
 	}()
 
 	// 8. Init Router
-	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, sessionStore, userStore, rdb)
+	router := server.NewRouter(cfg, identH, oauthH, discH, accountH, orgH, adminH, probeH, userInfoH, mgmtH, usernameH, sessionStore, userStore, rdb)
 
 	csrfHandler := nosurf.New(router)
 	csrfHandler.SetBaseCookie(http.Cookie{
@@ -129,6 +141,7 @@ func main() {
 	csrfHandler.ExemptPath("/token")
 	csrfHandler.ExemptPath("/revoke")
 	csrfHandler.ExemptPath("/userinfo")
+	csrfHandler.ExemptRegexp("^/api/") // path.Match(*) doesn't cross slashes; regexp is required for deep paths
 
 	csrfHandler.SetFailureHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		errStr := nosurf.Reason(r).Error()

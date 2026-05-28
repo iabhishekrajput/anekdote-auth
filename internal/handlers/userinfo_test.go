@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -201,12 +202,20 @@ func TestUserInfo_MissingAuthHeader(t *testing.T) {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
 	wwwAuth := rr.Header().Get("WWW-Authenticate")
-	if wwwAuth == "" {
-		t.Error("WWW-Authenticate header must be present on 401")
-	}
-	// Missing token: no error= parameter, just realm (RFC 6750 §3.1)
+	// Missing token: realm-only challenge, no error= parameter (RFC 6750 §3.1)
 	if wwwAuth != `Bearer realm="anekdote-auth"` {
 		t.Errorf("WWW-Authenticate: expected realm-only, got %q", wwwAuth)
+	}
+	// Body must include RFC 6750 error fields
+	var body map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["error"] != "invalid_request" {
+		t.Errorf("error: expected invalid_request, got %q", body["error"])
+	}
+	if body["error_description"] == "" {
+		t.Error("error_description must be non-empty")
 	}
 }
 
@@ -216,6 +225,10 @@ func TestUserInfo_MalformedAuthHeader(t *testing.T) {
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for non-Bearer scheme, got %d", rr.Code)
+	}
+	// RFC 6750 §3.2: 4xx from protected resources must include WWW-Authenticate.
+	if wwwAuth := rr.Header().Get("WWW-Authenticate"); !strings.Contains(wwwAuth, "Bearer") {
+		t.Errorf("expected WWW-Authenticate with Bearer on 400, got %q", wwwAuth)
 	}
 }
 
@@ -529,6 +542,143 @@ func TestUserInfo_RevokedToken_WithRealRedis(t *testing.T) {
 	}
 	if us.calls != 0 {
 		t.Error("userStore.GetByID must not be called for revoked token")
+	}
+}
+
+// ── preferred_username claim ──────────────────────────────────────────────────
+
+func TestUserInfo_PreferredUsername_ProfileScope(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, Username: "alice42", Name: "Alice", UpdatedAt: time.Now()}
+	tok := makeToken(t, ks, userID, "openid profile", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["preferred_username"] != "alice42" {
+		t.Errorf("preferred_username: expected alice42, got %v", resp["preferred_username"])
+	}
+}
+
+func TestUserInfo_PreferredUsername_EmptyUsername(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, Name: "Alice", Username: "", UpdatedAt: time.Now()}
+	tok := makeToken(t, ks, userID, "openid profile", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if _, ok := resp["preferred_username"]; ok {
+		t.Error("preferred_username must be omitted when username is empty")
+	}
+}
+
+// ── custom claims via WithCustomClaimsReader ──────────────────────────────────
+
+type mockUserInfoClaimsReader struct {
+	claims map[string]any
+	err    error
+}
+
+func (m *mockUserInfoClaimsReader) GetCustomClaims(_ context.Context, _, _, _ string) (map[string]any, error) {
+	return m.claims, m.err
+}
+
+func TestUserInfo_CustomClaims_Injected(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
+	h.WithCustomClaimsReader(&mockUserInfoClaimsReader{
+		claims: map[string]any{"https://example.com/tier": "enterprise"},
+	})
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["https://example.com/tier"] != "enterprise" {
+		t.Errorf("expected custom claim tier=enterprise, got %v", resp)
+	}
+}
+
+func TestUserInfo_CustomClaims_ReservedKeyNotOverridden(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, Email: "real@example.com", IsVerified: true, UpdatedAt: time.Now()}
+	h.WithCustomClaimsReader(&mockUserInfoClaimsReader{
+		claims: map[string]any{
+			"sub":   "evil-sub",    // reserved — must be ignored
+			"email": "evil@x.com", // reserved — must be ignored
+			"https://example.com/ok": "safe",
+		},
+	})
+	tok := makeToken(t, ks, userID, "openid email", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["sub"] != userID {
+		t.Errorf("sub must not be overridden by custom claim, got %v", resp["sub"])
+	}
+	if resp["email"] != "real@example.com" {
+		t.Errorf("email must not be overridden by custom claim, got %v", resp["email"])
+	}
+	if resp["https://example.com/ok"] != "safe" {
+		t.Errorf("namespaced custom claim should be injected, got %v", resp)
+	}
+}
+
+func TestUserInfo_CustomClaims_ReaderError_Returns500(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
+	h.WithCustomClaimsReader(&mockUserInfoClaimsReader{
+		err: context.DeadlineExceeded,
+	})
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	// OIDC Core §5.3: server_error must use 500, not 401.
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 (server_error) when claims reader errors, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var body map[string]string
+	json.NewDecoder(rr.Body).Decode(&body)
+	if body["error"] != "server_error" {
+		t.Errorf("expected error=server_error, got %v", body)
+	}
+}
+
+func TestUserInfo_CustomClaims_NilReaderNoOp(t *testing.T) {
+	h, ks, us, _ := setupUserInfoHandler(t)
+	userID := uuid.New().String()
+	us.user = &models.User{ID: userID, UpdatedAt: time.Now()}
+	// No WithCustomClaimsReader call — claimsReader is nil
+	tok := makeToken(t, ks, userID, "openid", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 when claimsReader is nil, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 

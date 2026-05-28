@@ -25,6 +25,8 @@ func TestNewRouter(t *testing.T) {
 		&handlers.AdminHandler{},
 		&handlers.ProbeHandler{},
 		&handlers.UserInfoHandler{},
+		&handlers.ManagementHandler{},
+		&handlers.UsernameHandler{},
 		&redisstore.SessionStore{},
 		&pgstore.UserStore{},
 		&redis.Client{},

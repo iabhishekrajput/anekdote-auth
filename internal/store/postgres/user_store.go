@@ -8,11 +8,14 @@ import (
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/lib/pq"
 )
 
 var (
-	ErrUserNotFound = errors.New("user not found")
-	ErrLastAdmin    = errors.New("cannot remove the last admin")
+	ErrUserNotFound  = errors.New("user not found")
+	ErrLastAdmin     = errors.New("cannot remove the last admin")
+	ErrEmailTaken    = errors.New("email already registered")
+	ErrUsernameTaken = errors.New("username already taken")
 )
 
 var validAdminRoles = map[string]bool{
@@ -262,6 +265,14 @@ func (s *UserStore) Create(email, name, username, passwordHash string) (*models.
 		Scan(&u.ID, &u.Email, &u.Name, &usernameArg, &u.PasswordHash, &u.IsVerified, &u.CreatedAt, &u.UpdatedAt)
 
 	if err != nil {
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" {
+			switch pqErr.Constraint {
+			case "uq_idx_users_email":
+				return nil, ErrEmailTaken
+			case "uq_idx_users_username":
+				return nil, ErrUsernameTaken
+			}
+		}
 		return nil, err
 	}
 	u.Username = usernameArg.String
@@ -285,6 +296,32 @@ func (s *UserStore) UpdateVerified(id string) error {
 }
 
 // ListOrgAdmins returns the emails of active owners and admins in the given org.
+func (s *UserStore) ListAllUsernames(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT username FROM users WHERE deleted_at IS NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var usernames []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		usernames = append(usernames, u)
+	}
+	return usernames, rows.Err()
+}
+
+func (s *UserStore) IsUsernameTaken(ctx context.Context, username string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE username = $1 AND deleted_at IS NULL)`,
+		username,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (s *UserStore) ListOrgAdmins(ctx context.Context, orgID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT u.email FROM users u

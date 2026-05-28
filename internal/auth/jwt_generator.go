@@ -44,10 +44,10 @@ type UserReader interface {
 	GetByID(id string) (*models.User, error)
 }
 
-// CustomClaimsReader reads the per-client custom JWT claims.
+// CustomClaimsReader reads per-client custom claims filtered by scope and destination.
 // Implemented by *postgres.ClientStore.
 type CustomClaimsReader interface {
-	GetCustomClaims(ctx context.Context, clientID string) (map[string]any, error)
+	GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error)
 }
 
 // reservedClaims is the lowercase set of claim names that may not be overridden.
@@ -163,6 +163,14 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		}
 	}
 
+	// Service account: client_credentials grant with org_id binding on the client record.
+	// Inject org_id so the Management API can enforce org ownership without a user session.
+	if subUserID == "" {
+		if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
+			claims["org_id"] = *oci.OrgID
+		}
+	}
+
 	claims["scope"] = effectiveScope
 
 	// Inject profile/email claims when scopes are granted (user-context tokens only).
@@ -173,7 +181,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 
 	// Inject per-client custom claims (fail-closed: error blocks token issuance).
 	if g.claimsReader != nil {
-		if err := g.injectCustomClaims(ctx, claims, data.Client.GetID()); err != nil {
+		if err := g.injectCustomClaims(ctx, claims, data.Client.GetID(), effectiveScope, "access_token"); err != nil {
 			return "", "", fmt.Errorf("custom claims read failed: %w", err)
 		}
 	}
@@ -268,9 +276,9 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 		g.injectScopeClaims(ctx, claims, sub, scope)
 	}
 
-	// Inject per-client custom claims into id_token for access_token/id_token parity.
+	// Inject per-client custom claims into id_token.
 	if g.claimsReader != nil {
-		if err := g.injectCustomClaims(ctx, claims, aud); err != nil {
+		if err := g.injectCustomClaims(ctx, claims, aud, scope, "id_token"); err != nil {
 			return "", fmt.Errorf("custom claims read failed for id_token: %w", err)
 		}
 	}
@@ -285,11 +293,10 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 	return signed, nil
 }
 
-// injectCustomClaims reads per-client custom claims and merges them into dst.
-// Reserved keys are silently skipped with a warning (defensive guard).
-// Value types other than string/float64/bool are skipped silently.
-func (g *JWTGenerator) injectCustomClaims(ctx context.Context, dst jwt.MapClaims, clientID string) error {
-	custom, err := g.claimsReader.GetCustomClaims(ctx, clientID)
+// injectCustomClaims reads per-client custom claims filtered by scope and destination,
+// and merges them into dst. Reserved keys are silently skipped (defensive guard).
+func (g *JWTGenerator) injectCustomClaims(ctx context.Context, dst jwt.MapClaims, clientID, grantedScope, destination string) error {
+	custom, err := g.claimsReader.GetCustomClaims(ctx, clientID, grantedScope, destination)
 	if err != nil {
 		return err
 	}

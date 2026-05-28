@@ -31,7 +31,7 @@ func TestLoginPage(t *testing.T) {
 }
 
 func TestRegisterPage(t *testing.T) {
-	html := renderComp(t, "RegisterPage", ui.RegisterPage("csrf-xyz", "", "", "", ""))
+	html := renderComp(t, "RegisterPage", ui.RegisterPage("csrf-xyz", "", "", "", "", "", ""))
 	if !strings.Contains(html, "Create your account") {
 		t.Error("expected heading in output")
 	}

@@ -576,7 +576,7 @@ func (h *AdminHandler) RevokeGrant(w http.ResponseWriter, r *http.Request, ps ht
 // AdminClientClaims handles GET /admin/clients/:id/claims
 func (h *AdminHandler) AdminClientClaims(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	clientID := ps.ByName("id")
-	existing, _ := h.clientStore.GetCustomClaims(r.Context(), clientID)
+	existing, _ := h.clientStore.ListCustomClaims(r.Context(), clientID)
 	clientName, err := h.clientStore.GetClientName(r.Context(), clientID)
 	if err != nil {
 		http.Redirect(w, r, "/admin/clients?error="+url.QueryEscape("Client not found"), http.StatusFound)
@@ -605,14 +605,15 @@ func (h *AdminHandler) AdminClientClaimsPost(w http.ResponseWriter, r *http.Requ
 	keys := r.Form["key[]"]
 	claimTypes := r.Form["type[]"]
 	values := r.Form["value[]"]
+	destinations := r.Form["destination[]"]
 
-	claims, err := validateClaims(keys, claimTypes, values)
+	defs, err := validateClaims(keys, claimTypes, values, destinations)
 	if err != nil {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape(err.Error()), http.StatusFound)
 		return
 	}
 
-	if err := h.clientStore.SetCustomClaimsAdmin(r.Context(), clientID, claims); err != nil {
+	if err := h.clientStore.SetCustomClaimsAdmin(r.Context(), clientID, defs); err != nil {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Failed to save claims"), http.StatusFound)
 		return
 	}
