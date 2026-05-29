@@ -12,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -33,6 +34,7 @@ type UserInfoTombstoneStore interface {
 // UserInfoCustomClaimsReader reads per-client custom claims for /userinfo injection.
 type UserInfoCustomClaimsReader interface {
 	GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error)
+	GetCustomClaimsForContext(ctx context.Context, clientID, grantedScope, destination string, claimCtx postgres.CustomClaimContext) (map[string]any, error)
 }
 
 // reservedUserInfoClaims is the set of claim names that custom claims cannot override in /userinfo.
@@ -190,7 +192,16 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 	if h.claimsReader != nil {
 		clientID, _ := claims["aud"].(string)
 		if clientID != "" {
-			custom, claimsErr := h.claimsReader.GetCustomClaims(r.Context(), clientID, scope, "userinfo")
+			orgID, _ := claims["org_id"].(string)
+			orgRole, _ := claims["org_role"].(string)
+			custom, claimsErr := h.claimsReader.GetCustomClaimsForContext(r.Context(), clientID, scope, "userinfo", postgres.CustomClaimContext{
+				UserID:   user.ID,
+				Email:    user.Email,
+				Name:     user.Name,
+				Username: user.Username,
+				OrgID:    orgID,
+				OrgRole:  orgRole,
+			})
 			if claimsErr != nil {
 				// OIDC Core §5.3: server_error maps to 500, not 401.
 				w.Header().Set("Content-Type", "application/json")

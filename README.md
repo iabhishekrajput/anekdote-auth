@@ -296,12 +296,25 @@ Required JWT claims:
 | `jti` | Unique token ID (prevents replay) |
 | `exp` | Expiry timestamp |
 
+### Service Account Tokens
+
+Create a service account from an organization's client list or the Developer Apps page. A service account is a confidential, org-bound OAuth2 client; when it uses `client_credentials`, issued access tokens include that organization's `org_id` and can call the Management API.
+
+Example token request:
+
+```bash
+curl -X POST "$APP_URL/token" \
+  -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d grant_type=client_credentials \
+  -d scope="read:client_claims update:client_claims"
+```
+
 ### Scopes
 
 | Scope | Access |
 |-------|--------|
 | `read:client_claims` | `GET /api/v1/clients/:id/claims` |
-| `update:client_claims` | `PUT /api/v1/clients/:id/claims` |
+| `update:client_claims` | `PUT /api/v1/clients/:id/claims`, `PATCH /api/v1/clients/:id/claims/:key` |
 
 ### Endpoints
 
@@ -317,7 +330,8 @@ Returns the current custom claim definitions for a client. The caller's `org_id`
       "type": "string",
       "value": "admin",
       "destinations": "access_token",
-      "scope_gate": "openid"
+      "scope_gate": "openid",
+      "source_kind": "static"
     }
   ]
 }
@@ -352,6 +366,37 @@ Response on success (`200 OK`):
 }
 ```
 
+#### PATCH /api/v1/clients/:id/claims/:key
+
+Creates or updates one claim without replacing the rest of the client's claim set. URL-encode `:key` when it contains `/` characters, or send the same key in the JSON body for readability.
+
+```json
+{
+  "key": "https://example.com/tier",
+  "type": "string",
+  "value": "enterprise",
+  "destinations": "access_token",
+  "scope_gate": "premium",
+  "source_kind": "static"
+}
+```
+
+Response on success (`200 OK`):
+
+```json
+{
+  "operation": "patch",
+  "claim": {
+    "key": "https://example.com/tier",
+    "type": "string",
+    "value": "enterprise",
+    "destinations": "access_token",
+    "scope_gate": "premium",
+    "source_kind": "static"
+  }
+}
+```
+
 ### Claim Fields
 
 | Field | Required | Description |
@@ -360,9 +405,10 @@ Response on success (`200 OK`):
 | `type` | Yes | `"string"`, `"number"`, or `"boolean"` |
 | `value` | Yes | Claim value as a string; coerced to the declared type at token issuance |
 | `destinations` | No | Comma-separated destination list (default: `token`). Valid values: `token`, `access_token`, `id_token`, `userinfo`, `access_token,id_token,userinfo`, and combinations |
-| `scope_gate` | No | Space-separated scope string. Claim is only injected when all listed scopes are present in the token |
+| `scope_gate` | No | Single scope identifier. Claim is only injected when that scope is present in the token |
+| `source_kind` | No | `static` stores `value` directly; `user_attribute` reads one supported token-time attribute; `expression` expands `{{user.email}}`, `{{user.name}}`, `{{user.username}}`, `{{user.id}}`, `{{org.id}}`, and `{{org.role}}` |
 
-Up to 20 claims per client. Keys longer than 256 characters are rejected.
+Up to 20 claims per client. Keys longer than 100 characters are rejected.
 
 ### Rate Limiting
 

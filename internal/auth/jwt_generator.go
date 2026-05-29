@@ -48,6 +48,7 @@ type UserReader interface {
 // Implemented by *postgres.ClientStore.
 type CustomClaimsReader interface {
 	GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error)
+	GetCustomClaimsForContext(ctx context.Context, clientID, grantedScope, destination string, claimCtx postgres.CustomClaimContext) (map[string]any, error)
 }
 
 // reservedClaims is the lowercase set of claim names that may not be overridden.
@@ -61,13 +62,13 @@ var reservedClaims = map[string]struct{}{
 
 // JWTGenerator implements oauth2.AccessGenerate
 type JWTGenerator struct {
-	keyStore      *crypto.KeyStore
-	issuer        string
-	orgStore      OrgMembershipReader
-	grantChecker  GrantChecker
-	rdb           *goredis.Client
-	userStore     UserReader
-	claimsReader  CustomClaimsReader
+	keyStore     *crypto.KeyStore
+	issuer       string
+	orgStore     OrgMembershipReader
+	grantChecker GrantChecker
+	rdb          *goredis.Client
+	userStore    UserReader
+	claimsReader CustomClaimsReader
 }
 
 func NewJWTGenerator(keyStore *crypto.KeyStore, issuer string, orgStore OrgMembershipReader, grantChecker GrantChecker, rdb *goredis.Client, userStore UserReader, claimsReader CustomClaimsReader) *JWTGenerator {
@@ -98,6 +99,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 
 	// Effective scope may be narrowed by a per-org grant restriction (set later).
 	effectiveScope := data.TokenInfo.GetScope()
+	var claimCtx postgres.CustomClaimContext
 
 	claims := jwt.MapClaims{
 		"iss": g.issuer,
@@ -156,6 +158,8 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 			}
 			claims["org_id"] = *resolvedOrgID
 			claims["org_role"] = role
+			claimCtx.OrgID = *resolvedOrgID
+			claimCtx.OrgRole = role
 
 			if g.rdb != nil {
 				g.rdb.SAdd(ctx, "oauth:user-org-tokens:"+subUserID+":"+*resolvedOrgID, jti)
@@ -168,6 +172,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 	if subUserID == "" {
 		if oci, ok := data.Client.(*postgres.OrgClientInfo); ok && oci.OrgID != nil {
 			claims["org_id"] = *oci.OrgID
+			claimCtx.OrgID = *oci.OrgID
 		}
 	}
 
@@ -175,13 +180,23 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 
 	// Inject profile/email claims when scopes are granted (user-context tokens only).
 	// Use effectiveScope so per-org restrictions are respected in scope-driven claims.
+	var tokenUser *models.User
 	if subUserID != "" && g.userStore != nil {
-		g.injectScopeClaims(ctx, claims, subUserID, effectiveScope)
+		tokenUser = g.injectScopeClaims(ctx, claims, subUserID, effectiveScope)
+		claimCtx.UserID = subUserID
+		if tokenUser == nil && g.claimsReader != nil {
+			tokenUser, _ = g.userStore.GetByID(subUserID)
+		}
+		if tokenUser != nil {
+			claimCtx.Email = tokenUser.Email
+			claimCtx.Name = tokenUser.Name
+			claimCtx.Username = tokenUser.Username
+		}
 	}
 
 	// Inject per-client custom claims (fail-closed: error blocks token issuance).
 	if g.claimsReader != nil {
-		if err := g.injectCustomClaims(ctx, claims, data.Client.GetID(), effectiveScope, "access_token"); err != nil {
+		if err := g.injectCustomClaims(ctx, claims, data.Client.GetID(), effectiveScope, "access_token", claimCtx); err != nil {
 			return "", "", fmt.Errorf("custom claims read failed: %w", err)
 		}
 	}
@@ -207,18 +222,18 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 
 // injectScopeClaims adds email/profile claims to dst when the scope grants them.
 // Uses exact-word matching to prevent false positives on scopes like "email_read".
-func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims, userIDStr, scope string) {
+func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims, userIDStr, scope string) *models.User {
 	scopeSet := make(map[string]bool)
 	for _, s := range strings.Fields(scope) {
 		scopeSet[s] = true
 	}
 	if !scopeSet["profile"] && !scopeSet["email"] {
-		return
+		return nil
 	}
 	user, err := g.userStore.GetByID(userIDStr)
 	if err != nil {
 		slog.Warn("user lookup failed for scope claims; claims omitted", "user_id", userIDStr, "error", err)
-		return
+		return nil
 	}
 	if scopeSet["profile"] {
 		if user.Name != "" {
@@ -233,6 +248,7 @@ func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims,
 		dst["email"] = user.Email
 		dst["email_verified"] = user.IsVerified
 	}
+	return user
 }
 
 // intersectScopes returns only the scopes from requested that are present in allowed.
@@ -272,13 +288,40 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 		claims["nonce"] = nonce
 	}
 
-	if g.userStore != nil {
-		g.injectScopeClaims(ctx, claims, sub, scope)
+	claimCtx := postgres.CustomClaimContext{UserID: sub}
+	parser := jwt.NewParser()
+	if parsed, _, parseErr := parser.ParseUnverified(accessToken, jwt.MapClaims{}); parseErr == nil {
+		if accessClaims, ok := parsed.Claims.(jwt.MapClaims); ok {
+			if v, _ := accessClaims["email"].(string); v != "" {
+				claims["email"] = v
+				claimCtx.Email = v
+			}
+			if v, _ := accessClaims["name"].(string); v != "" {
+				claims["name"] = v
+				claimCtx.Name = v
+			}
+			if v, _ := accessClaims["preferred_username"].(string); v != "" {
+				claims["preferred_username"] = v
+				claimCtx.Username = v
+			}
+			if v, ok := accessClaims["email_verified"].(bool); ok {
+				claims["email_verified"] = v
+			}
+			if v, ok := accessClaims["updated_at"].(float64); ok {
+				claims["updated_at"] = int64(v)
+			}
+			if v, _ := accessClaims["org_id"].(string); v != "" {
+				claimCtx.OrgID = v
+			}
+			if v, _ := accessClaims["org_role"].(string); v != "" {
+				claimCtx.OrgRole = v
+			}
+		}
 	}
 
 	// Inject per-client custom claims into id_token.
 	if g.claimsReader != nil {
-		if err := g.injectCustomClaims(ctx, claims, aud, scope, "id_token"); err != nil {
+		if err := g.injectCustomClaims(ctx, claims, aud, scope, "id_token", claimCtx); err != nil {
 			return "", fmt.Errorf("custom claims read failed for id_token: %w", err)
 		}
 	}
@@ -295,8 +338,8 @@ func (g *JWTGenerator) GenerateIDToken(ctx context.Context, sub, aud, scope, acc
 
 // injectCustomClaims reads per-client custom claims filtered by scope and destination,
 // and merges them into dst. Reserved keys are silently skipped (defensive guard).
-func (g *JWTGenerator) injectCustomClaims(ctx context.Context, dst jwt.MapClaims, clientID, grantedScope, destination string) error {
-	custom, err := g.claimsReader.GetCustomClaims(ctx, clientID, grantedScope, destination)
+func (g *JWTGenerator) injectCustomClaims(ctx context.Context, dst jwt.MapClaims, clientID, grantedScope, destination string, claimCtx postgres.CustomClaimContext) error {
+	custom, err := g.claimsReader.GetCustomClaimsForContext(ctx, clientID, grantedScope, destination, claimCtx)
 	if err != nil {
 		return err
 	}

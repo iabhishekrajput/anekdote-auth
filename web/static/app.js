@@ -131,6 +131,41 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // Claims table inline validation. Server validation is still authoritative.
+  document.querySelectorAll('form').forEach(function (form) {
+    if (!form.querySelector('#claims-table')) return;
+    form.addEventListener('submit', function (e) {
+      var firstInvalid = null;
+      form.querySelectorAll('[data-row-error]').forEach(function (el) { el.remove(); });
+      form.querySelectorAll('#claims-table tbody tr:not([data-claims-template]):not([aria-hidden])').forEach(function (row) {
+        var key = row.querySelector('input[name="key[]"]');
+        var value = row.querySelector('[name="value[]"]');
+        if (!key || key.value.trim() === '') return;
+        var msg = '';
+        if (!key.value.trim().startsWith('https://')) {
+          msg = 'Claim key must start with https://';
+        } else if (key.value.trim().length > 100) {
+          msg = 'Claim key must be 100 characters or fewer';
+        } else if (!value || value.value.trim() === '') {
+          msg = 'Claim value is required';
+        }
+        if (msg) {
+          e.preventDefault();
+          firstInvalid = firstInvalid || key;
+          var error = document.createElement('p');
+          error.setAttribute('data-row-error', '');
+          error.className = 'mt-1 text-xs text-red-400';
+          error.textContent = msg;
+          key.closest('td').appendChild(error);
+          key.classList.add('border-red-500');
+        } else {
+          key.classList.remove('border-red-500');
+        }
+      });
+      if (firstInvalid) firstInvalid.focus();
+    });
+  });
+
   // Password visibility toggle
   document.querySelectorAll('[data-pw-toggle]').forEach(function (btn) {
     btn.addEventListener('click', function () {

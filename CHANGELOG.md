@@ -9,17 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [2.4.0] — 2026-05-29
+
 ### Added
-- **Management REST API** — `GET /api/v1/clients/:id/claims` and `PUT /api/v1/clients/:id/claims` for programmatic claim management. Bearer RS256 auth with `iss`, `aud`, `org_id` ownership, `jti` revocation (fail-closed), and `scope` word-boundary gating.
+- **Management REST API** — `GET /api/v1/clients/:id/claims`, `PUT /api/v1/clients/:id/claims`, and `PATCH /api/v1/clients/:id/claims/:key` for programmatic claim management. Bearer RS256 auth with `iss`, `aud`, `org_id` ownership, `jti` revocation (fail-closed), and `scope` word-boundary gating.
 - **Custom claim `scope_gate`** — claim emission can be gated on a specific authorized scope; claims are silently omitted when the scope is absent.
 - **Custom claim `destinations`** — per-claim control over which tokens receive the claim: `access_token`, `id_token`, `userinfo`, or comma-separated combinations.
-- **Service accounts / M2M** — `client_credentials` grants now inject `org_id` into access tokens when the client belongs to an org, enabling headless CI/CD pipelines scoped to an organization.
+- **Dynamic custom claims** — `source_kind=user_attribute` and `source_kind=expression` resolve token-time user/org values without arbitrary code execution.
+- **Custom claim cache** — filtered claim definitions are cached in Redis for 60 seconds and invalidated on claim updates.
+- **Service accounts / M2M** — `client_credentials` grants now inject `org_id` into access tokens when the client belongs to an org, enabling headless CI/CD pipelines scoped to an organization. Organization and Developer Apps pages now expose explicit service-account creation.
+- **Account username editing** — users can update their username from Account settings.
+- **Admin claims inventory** — admin client list now shows claim counts and can filter to clients with custom claims.
 - **`https://` namespace enforcement** — custom claim keys must carry an `https://` prefix; reserved OIDC names (`sub`, `iss`, `aud`, etc.) are blocked at the API and UI level.
 - **`MANAGEMENT_AUDIENCE` config** — expected `aud` claim value for Management API tokens (default: `anekdote-auth-management`).
+- **Cross-browser and mobile Playwright projects** — E2E config now includes Chromium, Firefox, WebKit, and mobile Chrome.
 
 ### Changed
 - `/userinfo` now injects custom claims filtered by `destinations=userinfo`.
+- OIDC nonce persistence now uses a dedicated nonce store in production instead of the JWT revocation store.
 - Claims page Save button no longer expands to fill the flex row (layout fix in org and admin views).
+- Custom claim updates blocklist outstanding client JWTs so changed claim policy applies immediately to bearer-token checks.
 
 ### Fixed
 - RFC 6750 §3.1 compliance: Management API and `/userinfo` emit realm-only `WWW-Authenticate` (no `error=` param) when no Authorization header is present; full `error=`/`error_description=` challenge only on bad/expired tokens.
@@ -27,9 +38,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Management API returns 403 (not 404) when a client is not found or ownership check fails, preventing client ID enumeration.
 - `aud` claim in Management API token validation now accepts RFC 7519 single-element array form.
 - `scope_gate` validated: single identifier, max 64 chars, no spaces allowed — rejects multi-word values that would silently suppress claims.
-- CORS `Access-Control-Allow-Methods` now includes `PUT` for Management API callers.
+- Management API token errors now include diagnostic subcodes for expired tokens, invalid signing methods, and unknown `kid` values.
+- Custom claim forms show inline row-level validation before submit for common key/value mistakes.
+- Login ignores unsafe external `req` redirects and falls back to `/account`.
+- CORS `Access-Control-Allow-Methods` now includes `PUT` and `PATCH` for Management API callers.
 - Added `Vary: Origin` response header to CORS middleware to prevent proxy mis-caching.
 - 32 KB `MaxBytesReader` guard on `PUT /api/v1/clients/:id/claims` body before JSON decode.
+- Org members table now scrolls horizontally on narrow viewports instead of overlapping the row action buttons (mobile layout fix).
+- Defined the `hide-scrollbar` utility so org and admin tab bars no longer render a stray horizontal scrollbar.
+- E2E claims fixtures now seed `owner_org_id` (matching how the app provisions org clients) and reset custom claims per run; the claims spec targets the Save button unambiguously.
 
 ### Security
 - Management API token validation enforces `iss` claim must match the server's own URL.

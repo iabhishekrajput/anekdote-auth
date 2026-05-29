@@ -32,11 +32,16 @@ func (m *mockRevStore) IsRevoked(_ context.Context, _ string) (bool, error) {
 	return m.revoked, m.err
 }
 
+func (m *mockRevStore) RevokeJTI(_ context.Context, _ string, _ time.Duration) error {
+	return m.err
+}
+
 type mockMgmtClientStore struct {
-	orgID  *string
-	claims []postgres.ClaimDefinition
-	saved  []postgres.ClaimDefinition
-	err    error
+	orgID   *string
+	claims  []postgres.ClaimDefinition
+	saved   []postgres.ClaimDefinition
+	patched *postgres.ClaimDefinition
+	err     error
 }
 
 func (m *mockMgmtClientStore) GetClientOrgID(_ context.Context, _ string) (*string, error) {
@@ -49,6 +54,11 @@ func (m *mockMgmtClientStore) ListCustomClaims(_ context.Context, _ string) ([]p
 
 func (m *mockMgmtClientStore) SetCustomClaimsAdmin(_ context.Context, _ string, defs []postgres.ClaimDefinition) error {
 	m.saved = defs
+	return m.err
+}
+
+func (m *mockMgmtClientStore) PatchCustomClaimAdmin(_ context.Context, _ string, def postgres.ClaimDefinition) error {
+	m.patched = &def
 	return m.err
 }
 
@@ -233,6 +243,99 @@ func TestManagement_PutClaims_OK(t *testing.T) {
 	}
 	if len(store.saved) != 1 || store.saved[0].Key != "https://example.com/tier" {
 		t.Errorf("expected saved claim key https://example.com/tier, got %v", store.saved)
+	}
+}
+
+func TestManagement_PatchClaim_OK(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	clientID := "client-123"
+	key := "https://example.com/tier"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"type":"string","value":"enterprise","destinations":"id_token,access_token","scope_gate":"premium"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/clients/"+clientID+"/claims/"+key, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PatchClientClaim(rr, req, httprouterParams("id", clientID, "key", key))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.patched == nil {
+		t.Fatal("expected one patched claim")
+	}
+	if store.patched.Key != key || store.patched.Value != "enterprise" {
+		t.Errorf("unexpected patched claim: %+v", store.patched)
+	}
+	if store.patched.Destinations != "access_token,id_token" {
+		t.Errorf("expected canonical destinations, got %q", store.patched.Destinations)
+	}
+}
+
+func TestManagement_PatchClaim_BodyKeyMustMatchPath(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"key":"https://example.com/other","type":"string","value":"enterprise"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/clients/c1/claims/https://example.com/tier", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PatchClientClaim(rr, req, httprouterParams("id", "c1", "key", "https://example.com/tier"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if store.patched != nil {
+		t.Errorf("claim must not be patched on key mismatch: %+v", store.patched)
+	}
+}
+
+func TestManagement_PatchClaim_ReservedKey(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	store := &mockMgmtClientStore{orgID: &orgID}
+	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"type":"string","value":"evil"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/clients/c1/claims/sub", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PatchClientClaim(rr, req, httprouterParams("id", "c1", "key", "sub"))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for reserved key, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestManagement_PatchClaim_StoreError(t *testing.T) {
+	ks := newTestKeyStore(t)
+	orgID := "org-abc"
+	h := newTestMgmtHandler(ks, &mockRevStore{}, &failingSetStore{orgID: &orgID})
+
+	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
+	body := `{"type":"string","value":"enterprise"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/clients/c1/claims/https://example.com/tier", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.PatchClientClaim(rr, req, httprouterParams("id", "c1", "key", "https://example.com/tier"))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 when patch store errors, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -666,6 +769,9 @@ func (f *failingSetStore) ListCustomClaims(_ context.Context, _ string) ([]postg
 func (f *failingSetStore) SetCustomClaimsAdmin(_ context.Context, _ string, _ []postgres.ClaimDefinition) error {
 	return fmt.Errorf("db write error")
 }
+func (f *failingSetStore) PatchCustomClaimAdmin(_ context.Context, _ string, _ postgres.ClaimDefinition) error {
+	return fmt.Errorf("db write error")
+}
 
 func TestManagement_GetClaims_ClientNotFound(t *testing.T) {
 	ks := newTestKeyStore(t)
@@ -740,6 +846,9 @@ func (f *listFailStore) ListCustomClaims(_ context.Context, _ string) ([]postgre
 	return nil, fmt.Errorf("list db error")
 }
 func (f *listFailStore) SetCustomClaimsAdmin(_ context.Context, _ string, _ []postgres.ClaimDefinition) error {
+	return nil
+}
+func (f *listFailStore) PatchCustomClaimAdmin(_ context.Context, _ string, _ postgres.ClaimDefinition) error {
 	return nil
 }
 

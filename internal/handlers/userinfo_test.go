@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/models"
+	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	redisstore "github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 )
 
@@ -594,6 +595,10 @@ func (m *mockUserInfoClaimsReader) GetCustomClaims(_ context.Context, _, _, _ st
 	return m.claims, m.err
 }
 
+func (m *mockUserInfoClaimsReader) GetCustomClaimsForContext(_ context.Context, _, _, _ string, _ postgres.CustomClaimContext) (map[string]any, error) {
+	return m.claims, m.err
+}
+
 func TestUserInfo_CustomClaims_Injected(t *testing.T) {
 	h, ks, us, _ := setupUserInfoHandler(t)
 	userID := uuid.New().String()
@@ -621,8 +626,8 @@ func TestUserInfo_CustomClaims_ReservedKeyNotOverridden(t *testing.T) {
 	us.user = &models.User{ID: userID, Email: "real@example.com", IsVerified: true, UpdatedAt: time.Now()}
 	h.WithCustomClaimsReader(&mockUserInfoClaimsReader{
 		claims: map[string]any{
-			"sub":   "evil-sub",    // reserved — must be ignored
-			"email": "evil@x.com", // reserved — must be ignored
+			"sub":                    "evil-sub",   // reserved — must be ignored
+			"email":                  "evil@x.com", // reserved — must be ignored
 			"https://example.com/ok": "safe",
 		},
 	})

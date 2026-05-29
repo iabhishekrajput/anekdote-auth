@@ -29,9 +29,9 @@ type IdentityHandler struct {
 	userStore    *postgres.UserStore
 	sessionStore *redis.SessionStore
 	mailer       *mailer.Mailer
-	orgStore     *postgres.OrgStore     // optional; enables invite join on verify-email
-	rdb          *goredis.Client        // optional; required for invite Redis cleanup
-	bloom        *redis.UsernameBloom   // optional; populated after Create to keep filter warm
+	orgStore     *postgres.OrgStore   // optional; enables invite join on verify-email
+	rdb          *goredis.Client      // optional; required for invite Redis cleanup
+	bloom        *redis.UsernameBloom // optional; populated after Create to keep filter warm
 }
 
 func NewIdentityHandler(cfg *config.Config, uStore *postgres.UserStore, sStore *redis.SessionStore, mailSvc *mailer.Mailer) *IdentityHandler {
@@ -414,13 +414,17 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 
 	slog.Info("login success", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
 
-	// Redirect back to Authorization flow if it exists
-	if oauthReq != "" {
+	// Redirect back to local Authorization flow if it exists.
+	if isSafeLocalRedirect(oauthReq) {
 		http.Redirect(w, r, oauthReq, http.StatusFound)
 		return
 	}
 
 	http.Redirect(w, r, "/account", http.StatusFound)
+}
+
+func isSafeLocalRedirect(next string) bool {
+	return strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//")
 }
 
 func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

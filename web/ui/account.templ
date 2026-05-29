@@ -146,6 +146,21 @@ templ AccountPageBody(csrfToken string, user *models.User, orgs []postgres.OrgLi
 			<form method="POST" action="/account/profile" class="space-y-4">
 				<input type="hidden" name="csrf_token" value={ csrfToken }/>
 				@FormField("Full name", "name", "", TextInput("name", "name", "text", "Your name", user.Name, false))
+				<div class="space-y-1.5">
+					<label for="username" class="block text-sm font-medium text-zinc-300">Username</label>
+					<div class="flex items-center rounded-md border border-zinc-800 bg-transparent focus-within:border-brand focus-within:ring-1 focus-within:ring-brand/50">
+						<span class="pl-3 text-sm text-zinc-600">{"@"}</span>
+						<input
+							id="username"
+							name="username"
+							type="text"
+							value={ user.Username }
+							placeholder="username"
+							class="h-9 w-full bg-transparent px-1.5 pr-3 text-sm font-mono text-zinc-50 placeholder:text-zinc-500 outline-none"
+						/>
+					</div>
+					<p class="text-xs text-zinc-500">3–30 lowercase letters, numbers, and underscores.</p>
+				</div>
 				<div class="flex gap-2 justify-end">
 					<button
 						type="button"

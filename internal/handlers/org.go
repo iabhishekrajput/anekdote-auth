@@ -578,6 +578,12 @@ func (h *OrgHandler) RegisterClient(w http.ResponseWriter, r *http.Request, ps h
 	redirectURI := r.FormValue("redirect_uri")
 	isPublic := r.FormValue("public") == "on"
 	isMultiOrg := r.FormValue("multi_org") == "on"
+	isServiceAccount := r.FormValue("service_account") == "on"
+	if isServiceAccount {
+		redirectURI = serviceAccountRedirectURI
+		isPublic = false
+		isMultiOrg = false
+	}
 
 	if len(name) == 0 || len(name) > 255 {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client name must be 1–255 characters"), http.StatusFound)
@@ -1448,6 +1454,12 @@ func (h *OrgHandler) RegisterDevApp(w http.ResponseWriter, r *http.Request, _ ht
 	redirectURI := strings.TrimSpace(r.FormValue("redirect_uri"))
 	isPublic := r.FormValue("public") == "on"
 	isMultiOrg := r.FormValue("multi_org") == "on"
+	isServiceAccount := r.FormValue("service_account") == "on"
+	if isServiceAccount {
+		redirectURI = serviceAccountRedirectURI
+		isPublic = false
+		isMultiOrg = false
+	}
 
 	if len(name) == 0 || len(name) > 255 {
 		http.Redirect(w, r, redirectBase+"?error="+url.QueryEscape("Client name must be 1–255 characters"), http.StatusFound)
@@ -1482,6 +1494,9 @@ func (h *OrgHandler) RegisterDevApp(w http.ResponseWriter, r *http.Request, _ ht
 }
 
 func validateRedirectURI(rawURI string) error {
+	if rawURI == serviceAccountRedirectURI {
+		return nil
+	}
 	if rawURI == "" {
 		return errors.New("redirect URI is required")
 	}
@@ -1495,15 +1510,17 @@ func validateRedirectURI(rawURI string) error {
 	return nil
 }
 
+const serviceAccountRedirectURI = "urn:anekdote:service-account"
+
 var validDestinations = map[string]bool{
-	"access_token":               true,
-	"id_token":                   true,
-	"token":                      true,
-	"userinfo":                   true,
-	"access_token,id_token":      true,
-	"access_token,userinfo":      true,
-	"id_token,userinfo":          true,
-	"token,userinfo":             true,
+	"access_token":                   true,
+	"id_token":                       true,
+	"token":                          true,
+	"userinfo":                       true,
+	"access_token,id_token":          true,
+	"access_token,userinfo":          true,
+	"id_token,userinfo":              true,
+	"token,userinfo":                 true,
 	"access_token,id_token,userinfo": true,
 }
 

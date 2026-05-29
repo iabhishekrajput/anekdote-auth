@@ -74,12 +74,13 @@ func main() {
 
 	// 3. Initialize Stores
 	userStore := postgres.NewUserStore(db)
-	clientStore := postgres.NewClientStore(db)
+	clientStore := postgres.NewClientStore(db).WithClaimsCache(rdb, time.Minute)
 	orgStore := postgres.NewOrgStore(db)
 	auditStore := postgres.NewAuditStore(db)
 
 	sessionStore := redis.NewSessionStore(rdb)
 	revocStore := redis.NewRevocationStore(rdb)
+	nonceStore := redis.NewNonceStore(rdb)
 	tokenStore := redis.NewTokenStore(rdb)
 
 	bloom := redis.NewUsernameBloom(rdb)
@@ -106,14 +107,14 @@ func main() {
 		WithOrgSupport(orgStore, rdb).
 		WithBloom(bloom)
 	usernameH := handlers.NewUsernameHandler(userStore, bloom)
-	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, clientStore, jwtGen)
+	oauthH := handlers.NewOAuth2Handler(oauth2Srv, sessionStore, revocStore, keys, orgStore, clientStore, jwtGen).WithNonceStore(nonceStore)
 	discH := handlers.NewDiscoveryHandler(keys, cfg.AppURL)
-	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb)
+	accountH := handlers.NewAccountHandler(userStore, orgStore, sessionStore, auditStore, rdb).WithBloom(bloom)
 	orgH := handlers.NewOrgHandler(orgStore, userStore, clientStore, sessionStore, mailSvc, rdb, revocStore, auditStore, cfg.RedisEncryptionKey, cfg.AppURL)
 	adminH := handlers.NewAdminHandler(userStore, orgStore, clientStore, sessionStore, auditStore, revocStore, mailSvc, rdb)
 	probeH := handlers.NewProbeHandler(db, rdb)
 	userInfoH := handlers.NewUserInfoHandler(userStore, keys, revocStore, rdb).WithCustomClaimsReader(clientStore)
-	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience).WithIssuer(cfg.AppURL)
+	mgmtH := handlers.NewManagementHandler(keys, revocStore, clientStore, cfg.ManagementAudience).WithIssuer(cfg.AppURL).WithTokenIndex(rdb)
 
 	// 7. Audit log retention — run once on startup, then every 24 hours
 	runAuditRetention(auditStore, cfg.AuditRetentionDays)

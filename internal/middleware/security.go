@@ -24,7 +24,7 @@ func SecurityHeadersMiddleware(corsAllowed string) func(httprouter.Handle) httpr
 
 			// Configured CORS headers for OIDC/OAuth2 APIs
 			w.Header().Set("Access-Control-Allow-Origin", corsAllowed)
-			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, PUT, PATCH, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization")
 			w.Header().Add("Vary", "Origin")
 

@@ -273,6 +273,47 @@ func TestRegisterClient_Success_Public(t *testing.T) {
 	}
 }
 
+func TestRegisterClient_Success_ServiceAccount(t *testing.T) {
+	h, orgMock, clientMock, mr := setupOrgHandler(t)
+	defer mr.Close()
+
+	orgID := uuid.New().String()
+	userID := uuid.New().String()
+
+	orgMock.ExpectQuery(`SELECT (.+) FROM organizations WHERE slug`).
+		WithArgs("acme").
+		WillReturnRows(orgSlugRow(orgID, "acme", "Acme Corp"))
+	orgMock.ExpectQuery(`SELECT role FROM org_memberships`).
+		WithArgs(orgID, userID).
+		WillReturnRows(membershipRow("owner"))
+	clientMock.ExpectBegin()
+	clientMock.ExpectExec(`INSERT INTO oauth2_clients`).
+		WithArgs(sqlmock.AnyArg(), "CI Deploy Bot", sqlmock.AnyArg(), serviceAccountRedirectURI, false, sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectExec(`INSERT INTO client_org_grants`).
+		WithArgs(sqlmock.AnyArg(), orgID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	clientMock.ExpectCommit()
+
+	form := url.Values{}
+	form.Set("name", "CI Deploy Bot")
+	form.Set("service_account", "on")
+	req := httptest.NewRequest(http.MethodPost, "/account/orgs/acme/clients",
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = withUserContext(req, userID)
+	rr := httptest.NewRecorder()
+
+	h.RegisterClient(rr, req, withParams("slug", "acme"))
+
+	if rr.Code != http.StatusFound {
+		t.Errorf("expected 302, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); !strings.Contains(loc, "newClientID=") {
+		t.Errorf("expected newClientID in redirect, got %s", loc)
+	}
+}
+
 func TestRegisterClient_InvalidName(t *testing.T) {
 	h, orgMock, _, mr := setupOrgHandler(t)
 	defer mr.Close()

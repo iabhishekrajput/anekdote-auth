@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -239,11 +240,18 @@ templ cursorPaginationControls(basePath, cursor, nextCursor string) {
 			</div>
 			<div>
 				if nextCursor != "" {
-					<a href={ templ.SafeURL(fmt.Sprintf("%s?cursor=%s", basePath, nextCursor)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next →</a>
+					<a href={ templ.SafeURL(fmt.Sprintf("%s%scursor=%s", basePath, paginationSeparator(basePath), nextCursor)) } class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800">Next →</a>
 				}
 			</div>
 		</div>
 	}
+}
+
+func paginationSeparator(basePath string) string {
+	if strings.Contains(basePath, "?") {
+		return "&"
+	}
+	return "?"
 }
 
 func auditActionBadgeClass(action string) string {

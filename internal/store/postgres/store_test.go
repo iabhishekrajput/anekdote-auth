@@ -605,8 +605,8 @@ func TestNormalizeDestinations(t *testing.T) {
 		{"token", "token"},
 		{"access_token", "access_token"},
 		{"id_token", "id_token"},
-		{"id_token,access_token", "access_token,id_token"},    // sorts alphabetically
-		{"access_token,id_token", "access_token,id_token"},    // already sorted
+		{"id_token,access_token", "access_token,id_token"}, // sorts alphabetically
+		{"access_token,id_token", "access_token,id_token"}, // already sorted
 		{"userinfo,id_token,access_token", "access_token,id_token,userinfo"},
 		{" access_token , id_token ", "access_token,id_token"}, // trimmed
 	}
@@ -626,11 +626,11 @@ func TestScopeMatches(t *testing.T) {
 		want                    bool
 	}{
 		{"", "openid profile email", true},      // empty gate always passes
-		{"", "", true},                           // empty gate, empty scope
-		{"email", "openid email profile", true},  // word boundary match
-		{"email", "openid email_extra", false},   // no substring match across word boundary
+		{"", "", true},                          // empty gate, empty scope
+		{"email", "openid email profile", true}, // word boundary match
+		{"email", "openid email_extra", false},  // no substring match across word boundary
 		{"profile", "openid profile", true},
-		{"custom", "openid", false},              // not present
+		{"custom", "openid", false}, // not present
 		{"custom", "openid custom profile", true},
 	}
 	for _, c := range cases {
@@ -648,9 +648,9 @@ func TestDestMatches(t *testing.T) {
 		rowDests, destination string
 		want                  bool
 	}{
-		{"token", "access_token", true},   // "token" alias covers access_token
-		{"token", "id_token", true},       // "token" alias covers id_token
-		{"token", "userinfo", false},      // "token" does NOT cover userinfo
+		{"token", "access_token", true}, // "token" alias covers access_token
+		{"token", "id_token", true},     // "token" alias covers id_token
+		{"token", "userinfo", false},    // "token" does NOT cover userinfo
 		{"access_token", "access_token", true},
 		{"access_token", "id_token", false},
 		{"id_token", "id_token", true},
@@ -677,11 +677,11 @@ func TestGetCustomClaims_ScopeAndDestFilter(t *testing.T) {
 	defer db.Close()
 	store := NewClientStore(db)
 
-	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations"}).
-		AddRow("https://example.com/tier", "string", "enterprise", "", "token").           // no gate, "token" → matches any access/id
-		AddRow("https://example.com/secret", "string", "hidden", "custom_scope", "token"). // gate not in scope → filtered
-		AddRow("https://example.com/count", "number", "42", "", "id_token").               // dest id_token but query is access_token → filtered
-		AddRow("https://example.com/flag", "boolean", "true", "", "access_token")          // matches access_token
+	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations", "source_kind"}).
+		AddRow("https://example.com/tier", "string", "enterprise", "", "token", "static").           // no gate, "token" → matches any access/id
+		AddRow("https://example.com/secret", "string", "hidden", "custom_scope", "token", "static"). // gate not in scope → filtered
+		AddRow("https://example.com/count", "number", "42", "", "id_token", "static").               // dest id_token but query is access_token → filtered
+		AddRow("https://example.com/flag", "boolean", "true", "", "access_token", "static")          // matches access_token
 
 	mock.ExpectQuery(`SELECT key, value_type, value`).
 		WithArgs("client-1").
@@ -715,9 +715,9 @@ func TestGetCustomClaims_UserInfoDestination(t *testing.T) {
 	defer db.Close()
 	store := NewClientStore(db)
 
-	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations"}).
-		AddRow("https://example.com/ui_only", "string", "ui-val", "", "userinfo").
-		AddRow("https://example.com/token_only", "string", "tok-val", "", "access_token")
+	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations", "source_kind"}).
+		AddRow("https://example.com/ui_only", "string", "ui-val", "", "userinfo", "static").
+		AddRow("https://example.com/token_only", "string", "tok-val", "", "access_token", "static")
 
 	mock.ExpectQuery(`SELECT key, value_type, value`).
 		WithArgs("client-1").
@@ -732,6 +732,35 @@ func TestGetCustomClaims_UserInfoDestination(t *testing.T) {
 	}
 	if _, ok := claims["https://example.com/token_only"]; ok {
 		t.Error("token_only should be filtered out for userinfo destination")
+	}
+}
+
+func TestGetCustomClaimsForContext_DynamicClaims(t *testing.T) {
+	db, mock := setupTestDB(t)
+	defer db.Close()
+	store := NewClientStore(db)
+
+	rows := sqlmock.NewRows([]string{"key", "value_type", "value", "scope_gate", "destinations", "source_kind"}).
+		AddRow("https://example.com/email", "string", "user.email", "", "access_token", "user_attribute").
+		AddRow("https://example.com/label", "string", "acct:{{user.username}}:{{org.role}}", "", "access_token", "expression")
+
+	mock.ExpectQuery(`SELECT key, value_type, value`).
+		WithArgs("client-1").
+		WillReturnRows(rows)
+
+	claims, err := store.GetCustomClaimsForContext(context.Background(), "client-1", "openid", "access_token", CustomClaimContext{
+		Email:    "user@example.com",
+		Username: "alice",
+		OrgRole:  "admin",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claims["https://example.com/email"] != "user@example.com" {
+		t.Errorf("expected dynamic email, got %v", claims)
+	}
+	if claims["https://example.com/label"] != "acct:alice:admin" {
+		t.Errorf("expected expression expansion, got %v", claims)
 	}
 }
 

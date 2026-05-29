@@ -166,6 +166,38 @@ func TestLoginFunc_Success(t *testing.T) {
 	}
 }
 
+func TestLoginFunc_RejectsExternalReqRedirect(t *testing.T) {
+	handler, mock, mr := setupMockedHandler(t)
+	defer mr.Close()
+
+	formData := url.Values{}
+	formData.Set("email", "login@example.com")
+	formData.Set("password", "ValidPass123!")
+	formData.Set("req", "https://evil.example/steal")
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(formData.Encode()))
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("ValidPass123!"), bcrypt.DefaultCost)
+	userID := uuid.New()
+	rows := sqlmock.NewRows([]string{"id", "email", "name", "username", "password_hash", "is_verified", "is_admin", "admin_role", "password_changed", "disabled_at", "deleted_at", "created_at", "updated_at"}).
+		AddRow(userID, "login@example.com", "Test User", nil, string(hash), true, false, nil, true, nil, nil, time.Now(), time.Now())
+
+	mock.ExpectQuery(`SELECT (.+) FROM users WHERE email = \$1`).
+		WithArgs("login@example.com").
+		WillReturnRows(rows)
+
+	handler.LoginFunc(rr, req, nil)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("expected redirect, got %d", rr.Code)
+	}
+	if loc := rr.Header().Get("Location"); loc != "/account" {
+		t.Errorf("expected unsafe req redirect to fall back to /account, got %s", loc)
+	}
+}
+
 func TestLoginFunc_DisabledUser(t *testing.T) {
 	handler, mock, mr := setupMockedHandler(t)
 	defer mr.Close()

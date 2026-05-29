@@ -24,6 +24,17 @@ select[data-loading-select] {
   cursor: wait;
 }
 
+/* Hide the horizontal scrollbar on overflow-x-auto tab bars while keeping
+   them scrollable when tabs exceed the viewport width. Used on org/admin
+   tab navigation. */
+.hide-scrollbar {
+  -ms-overflow-style: none; /* IE and legacy Edge */
+  scrollbar-width: none;    /* Firefox */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;            /* Chrome, Safari, Opera */
+}
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

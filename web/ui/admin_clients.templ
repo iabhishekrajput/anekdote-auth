@@ -4,15 +4,24 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 )
 
-templ AdminClientList(csrfToken string, clients []*postgres.AdminClientItem, total int, cursor, nextCursor string, errorMsg, successMsg string) {
-	@AdminLayout("Clients - Admin", "/admin/clients", csrfToken, adminClientListBody(csrfToken, clients, total, cursor, nextCursor, errorMsg, successMsg))
+templ AdminClientList(csrfToken string, clients []*postgres.AdminClientItem, total int, cursor, nextCursor string, withClaimsOnly bool, errorMsg, successMsg string) {
+	@AdminLayout("Clients - Admin", "/admin/clients", csrfToken, adminClientListBody(csrfToken, clients, total, cursor, nextCursor, withClaimsOnly, errorMsg, successMsg))
 }
 
-templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem, total int, cursor, nextCursor string, errorMsg, successMsg string) {
+templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem, total int, cursor, nextCursor string, withClaimsOnly bool, errorMsg, successMsg string) {
 	<div class="space-y-4">
-		<div>
-			<h1 class="text-xl font-semibold tracking-tight">OAuth2 Clients</h1>
-			<p class="text-sm text-zinc-400">{ intToStr(total) } clients across all orgs</p>
+		<div class="flex items-end justify-between gap-4">
+			<div>
+				<h1 class="text-xl font-semibold tracking-tight">OAuth2 Clients</h1>
+				<p class="text-sm text-zinc-400">{ intToStr(total) } clients across all orgs</p>
+			</div>
+			<div class="flex items-center gap-2">
+				if withClaimsOnly {
+					<a href="/admin/clients" class="h-8 rounded border border-zinc-700 px-3 text-xs text-zinc-300 hover:text-zinc-50 inline-flex items-center">Show all</a>
+				} else {
+					<a href="/admin/clients?with_claims=1" class="h-8 rounded border border-zinc-700 px-3 text-xs text-zinc-300 hover:text-zinc-50 inline-flex items-center">With custom claims</a>
+				}
+			</div>
 		</div>
 		@AlertContainer(errorMsg, successMsg)
 		<div class="rounded-lg border border-zinc-800 overflow-hidden">
@@ -23,6 +32,7 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Name</th>
 						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Org</th>
 						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Type</th>
+						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Claims</th>
 						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Redirect URI</th>
 						<th class="px-4 py-2.5 text-left font-medium text-zinc-400">Created</th>
 						<th class="px-4 py-2.5"></th>
@@ -31,7 +41,7 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 				<tbody>
 					if len(clients) == 0 {
 						<tr>
-							<td colspan="7" class="px-4 py-8 text-center text-zinc-500">No clients registered.</td>
+							<td colspan="8" class="px-4 py-8 text-center text-zinc-500">No clients registered.</td>
 						</tr>
 					}
 					for _, c := range clients {
@@ -50,6 +60,13 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 									<span class="rounded bg-sky-500/10 px-1.5 py-0.5 text-xs text-sky-400">Public</span>
 								} else {
 									<span class="rounded bg-violet-500/10 px-1.5 py-0.5 text-xs text-violet-400">Confidential</span>
+								}
+							</td>
+							<td class="px-4 py-3">
+								if c.ClaimCount > 0 {
+									<a href={ templ.SafeURL("/admin/clients/" + c.ID + "/claims") } class="text-xs text-brand hover:text-brand-hover">{ intToStr(c.ClaimCount) } claims</a>
+								} else {
+									<a href={ templ.SafeURL("/admin/clients/" + c.ID + "/claims") } class="text-xs text-zinc-600 hover:text-zinc-400">Add</a>
 								}
 							</td>
 							<td class="px-4 py-3 font-mono text-xs text-zinc-400 max-w-[200px] truncate">{ c.Domain }</td>
@@ -73,7 +90,11 @@ templ adminClientListBody(csrfToken string, clients []*postgres.AdminClientItem,
 				</tbody>
 			</table>
 		</div>
-		@cursorPaginationControls("/admin/clients", cursor, nextCursor)
+		if withClaimsOnly {
+			@cursorPaginationControls("/admin/clients?with_claims=1", cursor, nextCursor)
+		} else {
+			@cursorPaginationControls("/admin/clients", cursor, nextCursor)
+		}
 	</div>
 }
 

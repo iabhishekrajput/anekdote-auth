@@ -120,9 +120,9 @@ func TestOAuth2FullFlow(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Flow Client", "", redirectURI, true, nil))
 	// JWTGenerator.Token calls GetCustomClaims for the access token.
-	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\), COALESCE\(source_kind,'static'\) FROM client_claim_definitions WHERE client_id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce", "coalesce"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")
@@ -259,9 +259,9 @@ func runNonceFlow(t *testing.T, handler *OAuth2Handler, mock sqlmock.Sqlmock, no
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Nonce Client", "", redirectURI, true, nil))
 	// Access token custom claims — real jwtGen has clientStore as claimsReader.
-	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\), COALESCE\(source_kind,'static'\) FROM client_claim_definitions WHERE client_id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce", "coalesce"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")
@@ -335,7 +335,7 @@ func TestOAuth2Nonce_NotPresent(t *testing.T) {
 // failingNonceStore wraps a real NonceRevokeStore and replaces ConsumeNonce with
 // a hard error, simulating a Redis failure during nonce retrieval at /token time.
 type failingNonceStore struct {
-	NonceRevokeStore
+	OAuth2NonceStore
 }
 
 func (f *failingNonceStore) ConsumeNonce(_ context.Context, _ string) (string, error) {
@@ -350,7 +350,7 @@ func TestOAuth2Nonce_FailClosed(t *testing.T) {
 	defer cleanup()
 
 	// Replace the revoc store with one whose ConsumeNonce always errors.
-	handler.revocStore = &failingNonceStore{handler.revocStore}
+	handler.nonceStore = &failingNonceStore{handler.nonceStore}
 
 	const (
 		clientID      = "nonce-client"
@@ -401,9 +401,9 @@ func TestOAuth2Nonce_FailClosed(t *testing.T) {
 		WithArgs(clientID).
 		WillReturnRows(sqlmock.NewRows([]string{"name", "secret", "domain", "public", "org_id"}).
 			AddRow("Nonce Client", "", redirectURI, true, nil))
-	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\) FROM client_claim_definitions WHERE client_id = \$1`).
+	mock.ExpectQuery(`SELECT key, value_type, value, COALESCE\(scope_gate,''\), COALESCE\(destinations,'token'\), COALESCE\(source_kind,'static'\) FROM client_claim_definitions WHERE client_id = \$1`).
 		WithArgs(clientID).
-		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce"}))
+		WillReturnRows(sqlmock.NewRows([]string{"key", "value_type", "value", "coalesce", "coalesce", "coalesce"}))
 
 	tokenForm := url.Values{}
 	tokenForm.Set("grant_type", "authorization_code")
@@ -427,4 +427,4 @@ func TestOAuth2Nonce_FailClosed(t *testing.T) {
 }
 
 // Ensure failingNonceStore compiles against the interface.
-var _ NonceRevokeStore = (*failingNonceStore)(nil)
+var _ OAuth2NonceStore = (*failingNonceStore)(nil)

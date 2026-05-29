@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/go-oauth2/oauth2/v4"
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/iabhishekrajput/anekdote-auth/internal/idgen"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -27,6 +29,17 @@ type ClaimDefinition struct {
 	Value        string // raw string representation stored in DB
 	Destinations string // canonical sorted CSV (e.g. "access_token,id_token")
 	ScopeGate    string // empty = always inject; otherwise a single scope name
+	SourceKind   string // "static", "user_attribute", or "expression"
+}
+
+// CustomClaimContext carries token-time values used by dynamic claim definitions.
+type CustomClaimContext struct {
+	UserID   string
+	Email    string
+	Name     string
+	Username string
+	OrgID    string
+	OrgRole  string
 }
 
 // ErrGrantNotFound is returned when a client_org_grant row does not exist.
@@ -151,12 +164,21 @@ type GrantRequest struct {
 
 // ClientStore implements oauth2.ClientStore interface using PostgreSQL
 type ClientStore struct {
-	db *sql.DB
+	db             *sql.DB
+	claimsCache    *goredis.Client
+	claimsCacheTTL time.Duration
 }
 
 // NewClientStore creates a new PostgreSQL backed client store
 func NewClientStore(db *sql.DB) *ClientStore {
 	return &ClientStore{db: db}
+}
+
+// WithClaimsCache enables Redis-backed caching for filtered claim definitions.
+func (s *ClientStore) WithClaimsCache(rdb *goredis.Client, ttl time.Duration) *ClientStore {
+	s.claimsCache = rdb
+	s.claimsCacheTTL = ttl
+	return s
 }
 
 // GetByID retrieves a client by its ID, always wrapped in OrgClientInfo.
@@ -433,38 +455,55 @@ func (s *ClientStore) ListDiscoverableClients(ctx context.Context, excludeOrgID 
 
 // AdminClientItem is used by the admin panel for the client list view.
 type AdminClientItem struct {
-	ID        string
-	Name      string
-	Domain    string
-	Public    bool
-	OrgSlug   string
-	OrgName   string
-	CreatedAt time.Time
+	ID         string
+	Name       string
+	Domain     string
+	Public     bool
+	OrgSlug    string
+	OrgName    string
+	ClaimCount int
+	CreatedAt  time.Time
 }
 
 // ListAllCursor returns OAuth2 clients using cursor-based pagination.
 // Returns items, next-page cursor (empty = last page), and total count.
 func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *PageCursor) ([]*AdminClientItem, string, int, error) {
-	total, err := s.CountAll(ctx)
+	return s.ListAllCursorFiltered(ctx, limit, cursor, false)
+}
+
+// ListAllCursorFiltered returns OAuth2 clients with optional filtering to clients with claims.
+func (s *ClientStore) ListAllCursorFiltered(ctx context.Context, limit int, cursor *PageCursor, withClaimsOnly bool) ([]*AdminClientItem, string, int, error) {
+	total, err := s.CountAllFiltered(ctx, withClaimsOnly)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	const selectCols = `SELECT c.id, c.name, c.domain, c.public, c.created_at,
-		        COALESCE(o.slug, '') AS org_slug, COALESCE(o.display_name, '') AS org_name
+		        COALESCE(o.slug, '') AS org_slug, COALESCE(o.display_name, '') AS org_name,
+		        COUNT(d.id) AS claim_count
 		 FROM oauth2_clients c
-		 LEFT JOIN organizations o ON o.id = c.org_id`
+		 LEFT JOIN organizations o ON o.id = c.org_id
+		 LEFT JOIN client_claim_definitions d ON d.client_id = c.id`
+	where := ""
+	if withClaimsOnly {
+		where = ` WHERE EXISTS (SELECT 1 FROM client_claim_definitions cd WHERE cd.client_id = c.id)`
+	}
+	groupOrder := ` GROUP BY c.id, c.name, c.domain, c.public, c.created_at, o.slug, o.display_name`
 
 	var rows *sql.Rows
 	if cursor == nil {
 		rows, err = s.db.QueryContext(ctx,
-			selectCols+` ORDER BY c.created_at DESC, c.id DESC LIMIT $1`,
+			selectCols+where+groupOrder+` ORDER BY c.created_at DESC, c.id DESC LIMIT $1`,
 			limit+1,
 		)
 	} else {
+		cursorFilter := ` WHERE c.created_at < $1 OR (c.created_at = $1 AND c.id < $2)`
+		if withClaimsOnly {
+			cursorFilter = ` WHERE EXISTS (SELECT 1 FROM client_claim_definitions cd WHERE cd.client_id = c.id)
+			 AND (c.created_at < $1 OR (c.created_at = $1 AND c.id < $2))`
+		}
 		rows, err = s.db.QueryContext(ctx,
-			selectCols+` WHERE c.created_at < $1 OR (c.created_at = $1 AND c.id < $2)
-			 ORDER BY c.created_at DESC, c.id DESC LIMIT $3`,
+			selectCols+cursorFilter+groupOrder+` ORDER BY c.created_at DESC, c.id DESC LIMIT $3`,
 			cursor.CreatedAt, cursor.ID, limit+1,
 		)
 	}
@@ -476,7 +515,7 @@ func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *Page
 	var clients []*AdminClientItem
 	for rows.Next() {
 		c := &AdminClientItem{}
-		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.CreatedAt, &c.OrgSlug, &c.OrgName); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Domain, &c.Public, &c.CreatedAt, &c.OrgSlug, &c.OrgName, &c.ClaimCount); err != nil {
 			return nil, "", total, err
 		}
 		clients = append(clients, c)
@@ -496,8 +535,17 @@ func (s *ClientStore) ListAllCursor(ctx context.Context, limit int, cursor *Page
 
 // CountAll returns the total number of OAuth2 clients.
 func (s *ClientStore) CountAll(ctx context.Context) (int, error) {
+	return s.CountAllFiltered(ctx, false)
+}
+
+// CountAllFiltered returns the total number of OAuth2 clients, optionally with claims only.
+func (s *ClientStore) CountAllFiltered(ctx context.Context, withClaimsOnly bool) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM oauth2_clients`).Scan(&count)
+	q := `SELECT COUNT(*) FROM oauth2_clients`
+	if withClaimsOnly {
+		q = `SELECT COUNT(*) FROM oauth2_clients c WHERE EXISTS (SELECT 1 FROM client_claim_definitions d WHERE d.client_id = c.id)`
+	}
+	err := s.db.QueryRowContext(ctx, q).Scan(&count)
 	return count, err
 }
 
@@ -1011,12 +1059,51 @@ func (s *ClientStore) DenyGrantRequest(ctx context.Context, requestID string, cl
 }
 
 // GetCustomClaims returns filtered custom claims for a client.
-// grantedScope is the space-separated scope string from the token.
-// destination is one of "access_token", "id_token", "userinfo".
-// Returns an empty map (not an error) when the client has no matching claims.
 func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID, grantedScope, destination string) (map[string]any, error) {
+	return s.GetCustomClaimsForContext(ctx, clientID, grantedScope, destination, CustomClaimContext{})
+}
+
+// GetCustomClaimsForContext returns filtered custom claims with dynamic values resolved.
+func (s *ClientStore) GetCustomClaimsForContext(ctx context.Context, clientID, grantedScope, destination string, claimCtx CustomClaimContext) (map[string]any, error) {
+	defs, err := s.filteredClaimDefinitions(ctx, clientID, grantedScope, destination)
+	if err != nil {
+		return nil, err
+	}
+	claims := make(map[string]any)
+	for _, def := range defs {
+		rawValue, ok := resolveClaimValue(def, claimCtx)
+		if !ok {
+			continue
+		}
+		switch def.ValueType {
+		case "string":
+			claims[def.Key] = rawValue
+		case "number":
+			var f float64
+			if _, err := fmt.Sscanf(rawValue, "%g", &f); err != nil {
+				return nil, fmt.Errorf("claim %q: invalid number value %q: %w", def.Key, rawValue, err)
+			}
+			claims[def.Key] = f
+		case "boolean":
+			claims[def.Key] = rawValue == "true"
+		}
+	}
+	return claims, nil
+}
+
+func (s *ClientStore) filteredClaimDefinitions(ctx context.Context, clientID, grantedScope, destination string) ([]ClaimDefinition, error) {
+	cacheKey := s.claimsCacheKey(clientID, grantedScope, destination)
+	if s.claimsCache != nil && s.claimsCacheTTL > 0 {
+		if raw, err := s.claimsCache.Get(ctx, cacheKey).Bytes(); err == nil {
+			var cached []ClaimDefinition
+			if json.Unmarshal(raw, &cached) == nil {
+				return cached, nil
+			}
+		}
+	}
+
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token')
+		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token'), COALESCE(source_kind,'static')
 		 FROM client_claim_definitions WHERE client_id = $1`,
 		clientID,
 	)
@@ -1025,38 +1112,88 @@ func (s *ClientStore) GetCustomClaims(ctx context.Context, clientID, grantedScop
 	}
 	defer rows.Close()
 
-	claims := make(map[string]any)
+	var defs []ClaimDefinition
 	for rows.Next() {
-		var key, valueType, rawValue, scopeGate, dests string
-		if err := rows.Scan(&key, &valueType, &rawValue, &scopeGate, &dests); err != nil {
+		var d ClaimDefinition
+		if err := rows.Scan(&d.Key, &d.ValueType, &d.Value, &d.ScopeGate, &d.Destinations, &d.SourceKind); err != nil {
 			return nil, err
 		}
-		if !scopeMatches(scopeGate, grantedScope) {
+		if !scopeMatches(d.ScopeGate, grantedScope) || !destMatches(d.Destinations, destination) {
 			continue
 		}
-		if !destMatches(dests, destination) {
-			continue
+		if d.SourceKind == "" {
+			d.SourceKind = "static"
 		}
-		switch valueType {
-		case "string":
-			claims[key] = rawValue
-		case "number":
-			var f float64
-			if _, err := fmt.Sscanf(rawValue, "%g", &f); err != nil {
-				return nil, fmt.Errorf("claim %q: invalid number value %q: %w", key, rawValue, err)
-			}
-			claims[key] = f
-		case "boolean":
-			claims[key] = rawValue == "true"
+		defs = append(defs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if s.claimsCache != nil && s.claimsCacheTTL > 0 {
+		if raw, err := json.Marshal(defs); err == nil {
+			_ = s.claimsCache.Set(ctx, cacheKey, raw, s.claimsCacheTTL).Err()
 		}
 	}
-	return claims, rows.Err()
+	return defs, nil
+}
+
+func (s *ClientStore) claimsCacheKey(clientID, grantedScope, destination string) string {
+	return "claims:def:" + clientID + ":" + destination + ":" + strings.Join(strings.Fields(grantedScope), "+")
+}
+
+func resolveClaimValue(def ClaimDefinition, ctx CustomClaimContext) (string, bool) {
+	switch def.SourceKind {
+	case "", "static":
+		return def.Value, true
+	case "user_attribute":
+		return claimAttribute(def.Value, ctx)
+	case "expression":
+		return expandClaimExpression(def.Value, ctx), true
+	default:
+		return "", false
+	}
+}
+
+func claimAttribute(name string, ctx CustomClaimContext) (string, bool) {
+	switch name {
+	case "user.id":
+		return ctx.UserID, ctx.UserID != ""
+	case "user.email":
+		return ctx.Email, ctx.Email != ""
+	case "user.name":
+		return ctx.Name, ctx.Name != ""
+	case "user.username":
+		return ctx.Username, ctx.Username != ""
+	case "org.id":
+		return ctx.OrgID, ctx.OrgID != ""
+	case "org.role":
+		return ctx.OrgRole, ctx.OrgRole != ""
+	default:
+		return "", false
+	}
+}
+
+func expandClaimExpression(expr string, ctx CustomClaimContext) string {
+	replacements := map[string]string{
+		"{{user.id}}":       ctx.UserID,
+		"{{user.email}}":    ctx.Email,
+		"{{user.name}}":     ctx.Name,
+		"{{user.username}}": ctx.Username,
+		"{{org.id}}":        ctx.OrgID,
+		"{{org.role}}":      ctx.OrgRole,
+	}
+	out := expr
+	for k, v := range replacements {
+		out = strings.ReplaceAll(out, k, v)
+	}
+	return out
 }
 
 // ListCustomClaims returns all claim definitions for a client (unfiltered, for UI display).
 func (s *ClientStore) ListCustomClaims(ctx context.Context, clientID string) ([]ClaimDefinition, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token')
+		`SELECT key, value_type, value, COALESCE(scope_gate,''), COALESCE(destinations,'token'), COALESCE(source_kind,'static')
 		 FROM client_claim_definitions WHERE client_id = $1
 		 ORDER BY key ASC`,
 		clientID,
@@ -1069,7 +1206,7 @@ func (s *ClientStore) ListCustomClaims(ctx context.Context, clientID string) ([]
 	var defs []ClaimDefinition
 	for rows.Next() {
 		var d ClaimDefinition
-		if err := rows.Scan(&d.Key, &d.ValueType, &d.Value, &d.ScopeGate, &d.Destinations); err != nil {
+		if err := rows.Scan(&d.Key, &d.ValueType, &d.Value, &d.ScopeGate, &d.Destinations, &d.SourceKind); err != nil {
 			return nil, err
 		}
 		defs = append(defs, d)
@@ -1087,12 +1224,45 @@ func (s *ClientStore) SetCustomClaims(ctx context.Context, clientID, ownerOrgID 
 	if ownerID == nil || *ownerID != ownerOrgID {
 		return ErrClientNotFound
 	}
-	return s.replaceClaimRows(ctx, clientID, defs)
+	err = s.replaceClaimRows(ctx, clientID, defs)
+	if err == nil {
+		s.invalidateClaimCache(ctx, clientID)
+	}
+	return err
 }
 
 // SetCustomClaimsAdmin atomically replaces all claims for any client without an org ownership check.
 func (s *ClientStore) SetCustomClaimsAdmin(ctx context.Context, clientID string, defs []ClaimDefinition) error {
-	return s.replaceClaimRows(ctx, clientID, defs)
+	err := s.replaceClaimRows(ctx, clientID, defs)
+	if err == nil {
+		s.invalidateClaimCache(ctx, clientID)
+	}
+	return err
+}
+
+// PatchCustomClaimAdmin atomically creates or updates one claim for any client.
+func (s *ClientStore) PatchCustomClaimAdmin(ctx context.Context, clientID string, def ClaimDefinition) error {
+	dest := normalizeDestinations(def.Destinations)
+	var sgArg sql.NullString
+	if def.ScopeGate != "" {
+		sgArg = sql.NullString{String: def.ScopeGate, Valid: true}
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO client_claim_definitions (client_id, key, value_type, value, destinations, scope_gate, source_kind)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
+		 ON CONFLICT (client_id, key) DO UPDATE SET
+		   value_type = EXCLUDED.value_type,
+		   value = EXCLUDED.value,
+		   destinations = EXCLUDED.destinations,
+		   scope_gate = EXCLUDED.scope_gate,
+		   source_kind = EXCLUDED.source_kind,
+		   updated_at = NOW()`,
+		clientID, def.Key, def.ValueType, def.Value, dest, sgArg, normalizedSourceKind(def.SourceKind),
+	)
+	if err == nil {
+		s.invalidateClaimCache(ctx, clientID)
+	}
+	return err
 }
 
 func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, defs []ClaimDefinition) error {
@@ -1116,14 +1286,31 @@ func (s *ClientStore) replaceClaimRows(ctx context.Context, clientID string, def
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO client_claim_definitions (client_id, key, value_type, value, destinations, scope_gate, source_kind)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'static')`,
-			clientID, d.Key, d.ValueType, d.Value, dest, sgArg,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			clientID, d.Key, d.ValueType, d.Value, dest, sgArg, normalizedSourceKind(d.SourceKind),
 		); err != nil {
 			return err
 		}
 	}
 
 	return tx.Commit()
+}
+
+func normalizedSourceKind(sourceKind string) string {
+	if sourceKind == "" {
+		return "static"
+	}
+	return sourceKind
+}
+
+func (s *ClientStore) invalidateClaimCache(ctx context.Context, clientID string) {
+	if s.claimsCache == nil {
+		return
+	}
+	iter := s.claimsCache.Scan(ctx, 0, "claims:def:"+clientID+":*", 100).Iterator()
+	for iter.Next(ctx) {
+		_ = s.claimsCache.Del(ctx, iter.Val()).Err()
+	}
 }
 
 // normalizeDestinations sorts the comma-separated destinations to a canonical form.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
@@ -24,6 +25,12 @@ type AccountHandler struct {
 	sessionStore *redis.SessionStore
 	auditStore   *postgres.AuditStore
 	rdb          *goredis.Client
+	bloom        *redis.UsernameBloom
+}
+
+func (h *AccountHandler) WithBloom(bloom *redis.UsernameBloom) *AccountHandler {
+	h.bloom = bloom
+	return h
 }
 
 func NewAccountHandler(uStore *postgres.UserStore, orgStore *postgres.OrgStore, sessionStore *redis.SessionStore, auditStore *postgres.AuditStore, rdb *goredis.Client) *AccountHandler {
@@ -104,17 +111,33 @@ func (h *AccountHandler) ViewAccount(w http.ResponseWriter, r *http.Request, _ h
 
 func (h *AccountHandler) UpdateProfile(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	userID := r.Context().Value(types.UserContextKey).(string)
-	newName := r.FormValue("name")
+	newName := strings.TrimSpace(r.FormValue("name"))
+	newUsername := strings.ToLower(strings.TrimSpace(r.FormValue("username")))
 
 	if newName == "" {
 		http.Redirect(w, r, "/account?error="+url.QueryEscape("Name cannot be empty"), http.StatusFound)
 		return
 	}
 
-	err := h.userStore.UpdateName(userID, newName)
-	if err != nil {
+	if newUsername != "" && !usernameRegex.MatchString(newUsername) {
+		http.Redirect(w, r, "/account?error="+url.QueryEscape("Username must be 3–30 lowercase letters, numbers, or underscores"), http.StatusFound)
+		return
+	}
+
+	if err := h.userStore.UpdateName(userID, newName); err != nil {
 		http.Redirect(w, r, "/account?error="+url.QueryEscape("Failed to update profile"), http.StatusFound)
 		return
+	}
+	if err := h.userStore.UpdateUsername(r.Context(), userID, newUsername); err != nil {
+		msg := "Failed to update username"
+		if errors.Is(err, postgres.ErrUsernameTaken) {
+			msg = "Username is already taken"
+		}
+		http.Redirect(w, r, "/account?error="+url.QueryEscape(msg), http.StatusFound)
+		return
+	}
+	if h.bloom != nil && newUsername != "" {
+		_ = h.bloom.Add(r.Context(), newUsername)
 	}
 
 	http.Redirect(w, r, "/account?message="+url.QueryEscape("Profile updated"), http.StatusFound)

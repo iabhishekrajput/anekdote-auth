@@ -285,6 +285,21 @@ func (s *UserStore) UpdateName(id string, newName string) error {
 	return err
 }
 
+func (s *UserStore) UpdateUsername(ctx context.Context, id string, username string) error {
+	var usernameArg sql.NullString
+	if username != "" {
+		usernameArg = sql.NullString{String: username, Valid: true}
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET username = $1, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL`,
+		usernameArg, id,
+	)
+	if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "23505" && pqErr.Constraint == "uq_idx_users_username" {
+		return ErrUsernameTaken
+	}
+	return err
+}
+
 func (s *UserStore) UpdatePassword(id string, newHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = $1, password_changed = TRUE, updated_at = NOW() WHERE id = $2`, newHash, id)
 	return err

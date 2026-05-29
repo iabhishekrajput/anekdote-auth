@@ -45,26 +45,30 @@ type IDTokenGenerator interface {
 	GenerateIDToken(ctx context.Context, sub, aud, scope, accessToken string, expiry time.Duration, nonce string) (string, error)
 }
 
-// NonceRevokeStore handles OIDC nonce binding and JWT revocation.
-// Implemented by *redis.RevocationStore.
-type NonceRevokeStore interface {
-	StoreNonce(ctx context.Context, code, nonce string, ttl time.Duration) error
-	ConsumeNonce(ctx context.Context, code string) (string, error)
+// OAuth2RevocationStore handles JWT revocation.
+type OAuth2RevocationStore interface {
 	RevokeJTI(ctx context.Context, jti string, duration time.Duration) error
 	IsRevoked(ctx context.Context, jti string) (bool, error)
+}
+
+// OAuth2NonceStore handles OIDC nonce binding.
+type OAuth2NonceStore interface {
+	StoreNonce(ctx context.Context, code, nonce string, ttl time.Duration) error
+	ConsumeNonce(ctx context.Context, code string) (string, error)
 }
 
 type OAuth2Handler struct {
 	server       *server.Server
 	sessionStore *redis.SessionStore
-	revocStore   NonceRevokeStore
+	revocStore   OAuth2RevocationStore
+	nonceStore   OAuth2NonceStore
 	keyStore     *crypto.KeyStore
 	orgStore     oauth2OrgStore         // optional; enables org membership check and friendly denial page at /authorize
 	grantStore   oauth2ClientGrantStore // optional; enables multi-org client grants
 	idTokenGen   IDTokenGenerator       // optional; enables id_token in /token response when openid scope granted
 }
 
-func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev NonceRevokeStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
+func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev OAuth2RevocationStore, keys *crypto.KeyStore, orgStore oauth2OrgStore, grantStore oauth2ClientGrantStore, idTokenGen IDTokenGenerator) *OAuth2Handler {
 	h := &OAuth2Handler{
 		server:       srv,
 		sessionStore: sess,
@@ -74,8 +78,16 @@ func NewOAuth2Handler(srv *server.Server, sess *redis.SessionStore, rev NonceRev
 		grantStore:   grantStore,
 		idTokenGen:   idTokenGen,
 	}
+	if ns, ok := rev.(OAuth2NonceStore); ok {
+		h.nonceStore = ns
+	}
 
 	h.server.SetUserAuthorizationHandler(h.userAuthorizeHandler)
+	return h
+}
+
+func (h *OAuth2Handler) WithNonceStore(store OAuth2NonceStore) *OAuth2Handler {
+	h.nonceStore = store
 	return h
 }
 
@@ -168,8 +180,8 @@ func (h *OAuth2Handler) Authorize(w http.ResponseWriter, r *http.Request, _ http
 	}
 	// Store nonce BEFORE flushing the redirect. This eliminates the race where a fast
 	// client exchanges the code before the nonce is persisted.
-	if nonce != "" && ac.code != "" && h.revocStore != nil {
-		if storeErr := h.revocStore.StoreNonce(r.Context(), ac.code, nonce, authCodeTTL); storeErr != nil {
+	if nonce != "" && ac.code != "" && h.nonceStore != nil {
+		if storeErr := h.nonceStore.StoreNonce(r.Context(), ac.code, nonce, authCodeTTL); storeErr != nil {
 			slog.Error("authorize: failed to store nonce; aborting redirect", "error", storeErr)
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return
@@ -385,8 +397,8 @@ func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCaptur
 	}
 
 	var nonce string
-	if code != "" && h.revocStore != nil {
-		n, err := h.revocStore.ConsumeNonce(ctx, code)
+	if code != "" && h.nonceStore != nil {
+		n, err := h.nonceStore.ConsumeNonce(ctx, code)
 		if err != nil {
 			return fmt.Errorf("nonce retrieval failed: %w", err)
 		}

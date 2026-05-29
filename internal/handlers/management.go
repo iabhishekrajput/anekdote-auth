@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
+	goredis "github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/iabhishekrajput/anekdote-auth/internal/crypto"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
@@ -18,6 +20,7 @@ import (
 // ManagementRevStore checks JWT revocation for Management API bearer tokens.
 type ManagementRevStore interface {
 	IsRevoked(ctx context.Context, jti string) (bool, error)
+	RevokeJTI(ctx context.Context, jti string, duration time.Duration) error
 }
 
 // ManagementClientStore is the minimal store interface the Management API needs.
@@ -25,6 +28,7 @@ type ManagementClientStore interface {
 	GetClientOrgID(ctx context.Context, clientID string) (*string, error)
 	ListCustomClaims(ctx context.Context, clientID string) ([]postgres.ClaimDefinition, error)
 	SetCustomClaimsAdmin(ctx context.Context, clientID string, defs []postgres.ClaimDefinition) error
+	PatchCustomClaimAdmin(ctx context.Context, clientID string, def postgres.ClaimDefinition) error
 }
 
 // ManagementHandler serves the Management REST API (Bearer JWT, management audience).
@@ -34,6 +38,13 @@ type ManagementHandler struct {
 	clientStore ManagementClientStore
 	mgmtAud     string // required aud claim value
 	appURL      string // required iss claim value
+	rdb         *goredis.Client
+}
+
+// WithTokenIndex enables blocklisting outstanding access tokens after claim updates.
+func (h *ManagementHandler) WithTokenIndex(rdb *goredis.Client) *ManagementHandler {
+	h.rdb = rdb
+	return h
 }
 
 func NewManagementHandler(
@@ -63,6 +74,7 @@ type managementClaimInput struct {
 	Value        string `json:"value"`
 	Destinations string `json:"destinations,omitempty"`
 	ScopeGate    string `json:"scope_gate,omitempty"`
+	SourceKind   string `json:"source_kind,omitempty"`
 }
 
 // managementClaimOutput is the JSON shape returned by GET /api/v1/clients/:id/claims.
@@ -73,6 +85,7 @@ type managementClaimOutput struct {
 	Value        string `json:"value"`
 	Destinations string `json:"destinations"`
 	ScopeGate    string `json:"scope_gate,omitempty"`
+	SourceKind   string `json:"source_kind"`
 }
 
 // GetClientClaims handles GET /api/v1/clients/:id/claims.
@@ -156,6 +169,7 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 		h.writeError(w, http.StatusInternalServerError, "failed to save claims")
 		return
 	}
+	h.blocklistClientTokens(r.Context(), clientID)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -164,6 +178,83 @@ func (h *ManagementHandler) PutClientClaims(w http.ResponseWriter, r *http.Reque
 		"count":     len(defs),
 		"claims":    managementDefsToOutput(defs),
 	})
+}
+
+// PatchClientClaim handles PATCH /api/v1/clients/:id/claims/:key.
+func (h *ManagementHandler) PatchClientClaim(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	claims, err := h.verifyManagementToken(r, "update:client_claims")
+	if err != nil {
+		h.writeAuthError(w, err)
+		return
+	}
+
+	clientID := ps.ByName("id")
+	if err := h.checkOwnership(r.Context(), claims, clientID); err != nil {
+		if errors.Is(err, errOwnershipDenied) {
+			tokenOrgID, _ := claims["org_id"].(string)
+			if tokenOrgID == "" {
+				h.writeError(w, http.StatusForbidden, "management API requires a service account token with org_id claim")
+			} else {
+				h.writeError(w, http.StatusForbidden, "access denied")
+			}
+		} else {
+			h.writeError(w, http.StatusForbidden, "access denied")
+		}
+		return
+	}
+
+	key := strings.TrimSpace(strings.TrimPrefix(ps.ByName("key"), "/"))
+	r.Body = http.MaxBytesReader(w, r.Body, 8*1024)
+	var body managementClaimInput
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, "invalid JSON body")
+		return
+	}
+	if strings.TrimSpace(body.Key) == "" {
+		body.Key = key
+	}
+	if body.Key != key {
+		h.writeError(w, http.StatusUnprocessableEntity, "claim key in path and body must match")
+		return
+	}
+
+	defs, err := validateManagementClaims([]managementClaimInput{body})
+	if err != nil {
+		h.writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if len(defs) != 1 {
+		h.writeError(w, http.StatusUnprocessableEntity, "claim key is required")
+		return
+	}
+
+	if err := h.clientStore.PatchCustomClaimAdmin(r.Context(), clientID, defs[0]); err != nil {
+		h.writeError(w, http.StatusInternalServerError, "failed to save claim")
+		return
+	}
+	h.blocklistClientTokens(r.Context(), clientID)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(map[string]any{
+		"operation": "patch",
+		"claim":     managementDefsToOutput(defs)[0],
+	})
+}
+
+func (h *ManagementHandler) blocklistClientTokens(ctx context.Context, clientID string) {
+	if h.rdb == nil || h.revStore == nil {
+		return
+	}
+	key := "oauth:client-tokens:" + clientID
+	jtis, err := h.rdb.SMembers(ctx, key).Result()
+	if err != nil {
+		return
+	}
+	for _, jti := range jtis {
+		_ = h.revStore.RevokeJTI(ctx, jti, 2*time.Hour)
+	}
+	_ = h.rdb.Del(ctx, key).Err()
 }
 
 var errOwnershipDenied = errors.New("ownership denied")
@@ -191,6 +282,17 @@ func (h *ManagementHandler) verifyManagementToken(r *http.Request, requiredScope
 		jwt.WithValidMethods([]string{"RS256"}),
 	)
 	if err != nil || !parsed.Valid {
+		if err != nil {
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "expired"):
+				return nil, errors.New("token_expired")
+			case strings.Contains(msg, "unknown kid"):
+				return nil, errors.New("unknown_kid")
+			case strings.Contains(msg, "unexpected signing method"):
+				return nil, errors.New("invalid_signature")
+			}
+		}
 		return nil, errors.New("invalid token")
 	}
 
@@ -321,6 +423,17 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 			return nil, errors.New("total claim payload too large (approx 4 KB max)")
 		}
 
+		sourceKind := strings.TrimSpace(inp.SourceKind)
+		if sourceKind == "" {
+			sourceKind = "static"
+		}
+		if sourceKind != "static" && sourceKind != "user_attribute" && sourceKind != "expression" {
+			return nil, errors.New("claim \"" + k + "\": source_kind must be static, user_attribute, or expression")
+		}
+		if sourceKind == "user_attribute" && !validClaimAttribute[storedVal] {
+			return nil, errors.New("claim \"" + k + "\": unsupported user_attribute value")
+		}
+
 		dest := strings.TrimSpace(inp.Destinations)
 		if dest == "" {
 			dest = "token"
@@ -346,6 +459,7 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 			Value:        storedVal,
 			Destinations: dest,
 			ScopeGate:    scopeGate,
+			SourceKind:   sourceKind,
 		})
 	}
 	return defs, nil
@@ -360,9 +474,22 @@ func managementDefsToOutput(defs []postgres.ClaimDefinition) []managementClaimOu
 			Value:        d.Value,
 			Destinations: d.Destinations,
 			ScopeGate:    d.ScopeGate,
+			SourceKind:   d.SourceKind,
+		}
+		if out[i].SourceKind == "" {
+			out[i].SourceKind = "static"
 		}
 	}
 	return out
+}
+
+var validClaimAttribute = map[string]bool{
+	"user.id":       true,
+	"user.email":    true,
+	"user.name":     true,
+	"user.username": true,
+	"org.id":        true,
+	"org.role":      true,
 }
 
 func (h *ManagementHandler) writeError(w http.ResponseWriter, status int, msg string) {
@@ -390,6 +517,12 @@ func (h *ManagementHandler) writeAuthError(w http.ResponseWriter, err error) {
 		return
 	case "token revoked":
 		desc = "token has been revoked"
+	case "token_expired":
+		desc = "token has expired"
+	case "unknown_kid":
+		desc = "token header references an unknown key id"
+	case "invalid_signature":
+		desc = "token signature algorithm is invalid"
 	case "missing jti":
 		desc = "token validation failed"
 	case "insufficient scope":
@@ -399,10 +532,14 @@ func (h *ManagementHandler) writeAuthError(w http.ResponseWriter, err error) {
 	w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer error="%s" error_description="%s"`, code, desc))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	json.NewEncoder(w).Encode(map[string]string{
+	body := map[string]string{
 		"error":             code,
 		"error_description": desc,
-	})
+	}
+	if msg == "token_expired" || msg == "unknown_kid" || msg == "invalid_signature" {
+		body["error_subcode"] = msg
+	}
+	json.NewEncoder(w).Encode(body)
 }
 
 // scopeHasWord reports whether scope contains the exact word target.

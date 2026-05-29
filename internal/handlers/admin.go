@@ -231,7 +231,8 @@ func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ http
 		return
 	}
 
-	clients, nextCursor, total, listErr := h.clientStore.ListAllCursor(ctx, pageSize, cursor)
+	withClaimsOnly := r.URL.Query().Get("with_claims") == "1"
+	clients, nextCursor, total, listErr := h.clientStore.ListAllCursorFiltered(ctx, pageSize, cursor, withClaimsOnly)
 	if listErr != nil {
 		slog.Error("admin: list clients", "err", listErr)
 	}
@@ -243,7 +244,7 @@ func (h *AdminHandler) ClientList(w http.ResponseWriter, r *http.Request, _ http
 	cursorParam := r.URL.Query().Get("cursor")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = ui.AdminClientList(nosurf.Token(r), clients, total, cursorParam, nextCursor,
-		errMsg, r.URL.Query().Get("message")).Render(ctx, w)
+		withClaimsOnly, errMsg, r.URL.Query().Get("message")).Render(ctx, w)
 }
 
 func (h *AdminHandler) DeleteClient(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {

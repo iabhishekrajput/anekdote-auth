@@ -118,6 +118,9 @@ func TestUpdateProfile_Success(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET name = \$1(.+)WHERE id = \$2`).
 		WithArgs("New Name", userID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE users SET username = \$1(.+)WHERE id = \$2`).
+		WithArgs(sqlmock.AnyArg(), userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	handler.UpdateProfile(rr, req, nil)
 

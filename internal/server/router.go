@@ -190,6 +190,7 @@ func NewRouter(
 	}
 	router.GET("/api/v1/clients/:id/claims", apiSecure(mgmtH.GetClientClaims))
 	router.PUT("/api/v1/clients/:id/claims", apiSecure(mgmtH.PutClientClaims))
+	router.PATCH("/api/v1/clients/:id/claims/*key", apiSecure(mgmtH.PatchClientClaim))
 
 	// 6. Username utilities (no auth required; CSRF-exempt via ^/api/ rule in main.go)
 	router.GET("/api/username-check", secure(apiRateLimit(usernameH.Check)))

@@ -51,7 +51,9 @@ VALUES (
 
 -- OAuth2 client for consent flow tests
 -- client_id: e2e-test-client  |  secret: e2e-test-client-secret  |  redirect: http://localhost:9999/callback
-INSERT INTO oauth2_clients (id, secret, domain, public, name, user_id, org_id)
+-- owner_org_id mirrors what CreateOrgClient always sets (the owning org); the
+-- claims page resolves ownership via owner_org_id, not org_id.
+INSERT INTO oauth2_clients (id, secret, domain, public, name, user_id, org_id, owner_org_id)
 VALUES (
   'e2e-test-client',
   '$2a$10$3bhKQyoj/oPVxog903yZ.ONOilhh/SPCe1dHW.tGe5FEOnUh45OKe',
@@ -59,5 +61,12 @@ VALUES (
   FALSE,
   'E2E Test Client',
   '00000000-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000002',
   '00000000-0000-0000-0000-000000000002'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE
+  SET org_id = EXCLUDED.org_id, owner_org_id = EXCLUDED.owner_org_id;
+
+-- Reset custom claims so the claims E2E test starts from a clean slate. Each run
+-- of claims.spec.ts adds a row; without this, repeated runs accumulate toward the
+-- 20-claim-per-client cap and eventually fail the suite.
+DELETE FROM client_claim_definitions WHERE client_id = 'e2e-test-client';
