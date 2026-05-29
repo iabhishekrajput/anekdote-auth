@@ -58,7 +58,7 @@ func TestJWTGenerator_Token(t *testing.T) {
 	client := &models.Client{ID: "client-id"}
 	tokenInfo := &models.Token{
 		AccessExpiresIn: time.Hour,
-		Scope:           "read write",
+		Scope:           "read write offline_access",
 	}
 
 	data := &oauth2.GenerateBasic{

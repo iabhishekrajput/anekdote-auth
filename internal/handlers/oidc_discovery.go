@@ -41,13 +41,13 @@ func (h *DiscoveryHandler) OpenIDConfiguration(w http.ResponseWriter, r *http.Re
 		ResponseModesSupported:           []string{"query"},
 		SubjectTypesSupported:            []string{"public"},
 		IDTokenSigningAlgValuesSupported: []string{"RS256"},
-		ScopesSupported:                  []string{"openid", "profile", "email"},
+		ScopesSupported:                  []string{"openid", "profile", "email", "offline_access"},
 		ClaimsSupported: []string{
 			"sub", "iss", "aud", "exp", "iat", "jti", "scope",
 			"name", "preferred_username", "updated_at", "email", "email_verified",
 			"org_id", "org_role", "at_hash",
 		},
-		GrantTypesSupported:           []string{"authorization_code"},
+		GrantTypesSupported:           []string{"authorization_code", "refresh_token", "client_credentials"},
 		TokenEndpointAuthMethods:      []string{"client_secret_post", "none"},
 		CodeChallengeMethodsSupported: []string{"S256"},
 	}

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/manage"
 	"github.com/go-oauth2/oauth2/v4/server"
 	oredis "github.com/go-oauth2/redis/v4"
@@ -36,6 +37,11 @@ func BuildServer(
 	srv.SetAllowGetAccessRequest(false)
 	srv.SetClientInfoHandler(server.ClientFormHandler)
 	srv.Config.ForcePKCE = true
+	srv.SetAllowedGrantType(
+		oauth2.AuthorizationCode,
+		oauth2.Refreshing,
+		oauth2.ClientCredentials,
+	)
 
 	manager.SetAuthorizeCodeExp(time.Minute * 10)
 

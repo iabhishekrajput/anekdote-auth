@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -213,7 +214,10 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 		g.rdb.SAdd(ctx, "oauth:client-tokens:"+data.Client.GetID(), jti)
 	}
 
-	if isGenRefresh {
+	// OIDC §11: only mint a refresh token when the client requested offline_access.
+	// Applies to user grants (authorization_code). client_credentials never receives
+	// a refresh token (library default; refresh_token is unnecessary for that flow).
+	if isGenRefresh && subUserID != "" && hasScope(effectiveScope, "offline_access") {
 		refresh = uuid.New().String()
 	}
 
@@ -224,7 +228,7 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 // Uses exact-word matching to prevent false positives on scopes like "email_read".
 func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims, userIDStr, scope string) *models.User {
 	scopeSet := make(map[string]bool)
-	for _, s := range strings.Fields(scope) {
+	for s := range strings.FieldsSeq(scope) {
 		scopeSet[s] = true
 	}
 	if !scopeSet["profile"] && !scopeSet["email"] {
@@ -251,14 +255,19 @@ func (g *JWTGenerator) injectScopeClaims(ctx context.Context, dst jwt.MapClaims,
 	return user
 }
 
+// hasScope reports whether scope (space-delimited) contains target as an exact token.
+func hasScope(scope, target string) bool {
+	return slices.Contains(strings.Fields(scope), target)
+}
+
 // intersectScopes returns only the scopes from requested that are present in allowed.
 func intersectScopes(requested, allowed string) string {
 	allowedSet := make(map[string]bool)
-	for _, s := range strings.Fields(allowed) {
+	for s := range strings.FieldsSeq(allowed) {
 		allowedSet[s] = true
 	}
 	var result []string
-	for _, s := range strings.Fields(requested) {
+	for s := range strings.FieldsSeq(requested) {
 		if allowedSet[s] {
 			result = append(result, s)
 		}
