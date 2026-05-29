@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Account and admin header no longer overflows on narrow/mobile viewports: the nav scrolls within available space (scrollbar hidden) while the logo and Sign out button stay fixed and clickable. Fixes a flaky mobile-chrome E2E failure where the Sign out button was overlapped under a wider fallback font.
+
 ---
 
 ## [2.4.0] — 2026-05-29

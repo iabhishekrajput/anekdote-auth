@@ -23,13 +23,13 @@ templ AdminLayout(title string, currentPath string, csrfToken string, body templ
 		</head>
 		<body class="min-h-screen bg-zinc-950 text-zinc-50">
 			<header class="border-b border-zinc-800 px-6 py-3">
-				<div class="mx-auto flex max-w-5xl items-center justify-between">
-					<div class="flex items-center gap-3">
+				<div class="mx-auto flex max-w-5xl items-center justify-between gap-2">
+					<div class="flex shrink-0 items-center gap-3">
 						@Logo("sm")
 						<span class="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 uppercase tracking-wide">Admin</span>
 					</div>
-					<div class="flex items-center gap-2">
-						<nav class="flex items-center gap-1">
+					<div class="flex min-w-0 items-center gap-2">
+						<nav class="flex items-center gap-1 min-w-0 overflow-x-auto hide-scrollbar">
 							<a href="/admin" class={ adminNavClass(currentPath, "/admin") }>Dashboard</a>
 							<a href="/admin/users" class={ adminNavClass(currentPath, "/admin/users") }>Users</a>
 							<a href="/admin/clients" class={ adminNavClass(currentPath, "/admin/clients") }>Clients</a>
@@ -37,19 +37,19 @@ templ AdminLayout(title string, currentPath string, csrfToken string, body templ
 							<a href="/admin/audit" class={ adminNavClass(currentPath, "/admin/audit") }>Audit</a>
 							<a href="/admin/grants" class={ adminNavClass(currentPath, "/admin/grants") }>Grants</a>
 						</nav>
-						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
+						<span class="h-4 w-px bg-zinc-800 mx-1 shrink-0"></span>
 						<a
 							href="/account"
 							title="My account"
 							aria-label="My account"
-							class="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900 transition-colors duration-150"
+							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:text-zinc-50 hover:bg-zinc-900 transition-colors duration-150"
 						>
 							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
 								<circle cx="12" cy="7" r="4"></circle>
 							</svg>
 						</a>
-						<form method="POST" action="/logout">
+						<form method="POST" action="/logout" class="shrink-0">
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>
 							<button
 								type="submit"

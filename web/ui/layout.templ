@@ -39,10 +39,12 @@ templ AccountLayout(title string, currentPath string, csrfToken string, isAdmin 
 		</head>
 		<body class="min-h-screen bg-zinc-950 text-zinc-50">
 			<header class="border-b border-zinc-800 px-6 py-3">
-				<div class="mx-auto flex max-w-4xl items-center justify-between">
-					@Logo("sm")
-					<div class="flex items-center gap-2">
-						<nav class="flex items-center gap-1">
+				<div class="mx-auto flex max-w-4xl items-center justify-between gap-2">
+					<div class="shrink-0">
+						@Logo("sm")
+					</div>
+					<div class="flex min-w-0 items-center gap-2">
+						<nav class="flex items-center gap-1 min-w-0 overflow-x-auto hide-scrollbar">
 							<a
 								href="/account"
 								class={ accountNavClass(currentPath, "/account") }
@@ -57,11 +59,11 @@ templ AccountLayout(title string, currentPath string, csrfToken string, isAdmin 
 							>Apps</a>
 						</nav>
 						if isAdmin {
-							<span class="h-4 w-px bg-zinc-800 mx-1"></span>
-							<a href="/admin" class="rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 uppercase tracking-wide hover:bg-amber-500/20 transition-colors">Admin</a>
+							<span class="h-4 w-px bg-zinc-800 mx-1 shrink-0"></span>
+							<a href="/admin" class="shrink-0 rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-400 uppercase tracking-wide hover:bg-amber-500/20 transition-colors">Admin</a>
 						}
-						<span class="h-4 w-px bg-zinc-800 mx-1"></span>
-						<form method="POST" action="/logout">
+						<span class="h-4 w-px bg-zinc-800 mx-1 shrink-0"></span>
+						<form method="POST" action="/logout" class="shrink-0">
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>
 							<button
 								type="submit"
