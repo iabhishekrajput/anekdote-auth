@@ -135,10 +135,11 @@ func (h *UserInfoHandler) UserInfo(w http.ResponseWriter, r *http.Request, _ htt
 		return
 	}
 
-	// 4. Extract sub — empty sub means client_credentials (no user context)
-	// Also check the deleted-user tombstone before the DB lookup.
+	// 4. Extract sub — empty sub or sub == aud means client_credentials (no user context).
+	// RFC 9068 sets sub = client_id for service-account tokens; reject those at userinfo.
 	sub, _ := claims["sub"].(string)
-	if sub == "" {
+	aud, _ := claims["aud"].(string)
+	if sub == "" || sub == aud {
 		h.writeTokenError(w, "invalid_token", "no user context")
 		return
 	}

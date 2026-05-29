@@ -381,10 +381,10 @@ func (h *OAuth2Handler) tryInjectIDToken(ctx context.Context, rc *responseCaptur
 		return nil
 	}
 	sub, _ := claims["sub"].(string)
-	if sub == "" {
+	aud, _ := claims["aud"].(string)
+	if sub == "" || sub == aud {
 		return nil // client_credentials token — no user to describe
 	}
-	aud, _ := claims["aud"].(string)
 
 	var expiry time.Duration
 	if exp, ok := claims["exp"].(float64); ok {

@@ -102,9 +102,17 @@ func (g *JWTGenerator) Token(ctx context.Context, data *oauth2.GenerateBasic, is
 	effectiveScope := data.TokenInfo.GetScope()
 	var claimCtx postgres.CustomClaimContext
 
+	// For client_credentials grants (no user context), RFC 9068 §2.2.3.1 recommends
+	// setting sub to the client_id. Resource servers detect service-account tokens by
+	// checking sub == aud (or sub == client_id claim).
+	subClaim := subUserID
+	if subClaim == "" {
+		subClaim = data.Client.GetID()
+	}
+
 	claims := jwt.MapClaims{
 		"iss": g.issuer,
-		"sub": subUserID,
+		"sub": subClaim,
 		"aud": data.Client.GetID(),
 		"exp": time.Now().Add(data.TokenInfo.GetAccessExpiresIn()).Unix(),
 		"iat": time.Now().Unix(),

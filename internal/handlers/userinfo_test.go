@@ -380,6 +380,19 @@ func TestUserInfo_ClientCredentialsToken_EmptySub(t *testing.T) {
 	}
 }
 
+// RFC 9068 service-account tokens set sub = client_id (== aud). /userinfo must reject these
+// even though sub is non-empty, since there is still no user context to describe.
+func TestUserInfo_ClientCredentialsToken_SubEqualsAud(t *testing.T) {
+	h, ks, _, _ := setupUserInfoHandler(t)
+	tok := makeToken(t, ks, "client-id", "openid", uuid.NewString(), time.Hour)
+
+	rr := doUserInfo(t, h, http.MethodGet, "Bearer "+tok)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for sub==aud (client_credentials), got %d", rr.Code)
+	}
+}
+
 func TestUserInfo_InvalidUUIDSub(t *testing.T) {
 	h, ks, _, _ := setupUserInfoHandler(t)
 	tok := makeToken(t, ks, "not-a-uuid", "openid", uuid.NewString(), time.Hour)
