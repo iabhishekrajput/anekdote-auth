@@ -194,7 +194,7 @@ func slugify(s string) string {
 				b.WriteRune('_')
 			}
 			prev = '_'
-		// skip combining marks and other non-ASCII
+			// skip combining marks and other non-ASCII
 		}
 	}
 	return strings.Trim(b.String(), "_.")

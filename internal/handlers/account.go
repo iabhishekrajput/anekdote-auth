@@ -13,6 +13,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
+	"github.com/iabhishekrajput/anekdote-auth/internal/web"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
 	"github.com/justinas/nosurf"
@@ -222,6 +223,6 @@ func (h *AccountHandler) DeleteSelf(w http.ResponseWriter, r *http.Request, _ ht
 	}
 
 	// Clear session cookie and redirect to login.
-	http.SetCookie(w, &http.Cookie{Name: "session_id", MaxAge: -1, Path: "/"})
+	web.ClearSessionCookie(w, r)
 	http.Redirect(w, r, "/login?message="+url.QueryEscape("Your account has been deleted"), http.StatusFound)
 }

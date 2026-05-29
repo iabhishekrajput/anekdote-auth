@@ -10,7 +10,6 @@ import (
 	"math/big"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
 
 	goredis "github.com/go-redis/redis/v8"
@@ -18,6 +17,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/mailer"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/iabhishekrajput/anekdote-auth/internal/web"
 	"github.com/iabhishekrajput/anekdote-auth/web/ui"
 	"github.com/julienschmidt/httprouter"
 	"github.com/justinas/nosurf"
@@ -415,16 +415,12 @@ func (h *IdentityHandler) LoginFunc(w http.ResponseWriter, r *http.Request, _ ht
 	slog.Info("login success", "email", user.Email, "user_id", user.ID, "remote", r.RemoteAddr)
 
 	// Redirect back to local Authorization flow if it exists.
-	if isSafeLocalRedirect(oauthReq) {
+	if web.IsSafeLocalRedirect(oauthReq) {
 		http.Redirect(w, r, oauthReq, http.StatusFound)
 		return
 	}
 
 	http.Redirect(w, r, "/account", http.StatusFound)
-}
-
-func isSafeLocalRedirect(next string) bool {
-	return strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//")
 }
 
 func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -436,16 +432,10 @@ func (h *IdentityHandler) LogoutFunc(w http.ResponseWriter, r *http.Request, _ h
 	slog.Info("logout", "remote", r.RemoteAddr)
 
 	// Clear the cookie in the browser
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_session",
-		Value:    "",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-	})
+	web.ClearSessionCookie(w, r)
 
 	redirectTo := "/login"
-	if next := r.FormValue("redirect_to"); strings.HasPrefix(next, "/") && !strings.HasPrefix(next, "//") {
+	if next := r.FormValue("redirect_to"); web.IsSafeLocalRedirect(next) {
 		redirectTo = next
 	}
 	http.Redirect(w, r, redirectTo, http.StatusFound)

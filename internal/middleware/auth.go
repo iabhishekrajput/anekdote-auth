@@ -8,6 +8,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
 	"github.com/iabhishekrajput/anekdote-auth/internal/types"
+	"github.com/iabhishekrajput/anekdote-auth/internal/web"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -84,7 +85,7 @@ func InjectAdminStatus(userStore *postgres.UserStore, next httprouter.Handle) ht
 					return
 				}
 				if user.DeletedAt != nil {
-					http.SetCookie(w, &http.Cookie{Name: "session_id", MaxAge: -1, Path: "/"})
+					web.ClearSessionCookie(w, r)
 					http.Redirect(w, r, "/login?error="+url.QueryEscape("Account not found"), http.StatusFound)
 					return
 				}
@@ -92,7 +93,7 @@ func InjectAdminStatus(userStore *postgres.UserStore, next httprouter.Handle) ht
 			} else {
 				// GetByID returns ErrUserNotFound for deleted users (deleted_at IS NULL filter).
 				// Clear the dangling session so subsequent requests don't repeat the DB lookup.
-				http.SetCookie(w, &http.Cookie{Name: "session_id", MaxAge: -1, Path: "/"})
+				web.ClearSessionCookie(w, r)
 				http.Redirect(w, r, "/login?error="+url.QueryEscape("Account not found"), http.StatusFound)
 				return
 			}

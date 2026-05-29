@@ -19,6 +19,7 @@ import (
 	"github.com/iabhishekrajput/anekdote-auth/internal/server"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/postgres"
 	"github.com/iabhishekrajput/anekdote-auth/internal/store/redis"
+	"github.com/iabhishekrajput/anekdote-auth/internal/web"
 	"github.com/justinas/nosurf"
 )
 
@@ -150,7 +151,9 @@ func main() {
 		if ref == "" {
 			ref = r.URL.Path
 		}
-		u, err := url.Parse(ref)
+		// Collapse the (attacker-influenceable) Referer to a same-origin path
+		// so the CSRF-error redirect can't be used as an open redirect.
+		u, err := url.Parse(web.SafeLocalRedirect(ref, "/"))
 		if err != nil {
 			u = &url.URL{Path: "/"}
 		}

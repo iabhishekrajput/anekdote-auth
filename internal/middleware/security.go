@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/iabhishekrajput/anekdote-auth/internal/web"
 	"github.com/julienschmidt/httprouter"
 )
 
@@ -92,7 +93,9 @@ func redirectErr(w http.ResponseWriter, r *http.Request, errMsg string) {
 	if ref == "" {
 		ref = r.URL.Path
 	}
-	u, err := url.Parse(ref)
+	// Collapse the (attacker-influenceable) Referer to a same-origin path so
+	// this error redirect can't be turned into an open redirect.
+	u, err := url.Parse(web.SafeLocalRedirect(ref, "/"))
 	if err != nil {
 		u = &url.URL{Path: "/"}
 	}
