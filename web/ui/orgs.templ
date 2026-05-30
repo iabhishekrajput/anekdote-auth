@@ -1398,7 +1398,7 @@ templ clientClaimsBody(csrfToken string, org *models.Org, clientID, clientName s
 			<div class="p-4 space-y-4">
 				<p class="text-xs text-zinc-500">
 					Custom claims are added to tokens by default. Set <strong>Destination</strong> per row to control where each claim appears.
-					Use namespaced keys (e.g. <span class="font-mono">https://example.com/tier</span>) to avoid collisions.
+					Namespaced keys (e.g. <span class="font-mono">https://example.com/tier</span>) are recommended to avoid collisions, but any key is accepted.
 					Numbers are stored as float64 — avoid values larger than 2^53.
 					Scope gates and advanced policy are configurable via the Management API.
 				</p>

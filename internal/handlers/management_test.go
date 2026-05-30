@@ -359,26 +359,6 @@ func TestManagement_PutClaims_ReservedKey(t *testing.T) {
 	}
 }
 
-func TestManagement_PutClaims_MissingNamespace(t *testing.T) {
-	ks := newTestKeyStore(t)
-	orgID := "org-abc"
-	store := &mockMgmtClientStore{orgID: &orgID}
-	h := newTestMgmtHandler(ks, &mockRevStore{}, store)
-
-	token := signMgmtToken(t, ks, orgID, "update:client_claims", testMgmtAud, time.Hour)
-	body := `{"claims":[{"key":"tier","type":"string","value":"enterprise"}]}`
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/clients/c1/claims", strings.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	rr := httptest.NewRecorder()
-
-	h.PutClientClaims(rr, req, httprouterParams("id", "c1"))
-
-	if rr.Code != http.StatusUnprocessableEntity {
-		t.Errorf("expected 422 for un-namespaced key 'tier', got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
 func TestManagement_PutClaims_ScopeGate(t *testing.T) {
 	ks := newTestKeyStore(t)
 	orgID := "org-abc"

@@ -1554,10 +1554,6 @@ func validateClaims(keys, types, values, destinations []string) ([]postgres.Clai
 		if _, reserved := reservedClaimKeys[strings.ToLower(k)]; reserved {
 			return nil, errors.New("\"" + k + "\" is a reserved claim name and cannot be overridden")
 		}
-		if !strings.HasPrefix(k, "https://") {
-			return nil, errors.New("claim key \"" + k + "\" must be namespaced with an https:// prefix (e.g. https://example.com/tier)")
-		}
-
 		rawVal := strings.TrimSpace(values[i])
 		var valueType, rawValue string
 		switch types[i] {

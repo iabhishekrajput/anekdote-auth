@@ -384,9 +384,6 @@ func validateManagementClaims(inputs []managementClaimInput) ([]postgres.ClaimDe
 		if _, reserved := reservedClaimKeys[strings.ToLower(k)]; reserved {
 			return nil, errors.New("\"" + k + "\" is a reserved claim name and cannot be overridden")
 		}
-		if !strings.HasPrefix(k, "https://") {
-			return nil, errors.New("claim key \"" + k + "\" must be namespaced with an https:// prefix (e.g. https://example.com/tier)")
-		}
 		if seen[k] {
 			return nil, errors.New("duplicate claim key \"" + k + "\"")
 		}
