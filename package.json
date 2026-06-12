@@ -6,7 +6,7 @@
     "dev:css": "tailwindcss -c tailwind.config.js -i ./web/static/tailwind.css -o ./web/static/app.css --watch"
   },
   "dependencies": {
-    "@tailwindcss/cli": "^4.3.0",
+    "@tailwindcss/cli": "^4.3.1",
     "tailwindcss": "^4.3.0"
   }
 }
